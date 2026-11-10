@@ -4,6 +4,8 @@ import { pwaManager } from './components/pwa-install';
 import { can } from './guards/permission.guard';
 import { i18n } from './i18n';
 import { router, type RouteId } from './router';
+import { advancedSearchService } from './services/advanced-search.service';
+import { mysqlSyncService } from './services/mysql-sync.service';
 import { themeService } from './services/theme.service';
 import type { ResourceScreen } from './types';
 
@@ -158,9 +160,18 @@ export class MedicalLabApp {
 
   constructor(rootEl: HTMLElement) {
     this.rootEl = rootEl;
+    mysqlSyncService.registerRealtimeHooks();
     router.onRouteChange(() => this.render());
     i18n.onChange(() => this.render());
     themeService.onChange(() => this.render());
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (authService.getCurrentUser()) {
+          advancedSearchService.openGlobalSearchModal();
+        }
+      }
+    });
   }
 
   public async render(): Promise<void> {
@@ -204,6 +215,22 @@ export class MedicalLabApp {
           </div>
 
           <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              id="top-mysql-btn"
+              type="button"
+              class="rounded-lg border border-emerald-400/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/35 whitespace-nowrap cursor-pointer"
+              title="MySQL 5.5 / 8.0.28 Database & .SQL Download"
+            >
+              🗄️ ${i18n.bi('قاعدة بيانات MySQL (.SQL)', 'MySQL DB (.SQL)')}
+            </button>
+            <button
+              id="top-global-search-btn"
+              type="button"
+              class="rounded-lg border border-sky-400/40 bg-sky-500/20 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500/35 whitespace-nowrap cursor-pointer"
+              title="Ctrl+K"
+            >
+              🔍 ${i18n.bi('بحث متقدم شامل (Ctrl+K)', 'Omni Search (Ctrl+K)')}
+            </button>
             ${themeService.renderThemeToolbarCompact()}
             <button
               id="top-pwa-btn"
@@ -262,6 +289,14 @@ export class MedicalLabApp {
 
     themeService.bindToolbarEvents();
 
+    document.getElementById('top-mysql-btn')?.addEventListener('click', () => {
+      mysqlSyncService.openMySQLModal();
+    });
+
+    document.getElementById('top-global-search-btn')?.addEventListener('click', () => {
+      advancedSearchService.openGlobalSearchModal();
+    });
+
     document.getElementById('top-lang-btn')?.addEventListener('click', () => {
       i18n.toggleLang();
     });
@@ -301,5 +336,6 @@ export class MedicalLabApp {
 
     const pageRenderer = await loadPage(currentRoute);
     await pageRenderer(viewport);
+    advancedSearchService.mountInScreenAdvancedSearch(viewport, currentRoute);
   }
 }

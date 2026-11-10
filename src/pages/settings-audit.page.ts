@@ -10,6 +10,7 @@ import { permissionsRepository } from '../repositories';
 import { CacheService } from '../services/cache.service';
 import { commissionService } from '../services/commission.service';
 import { invoiceService } from '../services/invoice.service';
+import { mysqlSyncService } from '../services/mysql-sync.service';
 import { OfflineService } from '../services/offline.service';
 import { AVAILABLE_SKINS, type SkinId, themeService } from '../services/theme.service';
 import type { AuditLog, LabSettings } from '../types';
@@ -47,7 +48,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
       <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.settings}</h1>
-          <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إعدادات المعمل، الثيمات والمظاهر (Themes & Skins)، وضع عدم الاتصال، الضريبة، قواعد عمولة الطبيب، النسخ الاحتياطي، وإعادة تعيين البيانات', 'Lab configuration, Themes & Skins Studio, Offline Mode, tax defaults, commission rules, JSON backup/restore, and demo data reset')}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إعدادات المعمل، الربط مع سيرفر MySQL (5.5 / 8.0.28)، الثيمات والمظاهر، الضريبة، قواعد عمولة الطبيب، والنسخ الاحتياطي', 'Lab configuration, MySQL (5.5 / 8.0.28) Server Sync & SQL Dump, Themes & Skins Studio, tax defaults, and backup')}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button id="set-print-btn" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
@@ -62,6 +63,11 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
         </div>
       </div>
 
+      <!-- MySQL 5.5 & MySQL 8.0.28 Database Server & SQL Dump Section -->
+      <section id="settings-mysql-panel">
+        ${mysqlSyncService.renderControlPanelHTML('set-mysql')}
+      </section>
+
       <!-- Offline Mode & Secrets Security Status -->
       <section class="rounded-xl bg-white border border-slate-200 p-5 flex flex-wrap items-center justify-between gap-4 text-xs">
         <div class="space-y-1">
@@ -75,8 +81,8 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
           </div>
           <p class="text-slate-500">
             ${i18n.bi(
-              'يعمل النظام بالكامل محليًا عبر IndexedDB بدون تسريب أي بيانات خارج المتصفح. حالة مفتاح Gemini API الخارجي: ',
-              'System runs 100% locally on IndexedDB with zero external data leakage. External Gemini API Key status: '
+              'يعمل النظام محليًا مع إمكانية المزامنة المباشرة مع سيرفر MySQL 5.5 / 8.0.28. حالة مفتاح Gemini API الخارجي: ',
+              'System runs locally with optional live sync to MySQL 5.5 / 8.0.28 Server. External Gemini API Key status: '
             )}
             <strong class="font-mono">${hasGeminiKey ? i18n.bi('مُعد في البيئة', 'Configured') : i18n.bi('غير مُعد (وضع محلي آمن)', 'Not Configured (Safe Local Fallback)')}</strong>
           </p>
@@ -215,6 +221,8 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
       </form>
     </div>
   `;
+
+  mysqlSyncService.bindControlPanelEvents(container, 'set-mysql');
 
   document.getElementById('set-offline-enable')?.addEventListener('click', () => {
     OfflineService.enableOfflineMode();
