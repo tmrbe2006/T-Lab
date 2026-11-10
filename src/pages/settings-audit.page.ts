@@ -1,15 +1,18 @@
 import { authService } from '../auth/auth.service';
-import { showToast } from '../components/toast';
+import { showToast, VirtualTable } from '../components/common';
+import { SecretsConfig } from '../config/secrets.config';
 import { db } from '../db/database';
 import { seedDatabase } from '../db/seed';
 import { can, enforcePermission } from '../guards/permission.guard';
 import { i18n } from '../i18n';
 import { printService } from '../print/print.service';
 import { permissionsRepository } from '../repositories';
+import { CacheService } from '../services/cache.service';
 import { commissionService } from '../services/commission.service';
 import { invoiceService } from '../services/invoice.service';
+import { OfflineService } from '../services/offline.service';
 import { AVAILABLE_SKINS, type SkinId, themeService } from '../services/theme.service';
-import type { LabSettings } from '../types';
+import type { AuditLog, LabSettings } from '../types';
 
 export async function renderSettingsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
@@ -36,13 +39,15 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   const canEdit = can(user, 'edit', 'settings');
   const currentMode = themeService.getMode();
   const currentSkin = themeService.getSkin();
+  const isOffline = OfflineService.isOfflineMode();
+  const hasGeminiKey = Boolean(SecretsConfig.getGeminiApiKey());
 
   container.innerHTML = `
     <div class="space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.settings}</h1>
-          <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إعدادات المعمل، الثيمات والمظاهر (Themes & Skins)، الضريبة، قواعد عمولة الطبيب، النسخ الاحتياطي، وإعادة تعيين البيانات', 'Lab configuration, Themes & Skins Studio, tax defaults, commission rules, JSON backup/restore, and demo data reset')}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إعدادات المعمل، الثيمات والمظاهر (Themes & Skins)، وضع عدم الاتصال، الضريبة، قواعد عمولة الطبيب، النسخ الاحتياطي، وإعادة تعيين البيانات', 'Lab configuration, Themes & Skins Studio, Offline Mode, tax defaults, commission rules, JSON backup/restore, and demo data reset')}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button id="set-print-btn" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
@@ -56,6 +61,43 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
           </button>
         </div>
       </div>
+
+      <!-- Offline Mode & Secrets Security Status -->
+      <section class="rounded-xl bg-white border border-slate-200 p-5 flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm text-slate-900">🛡️ ${i18n.bi('وضع عدم الاتصال وأمان البيانات المحلية (Offline Mode & Secrets)', 'Offline Mode & Local Data Security')}</span>
+            <span class="rounded-md px-2 py-0.5 font-mono text-[11px] font-bold ${
+              isOffline ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+            }">
+              ${isOffline ? i18n.bi('وضع عدم الاتصال مفعل (بيانات تجريبية محلية)', 'OFFLINE MODE ACTIVE (Local Demo Data)') : i18n.bi('متصل (Online)', 'ONLINE MODE')}
+            </span>
+          </div>
+          <p class="text-slate-500">
+            ${i18n.bi(
+              'يعمل النظام بالكامل محليًا عبر IndexedDB بدون تسريب أي بيانات خارج المتصفح. حالة مفتاح Gemini API الخارجي: ',
+              'System runs 100% locally on IndexedDB with zero external data leakage. External Gemini API Key status: '
+            )}
+            <strong class="font-mono">${hasGeminiKey ? i18n.bi('مُعد في البيئة', 'Configured') : i18n.bi('غير مُعد (وضع محلي آمن)', 'Not Configured (Safe Local Fallback)')}</strong>
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            id="set-offline-enable"
+            type="button"
+            class="rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer"
+          >
+            ${i18n.bi('تفعيل وضع عدم الاتصال', 'Enable Offline Mode')}
+          </button>
+          <button
+            id="set-offline-disable"
+            type="button"
+            class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+          >
+            ${i18n.bi('تعطيل وضع عدم الاتصال', 'Disable Offline Mode')}
+          </button>
+        </div>
+      </section>
 
       <!-- Themes & Skins Studio -->
       <section class="rounded-xl bg-white border border-slate-200 p-6 space-y-4">
@@ -174,6 +216,16 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
     </div>
   `;
 
+  document.getElementById('set-offline-enable')?.addEventListener('click', () => {
+    OfflineService.enableOfflineMode();
+    renderSettingsPage(container);
+  });
+
+  document.getElementById('set-offline-disable')?.addEventListener('click', () => {
+    OfflineService.disableOfflineMode();
+    renderSettingsPage(container);
+  });
+
   document.getElementById('set-mode-light')?.addEventListener('click', () => {
     themeService.setMode('light');
   });
@@ -250,6 +302,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   });
 
   document.getElementById('set-reset-btn')?.addEventListener('click', async () => {
+    CacheService.clear();
     await seedDatabase(true);
     await authService.reloadPermissionsCache();
     showToast(i18n.bi('تمت إعادة تعيين كافة البيانات التجريبية بنجاح', 'Demo data reset complete'), 'success');
@@ -329,55 +382,64 @@ export async function renderPrintingHubPage(container: HTMLElement): Promise<voi
 }
 
 export async function renderAuditLogsPage(container: HTMLElement): Promise<void> {
+  const t0 = performance.now();
   const logs = await permissionsRepository.getAuditLogs();
+  const fetchTimeMs = (performance.now() - t0).toFixed(2);
 
   container.innerHTML = `
     <div class="space-y-4">
-      <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
           <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.auditLogs}</h1>
-          <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('سجل المراجعة الأمني: يوثق المستخدم، الدور، العملية، الشاشة، السجل المتأثر، والتاريخ والوقت', 'Security Audit Trail: Tracks user, role, operation, screen, record ID, and timestamp')}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('سجل المراجعة الأمني المزود بتقنية Virtual Scrolling للتعامل مع آلاف السجلات بكفاءة فائقة', 'Security Audit Trail powered by Virtual Scrolling for high-efficiency rendering of thousands of logs')}</p>
         </div>
-        <button id="aud-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>
+        <div class="flex items-center gap-2">
+          <span class="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs font-mono font-bold text-emerald-800 tabular-nums">
+            ⚡ Virtual Scroll (${logs.length} ${i18n.bi('سجل', 'rows')} · ${fetchTimeMs} ms)
+          </span>
+          <button id="aud-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>
+        </div>
       </div>
 
-      <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto">
-        <table class="w-full text-xs text-start">
-          <thead>
-            <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
-              <th class="py-3 px-3 text-start">${i18n.dict.common.date}</th>
-              <th class="py-3 px-3 text-start">${i18n.dict.login.username}</th>
-              <th class="py-3 px-3 text-start">${i18n.bi('الدور', 'Role')}</th>
-              <th class="py-3 px-3 text-start">${i18n.bi('الشاشة', 'Screen')}</th>
-              <th class="py-3 px-3 text-start">${i18n.bi('العملية المنفذة', 'Action')}</th>
-              <th class="py-3 px-3 text-start">${i18n.bi('السجل المتأثر والتفاصيل', 'Record & Details')}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            ${logs
-              .map(
-                (l) => `
-                <tr class="hover:bg-slate-50">
-                  <td class="py-2.5 px-3 font-mono text-slate-500 tabular-nums">${l.timestamp}</td>
-                  <td class="py-2.5 px-3 font-mono font-bold text-slate-900">${l.username}</td>
-                  <td class="py-2.5 px-3 text-sky-800 font-semibold">${l.role}</td>
-                  <td class="py-2.5 px-3 font-mono text-slate-600">${l.screen}</td>
-                  <td class="py-2.5 px-3 font-bold text-slate-900">${l.action}</td>
-                  <td class="py-2.5 px-3 font-mono text-slate-600">${l.recordId} ${l.details ? `— ${l.details}` : ''}</td>
-                </tr>
-              `
-              )
-              .join('')}
-          </tbody>
-        </table>
-      </div>
+      <div id="audit-virtual-table-host"></div>
     </div>
   `;
+
+  const hostEl = document.getElementById('audit-virtual-table-host');
+  if (hostEl) {
+    const virtualTable = new VirtualTable<AuditLog>(
+      hostEl,
+      logs,
+      (l) => `
+        <tr class="hover:bg-slate-50" style="height: 40px;">
+          <td class="py-2 px-3 font-mono text-slate-500 tabular-nums">${l.timestamp}</td>
+          <td class="py-2 px-3 font-mono font-bold text-slate-900">${l.username}</td>
+          <td class="py-2 px-3 text-sky-800 font-semibold">${l.role}</td>
+          <td class="py-2 px-3 font-mono text-slate-600">${l.screen}</td>
+          <td class="py-2 px-3 font-bold text-slate-900">${l.action}</td>
+          <td class="py-2 px-3 font-mono text-slate-600">${l.recordId} ${l.details ? `— ${l.details}` : ''}</td>
+        </tr>
+      `,
+      {
+        rowHeight: 40,
+        visibleRows: 20,
+        headers: [
+          i18n.dict.common.date,
+          i18n.dict.login.username,
+          i18n.bi('الدور', 'Role'),
+          i18n.bi('الشاشة', 'Screen'),
+          i18n.bi('العملية المنفذة', 'Action'),
+          i18n.bi('السجل المتأثر والتفاصيل', 'Record & Details'),
+        ],
+      }
+    );
+    virtualTable.render();
+  }
 
   document.getElementById('aud-print-btn')?.addEventListener('click', () => {
     printService.printA4(
       i18n.dict.nav.auditLogs,
-      `<table class="print-table"><thead><tr><th>Timestamp</th><th>User</th><th>Role</th><th>Screen</th><th>Action</th><th>Record</th></tr></thead><tbody>${logs.map((l) => `<tr><td class="tabular-nums">${l.timestamp}</td><td>${l.username}</td><td>${l.role}</td><td>${l.screen}</td><td>${l.action}</td><td>${l.recordId}</td></tr>`).join('')}</tbody></table>`
+      `<table class="print-table"><thead><tr><th>Timestamp</th><th>User</th><th>Role</th><th>Screen</th><th>Action</th><th>Record</th></tr></thead><tbody>${logs.slice(0, 100).map((l) => `<tr><td class="tabular-nums">${l.timestamp}</td><td>${l.username}</td><td>${l.role}</td><td>${l.screen}</td><td>${l.action}</td><td>${l.recordId}</td></tr>`).join('')}</tbody></table>`
     );
   });
 }

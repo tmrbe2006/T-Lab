@@ -1,9 +1,13 @@
 import './styles/main.css';
 import { MedicalLabApp } from './app';
 import { authService } from './auth/auth.service';
+import { SecretsConfig } from './config/secrets.config';
 import { seedDatabase } from './db/seed';
 
 async function bootstrap(): Promise<void> {
+  // Validate environment secrets configuration safely
+  SecretsConfig.validateSecrets();
+
   // Register Service Worker for PWA offline capability
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

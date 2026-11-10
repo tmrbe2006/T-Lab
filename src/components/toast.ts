@@ -1,5 +1,6 @@
 export type ToastType =
   | 'success'
+  | 'info'
   | 'error'
   | 'warning'
   | 'critical'
@@ -11,6 +12,7 @@ export function showToast(message: string, type: ToastType = 'success'): void {
 
   const palette: Record<ToastType, string> = {
     success: 'bg-emerald-900 text-emerald-50 border-emerald-700',
+    info: 'bg-sky-900 text-sky-50 border-sky-700',
     error: 'bg-rose-900 text-rose-50 border-rose-700',
     warning: 'bg-amber-900 text-amber-50 border-amber-700',
     critical: 'bg-red-950 text-red-50 border-red-600 ring-2 ring-red-500/40',
@@ -19,6 +21,7 @@ export function showToast(message: string, type: ToastType = 'success'): void {
 
   const prefix: Record<ToastType, string> = {
     success: '✓',
+    info: 'ℹ',
     error: '✕',
     warning: '!',
     critical: '⚠ CRITICAL',

@@ -321,6 +321,35 @@ export class PrintService {
     await authService.logAudit(`طباعة ملصق باركود عينة: ${params.barcode}`, 'printing', params.requestNumber, params.patientName);
     this.openPrintPreviewAndExecute('BARCODE_LABEL', `${params.requestNumber} - ${params.patientName}`, sheetHtml);
   }
+
+  /**
+   * Convenience wrapper for A4 HTML document printing.
+   */
+  async printHtmlDocument(title: string, contentHtml: string, subtitle = ''): Promise<void> {
+    return this.printA4(title, contentHtml, subtitle);
+  }
+
+  /**
+   * Convenience wrapper for sample/inventory barcode label printing.
+   */
+  async printSampleBarcodeLabel(params: {
+    labName?: string;
+    patientName: string;
+    requestNumber: string;
+    sampleType: string;
+    barcodeValue: string;
+    date: string;
+  }): Promise<void> {
+    return this.printBarcodeLabel({
+      barcode: params.barcodeValue,
+      requestNumber: params.requestNumber,
+      patientName: params.patientName,
+      date: params.date,
+      sampleType: params.sampleType,
+      testsSummary: params.labName || 'Lab Stock',
+    });
+  }
 }
 
 export const printService = new PrintService();
+

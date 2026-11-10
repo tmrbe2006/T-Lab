@@ -3,11 +3,14 @@ import type {
   Account,
   AuditLog,
   CashboxSession,
+  CostCenter,
   DailyClosing,
   Doctor,
   DoctorCommission,
   Employee,
   Expense,
+  InventoryItem,
+  InventoryLot,
   Invoice,
   InvoiceItem,
   JournalEntry,
@@ -17,10 +20,17 @@ import type {
   LabTest,
   Patient,
   Payment,
+  PeriodClosingLock,
+  PurchaseInvoice,
   RequestItem,
+  ReturnNote,
   Role,
   RolePermission,
   Sample,
+  StockMovement,
+  StockTakingSession,
+  Supplier,
+  TestBOM,
   TestParameter,
   User,
 } from '../types';
@@ -50,6 +60,18 @@ export class MedicalLabDatabase extends Dexie {
   cashboxSessions!: Table<CashboxSession, string>;
   dailyClosings!: Table<DailyClosing, string>;
 
+  // ERP Version 3 Stores
+  inventoryItems!: Table<InventoryItem, string>;
+  inventoryLots!: Table<InventoryLot, string>;
+  stockMovements!: Table<StockMovement, string>;
+  testBOMs!: Table<TestBOM, string>;
+  stockTakingSessions!: Table<StockTakingSession, string>;
+  suppliers!: Table<Supplier, string>;
+  purchaseInvoices!: Table<PurchaseInvoice, string>;
+  returnNotes!: Table<ReturnNote, string>;
+  costCenters!: Table<CostCenter, string>;
+  periodLocks!: Table<PeriodClosingLock, string>;
+
   constructor() {
     super('MedicalLabDB_v1');
 
@@ -78,7 +100,38 @@ export class MedicalLabDatabase extends Dexie {
       cashboxSessions: 'id, status, openedAt',
       dailyClosings: 'id, date',
     });
+
+    // Version 2: Optimized secondary indexes for search, filtering, and relational joins
+    this.version(2).stores({
+      users: 'id, username, role, active',
+      patients: 'id, code, name, phone, nationalId, active, createdAt',
+      doctors: 'id, code, type, active, commissionEnabled',
+      tests: 'id, code, department, active',
+      requests: 'id, requestNumber, barcode, patientId, doctorId, type, status, createdAt',
+      invoices: 'id, invoiceNumber, requestId, patientId, doctorId, status, date, paidAmount',
+      payments: 'id, paymentNumber, invoiceId, patientId, date, method, amount',
+      commissions: 'id, doctorId, invoiceId, patientId, status, date, commissionAmount',
+      auditLogs: 'id, userId, role, screen, timestamp, action',
+      journalEntries: 'id, entryNumber, date, referenceType, referenceId',
+    });
+
+    // Version 3: Full ERP Inventory, Purchases, Returns, Cost Centers & IFRS Accounting
+    this.version(3).stores({
+      chartOfAccounts: 'id, code, parentCode, level, type',
+      journalEntries: 'id, entryNumber, date, entryType, referenceType, referenceId, status, costCenter',
+      inventoryItems: 'id, code, barcode, category, supplierId, active',
+      inventoryLots: 'id, lotNumber, itemId, expiryDate, status, qcStatus',
+      stockMovements: 'id, movementNumber, type, itemId, lotId, date, referenceType, referenceId',
+      testBOMs: 'id, testId, testCode',
+      stockTakingSessions: 'id, sessionNumber, date, status',
+      suppliers: 'id, code, nameAr, active',
+      purchaseInvoices: 'id, invoiceNumber, supplierId, date, status, stockReceived',
+      returnNotes: 'id, noteNumber, type, originalInvoiceId, date, status',
+      costCenters: 'id, code, active',
+      periodLocks: 'id, periodMonth, locked',
+    });
   }
 }
 
 export const db = new MedicalLabDatabase();
+

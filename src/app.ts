@@ -1,37 +1,8 @@
 import { authService } from './auth/auth.service';
+import { showToast } from './components/common';
 import { pwaManager } from './components/pwa-install';
-import { showToast } from './components/toast';
 import { can } from './guards/permission.guard';
 import { i18n } from './i18n';
-import { renderTestParametersPage, renderTestsCatalogPage } from './pages/catalog.page';
-import { renderDashboardPage } from './pages/dashboard.page';
-import { renderDoctorsPage } from './pages/doctors.page';
-import {
-  renderAccountingPage,
-  renderCommissionsPage,
-  renderInvoicesPage,
-  renderPaymentsPage,
-} from './pages/finance.page';
-import { renderForbiddenPage } from './pages/forbidden.page';
-import { renderLoginPage } from './pages/login.page';
-import {
-  renderRequestsPage,
-  renderResultReviewPage,
-  renderResultsEntryPage,
-  renderSamplesPage,
-} from './pages/operations.page';
-import { renderPatientsPage } from './pages/patients.page';
-import {
-  renderAuditLogsPage,
-  renderPrintingHubPage,
-  renderSettingsPage,
-  renderTestPlanPage,
-} from './pages/settings-audit.page';
-import {
-  renderEmployeesPage,
-  renderPermissionsPage,
-  renderUsersPage,
-} from './pages/staff-users.page';
 import { router, type RouteId } from './router';
 import { themeService } from './services/theme.service';
 import type { ResourceScreen } from './types';
@@ -52,6 +23,9 @@ const SIDEBAR_ITEMS: NavItem[] = [
   { route: 'resultReview', resource: 'resultReview', labelKey: 'resultReview' },
   { route: 'tests', resource: 'tests', labelKey: 'tests' },
   { route: 'testParameters', resource: 'testParameters', labelKey: 'testParameters' },
+  { route: 'inventory', resource: 'inventory', labelKey: 'inventory' },
+  { route: 'purchases', resource: 'purchases', labelKey: 'purchases' },
+  { route: 'erpAccounting', resource: 'erpAccounting', labelKey: 'erpAccounting' },
   { route: 'invoices', resource: 'invoices', labelKey: 'invoices' },
   { route: 'payments', resource: 'payments', labelKey: 'payments' },
   { route: 'commissions', resource: 'commissions', labelKey: 'commissions' },
@@ -69,6 +43,116 @@ const SIDEBAR_ITEMS: NavItem[] = [
   { route: 'testPlan', labelKey: 'testPlan' },
 ];
 
+/**
+ * Lazy-loads screen modules on demand using Dynamic Imports.
+ */
+export const loadPage = async (
+  route: RouteId
+): Promise<(container: HTMLElement) => Promise<void> | void> => {
+  switch (route) {
+    case 'dashboard': {
+      const { renderDashboardPage } = await import('./pages/dashboard.page');
+      return renderDashboardPage;
+    }
+    case 'patients': {
+      const { renderPatientsPage } = await import('./pages/patients.page');
+      return renderPatientsPage;
+    }
+    case 'doctors': {
+      const { renderDoctorsPage } = await import('./pages/doctors.page');
+      return renderDoctorsPage;
+    }
+    case 'employees': {
+      const { renderEmployeesPage } = await import('./pages/staff/employees.page');
+      return renderEmployeesPage;
+    }
+    case 'users': {
+      const { renderUsersPage } = await import('./pages/staff/users.page');
+      return renderUsersPage;
+    }
+    case 'permissions': {
+      const { renderPermissionsPage } = await import('./pages/staff/permissions.page');
+      return renderPermissionsPage;
+    }
+    case 'tests': {
+      const { renderTestsCatalogPage } = await import('./pages/catalog/tests-catalog.page');
+      return renderTestsCatalogPage;
+    }
+    case 'testParameters': {
+      const { renderTestParametersPage } = await import('./pages/catalog/test-parameters.page');
+      return renderTestParametersPage;
+    }
+    case 'inventory': {
+      const { renderInventoryPage } = await import('./pages/inventory/inventory.page');
+      return renderInventoryPage;
+    }
+    case 'purchases': {
+      const { renderPurchasesPage } = await import('./pages/purchases/purchases.page');
+      return renderPurchasesPage;
+    }
+    case 'erpAccounting': {
+      const { renderErpAccountingPage } = await import('./pages/erp-accounting/erp-accounting.page');
+      return renderErpAccountingPage;
+    }
+    case 'requests': {
+      const { renderRequestsPage } = await import('./pages/operations/requests.page');
+      return renderRequestsPage;
+    }
+    case 'samples': {
+      const { renderSamplesPage } = await import('./pages/operations/samples.page');
+      return renderSamplesPage;
+    }
+    case 'results': {
+      const { renderResultsEntryPage } = await import('./pages/operations/results-entry.page');
+      return renderResultsEntryPage;
+    }
+    case 'resultReview': {
+      const { renderResultReviewPage } = await import('./pages/operations/results-review.page');
+      return renderResultReviewPage;
+    }
+    case 'invoices': {
+      const { renderInvoicesPage } = await import('./pages/finance/invoices.page');
+      return renderInvoicesPage;
+    }
+    case 'payments': {
+      const { renderPaymentsPage } = await import('./pages/finance/payments.page');
+      return renderPaymentsPage;
+    }
+    case 'commissions': {
+      const { renderCommissionsPage } = await import('./pages/finance/commissions.page');
+      return renderCommissionsPage;
+    }
+    case 'accounts':
+    case 'journalEntries':
+    case 'cashbox':
+    case 'expenses':
+    case 'reports': {
+      const { renderAccountingPage } = await import('./pages/finance/accounting.page');
+      return (viewport: HTMLElement) => renderAccountingPage(viewport, route);
+    }
+    case 'settings': {
+      const { renderSettingsPage } = await import('./pages/settings-audit.page');
+      return renderSettingsPage;
+    }
+    case 'printing': {
+      const { renderPrintingHubPage } = await import('./pages/settings-audit.page');
+      return renderPrintingHubPage;
+    }
+    case 'auditLogs': {
+      const { renderAuditLogsPage } = await import('./pages/settings-audit.page');
+      return renderAuditLogsPage;
+    }
+    case 'testPlan': {
+      const { renderTestPlanPage } = await import('./pages/settings-audit.page');
+      return renderTestPlanPage;
+    }
+    default: {
+      const { renderDashboardPage } = await import('./pages/dashboard.page');
+      return renderDashboardPage;
+    }
+  }
+};
+
 export class MedicalLabApp {
   private rootEl: HTMLElement;
 
@@ -84,6 +168,7 @@ export class MedicalLabApp {
     const currentRoute = router.getRoute();
 
     if (!user) {
+      const { renderLoginPage } = await import('./pages/login.page');
       await renderLoginPage(this.rootEl);
       return;
     }
@@ -203,83 +288,18 @@ export class MedicalLabApp {
         `User ${user.username} (${user.role}) tried to open #/${currentRoute}`
       );
       showToast(i18n.dict.common.forbiddenMessage, 'unauthorized');
+      const { renderForbiddenPage } = await import('./pages/forbidden.page');
       renderForbiddenPage(viewport, currentRoute);
       return;
     }
 
     if (currentRoute === '403') {
+      const { renderForbiddenPage } = await import('./pages/forbidden.page');
       renderForbiddenPage(viewport);
       return;
     }
 
-    switch (currentRoute) {
-      case 'dashboard':
-        await renderDashboardPage(viewport);
-        break;
-      case 'patients':
-        await renderPatientsPage(viewport);
-        break;
-      case 'doctors':
-        await renderDoctorsPage(viewport);
-        break;
-      case 'employees':
-        await renderEmployeesPage(viewport);
-        break;
-      case 'users':
-        await renderUsersPage(viewport);
-        break;
-      case 'permissions':
-        await renderPermissionsPage(viewport);
-        break;
-      case 'tests':
-        await renderTestsCatalogPage(viewport);
-        break;
-      case 'testParameters':
-        await renderTestParametersPage(viewport);
-        break;
-      case 'requests':
-        await renderRequestsPage(viewport);
-        break;
-      case 'samples':
-        await renderSamplesPage(viewport);
-        break;
-      case 'results':
-        await renderResultsEntryPage(viewport);
-        break;
-      case 'resultReview':
-        await renderResultReviewPage(viewport);
-        break;
-      case 'invoices':
-        await renderInvoicesPage(viewport);
-        break;
-      case 'payments':
-        await renderPaymentsPage(viewport);
-        break;
-      case 'commissions':
-        await renderCommissionsPage(viewport);
-        break;
-      case 'accounts':
-      case 'journalEntries':
-      case 'cashbox':
-      case 'expenses':
-      case 'reports':
-        await renderAccountingPage(viewport, currentRoute);
-        break;
-      case 'settings':
-        await renderSettingsPage(viewport);
-        break;
-      case 'printing':
-        await renderPrintingHubPage(viewport);
-        break;
-      case 'auditLogs':
-        await renderAuditLogsPage(viewport);
-        break;
-      case 'testPlan':
-        await renderTestPlanPage(viewport);
-        break;
-      default:
-        await renderDashboardPage(viewport);
-        break;
-    }
+    const pageRenderer = await loadPage(currentRoute);
+    await pageRenderer(viewport);
   }
 }

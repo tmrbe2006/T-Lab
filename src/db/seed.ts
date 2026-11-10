@@ -1,4 +1,5 @@
 import { db } from './database';
+import { seedErpData } from './erp-seed';
 import type {
   Account,
   AuditLog,
@@ -51,6 +52,9 @@ export const ALL_RESOURCES: ResourceScreen[] = [
   'commissions',
   'settings',
   'printing',
+  'inventory',
+  'purchases',
+  'erpAccounting',
 ];
 
 export const ALL_ACTIONS: PermissionAction[] = [
@@ -107,6 +111,7 @@ function buildRolePermissions(): RolePermission[] {
             'results',
             'resultReview',
             'printing',
+            'inventory',
           ];
           actions[act] =
             allowedScreens.includes(resource) &&
@@ -118,6 +123,7 @@ function buildRolePermissions(): RolePermission[] {
             'samples',
             'results',
             'printing',
+            'inventory',
           ];
           actions[act] =
             allowedScreens.includes(resource) &&
@@ -150,6 +156,9 @@ function buildRolePermissions(): RolePermission[] {
             'commissions',
             'reports',
             'printing',
+            'inventory',
+            'purchases',
+            'erpAccounting',
           ];
           actions[act] =
             allowedScreens.includes(resource) &&
@@ -159,6 +168,7 @@ function buildRolePermissions(): RolePermission[] {
               'edit',
               'print',
               'export',
+              'approve',
               'discount',
               'closeDay',
               'addPayment',
@@ -187,7 +197,12 @@ export async function seedDatabase(forceReset = false): Promise<void> {
     });
   } else {
     const existingUsers = await db.users.count();
-    if (existingUsers > 0) return;
+    if (existingUsers > 0) {
+      // Ensure ERP version 3 data & permissions are seeded even on existing databases
+      await db.permissions.bulkPut(buildRolePermissions());
+      await seedErpData(false);
+      return;
+    }
   }
 
   const roles: Role[] = [
@@ -858,4 +873,6 @@ export async function seedDatabase(forceReset = false): Promise<void> {
     await db.settings.put(settings);
     await db.auditLogs.bulkPut(auditLogs);
   });
+
+  await seedErpData(forceReset);
 }

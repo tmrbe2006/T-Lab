@@ -49,7 +49,10 @@ export type ResourceScreen =
   | 'expenses'
   | 'commissions'
   | 'settings'
-  | 'printing';
+  | 'printing'
+  | 'inventory'
+  | 'purchases'
+  | 'erpAccounting';
 
 export interface Role {
   id: string;
@@ -338,7 +341,7 @@ export interface DoctorCommission {
   status: 'accrued' | 'partial' | 'paid';
 }
 
-export type AccountType = 'asset' | 'liability' | 'revenue' | 'expense';
+export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 
 export interface Account {
   id: string;
@@ -347,6 +350,9 @@ export interface Account {
   nameEn: string;
   type: AccountType;
   balance: number;
+  parentCode?: string;
+  level?: number;
+  isGroup?: boolean;
 }
 
 export interface JournalEntryLine {
@@ -355,19 +361,46 @@ export interface JournalEntryLine {
   accountNameEn: string;
   debit: number;
   credit: number;
+  note?: string;
+  description?: string;
+  currency?: string;
+  exchangeRate?: number;
+  costCenter?: string;
+  department?: string;
+  itemId?: string;
 }
 
 export interface JournalEntry {
   id: string;
   entryNumber: string;
   date: string;
-  referenceType: 'invoice' | 'payment' | 'expense' | 'commission_accrual' | 'commission_payout' | 'manual';
+  entryType?: 'auto' | 'automatic' | 'manual' | 'adjustment' | 'closing' | 'reversal';
+  referenceType:
+    | 'invoice'
+    | 'purchase_invoice'
+    | 'payment'
+    | 'supplier_payment'
+    | 'expense'
+    | 'stock_movement'
+    | 'stock_issue'
+    | 'stock_disposal'
+    | 'stock_adjustment'
+    | 'commission_accrual'
+    | 'commission_payout'
+    | 'return_note'
+    | 'closing'
+    | 'reversal'
+    | 'manual';
   referenceId: string;
+  referenceNumber?: string;
+  costCenter?: string;
   descriptionAr: string;
   descriptionEn: string;
   lines: JournalEntryLine[];
   totalDebit: number;
   totalCredit: number;
+  status?: 'draft' | 'posted' | 'reversed';
+  reversalEntryId?: string;
   createdBy: string;
 }
 
@@ -428,3 +461,6 @@ export interface LabSettings {
   printFooterAr: string;
   printFooterEn: string;
 }
+
+export * from './erp.types';
+

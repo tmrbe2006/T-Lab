@@ -1,8 +1,25 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
+# Environment variables & local config
+.env
+.env.local
+.env.*.local
 .env*
 !.env.example
+
+# Cryptographic keys, certificates & secrets
+*.pem
+*.key
+secrets/
+credentials/
+
+# OS & Editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Dependencies & Build outputs
+node_modules/
+dist/
+dev-dist/
+build/
+coverage/
+*.log

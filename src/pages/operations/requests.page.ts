@@ -1,0 +1,528 @@
+import { authService } from '../../auth/auth.service';
+import {
+  bindSearchInputWithFocus,
+  bindTablePagination,
+  createPaginationControls,
+  openCustomModal,
+  openDeleteConfirmModal,
+  paginateArray,
+  renderSearchFilterBar,
+  showToast,
+} from '../../components/common';
+import { can, enforcePermission } from '../../guards/permission.guard';
+import { i18n } from '../../i18n';
+import { printService } from '../../print/print.service';
+import {
+  doctorsRepository,
+  invoicesRepository,
+  patientsRepository,
+  requestsRepository,
+  testsRepository,
+} from '../../repositories';
+import { accountingService } from '../../services/accounting.service';
+import { discountService } from '../../services/discount.service';
+import { invoiceService } from '../../services/invoice.service';
+import type {
+  DiscountType,
+  Invoice,
+  InvoiceItem,
+  LabRequest,
+  RequestItem,
+  RequestType,
+  Sample,
+} from '../../types';
+
+export async function renderRequestsPage(container: HTMLElement): Promise<void> {
+  const user = authService.getCurrentUser();
+  let requests = await requestsRepository.getAllRequests();
+  const [patients, doctors, tests] = await Promise.all([
+    patientsRepository.getAll(),
+    doctorsRepository.getAll(),
+    testsRepository.getAllTests(),
+  ]);
+
+  const patientMap = new Map(patients.map((p) => [p.id, p]));
+  const doctorMap = new Map(doctors.map((d) => [d.id, d]));
+  let searchQuery = '';
+  let currentPage = 1;
+  const itemsPerPage = 15;
+
+  const getFiltered = () => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return requests;
+    return requests.filter((r) => {
+      const pName = patientMap.get(r.patientId)?.name.toLowerCase() || '';
+      return (
+        r.requestNumber.toLowerCase().includes(q) ||
+        r.barcode.toLowerCase().includes(q) ||
+        pName.includes(q)
+      );
+    });
+  };
+
+  const openNewRequestModal = () => {
+    const canDiscount = can(user, 'discount', 'requests');
+    const firstPat = patients[0];
+    const initDisc = discountService.getPatientDefaultDiscount(firstPat);
+
+    openCustomModal(
+      i18n.bi('إنشاء طلب تحاليل جديد + توليد باركود وفاتورة تلقائية', 'Create New Lab Request + Auto Barcode & Invoice'),
+      `
+        <form id="req-form" class="space-y-4 text-xs">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block font-semibold mb-1">${i18n.bi('المريض *', 'Patient *')}</label>
+              <select id="req-pat-sel" name="patientId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
+                ${patients.map((p) => `<option value="${p.id}">${p.name} (${p.code})</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">${i18n.bi('نوع الطلب', 'Request Type')}</label>
+              <select id="req-type-sel" name="type" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
+                <option value="referred">${i18n.bi('محول من طبيب خارجي (Referred)', 'Referred by Doctor')}</option>
+                <option value="internal">${i18n.bi('طلب داخلي مباشر (Internal)', 'Internal Direct Request')}</option>
+              </select>
+            </div>
+            <div id="req-doc-wrap">
+              <label class="block font-semibold mb-1">${i18n.bi('الطبيب المحول', 'Referring Doctor')}</label>
+              <select id="req-doc-sel" name="doctorId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs">
+                ${doctors
+                  .filter((d) => d.type !== 'internal')
+                  .map((d) => `<option value="${d.id}">${d.nameAr}</option>`)
+                  .join('')}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-semibold mb-1.5">${i18n.bi('اختر التحاليل المطلوبة *', 'Select Requested Lab Tests *')}</label>
+            <div class="max-h-44 overflow-y-auto rounded-lg border border-slate-200 p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50">
+              ${tests
+                .map(
+                  (t, idx) => `
+                  <label class="flex items-center justify-between gap-2 rounded bg-white border border-slate-200 px-2.5 py-1.5 cursor-pointer">
+                    <span class="flex items-center gap-2">
+                      <input type="checkbox" name="testIds" value="${t.id}" ${idx < 2 ? 'checked' : ''} class="req-tst-chk accent-sky-600" />
+                      <span class="font-semibold text-slate-800">${t.code} — ${i18n.bi(t.nameAr, t.nameEn)}</span>
+                    </span>
+                    <span class="font-mono font-bold text-slate-900 tabular-nums">${t.price} EGP</span>
+                  </label>
+                `
+                )
+                .join('')}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-lg bg-slate-100 p-3 border border-slate-200">
+            <div>
+              <label class="block font-semibold mb-1">${i18n.bi('نوع الخصم', 'Discount Type')}</label>
+              <select id="req-disc-type" name="discountType" ${!canDiscount ? 'disabled' : ''} class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs">
+                <option value="none" ${initDisc.type === 'none' ? 'selected' : ''}>بدون خصم (None)</option>
+                <option value="percentage" ${initDisc.type === 'percentage' ? 'selected' : ''}>نسبة مئوية (%)</option>
+                <option value="fixed" ${initDisc.type === 'fixed' ? 'selected' : ''}>مبلغ ثابت (EGP)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">${i18n.bi('قيمة الخصم', 'Discount Value')}</label>
+              <input id="req-disc-val" name="discountValue" type="number" min="0" step="0.5" value="${initDisc.value}" ${!canDiscount ? 'disabled' : ''} class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">${i18n.bi('الضريبة (تُحسب بعد الخصم %)', 'Tax After Discount (%)')}</label>
+              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="50" value="14" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+            </div>
+          </div>
+
+          <!-- Live Calculation Summary -->
+          <div id="req-calc-preview" class="rounded-lg bg-slate-900 text-white p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center"></div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
+              ${i18n.bi('حفظ الطلب وإصدار الباركود والفاتورة', 'Save Request & Generate Barcode/Invoice')}
+            </button>
+          </div>
+        </form>
+      `,
+      (close) => {
+        const patSel = document.getElementById('req-pat-sel') as HTMLSelectElement | null;
+        const typeSel = document.getElementById('req-type-sel') as HTMLSelectElement | null;
+        const docWrap = document.getElementById('req-doc-wrap');
+        const discTypeEl = document.getElementById('req-disc-type') as HTMLSelectElement | null;
+        const discValEl = document.getElementById('req-disc-val') as HTMLInputElement | null;
+        const taxRateEl = document.getElementById('req-tax-rate') as HTMLInputElement | null;
+        const calcPreview = document.getElementById('req-calc-preview');
+
+        const getSelectedTests = () => {
+          const checkedIds = Array.from(document.querySelectorAll<HTMLInputElement>('.req-tst-chk:checked')).map(
+            (c) => c.value
+          );
+          return tests.filter((t) => checkedIds.includes(t.id));
+        };
+
+        const updateCalc = () => {
+          const chosen = getSelectedTests();
+          const dType = (discTypeEl?.value as DiscountType) || 'none';
+          const dVal = Number(discValEl?.value) || 0;
+          const tRate = Number(taxRateEl?.value) || 14;
+          const math = invoiceService.calculateInvoiceTotals(chosen, dType, dVal, tRate, 0);
+          if (calcPreview) {
+            calcPreview.innerHTML = `
+              <div><div class="text-[10px] text-slate-400">${i18n.dict.common.total}</div><div class="text-sm font-mono font-bold tabular-nums">${math.subtotal} EGP</div></div>
+              <div><div class="text-[10px] text-slate-400">${i18n.dict.common.discount}</div><div class="text-sm font-mono font-bold text-amber-400 tabular-nums">-${math.discountAmount} EGP</div></div>
+              <div><div class="text-[10px] text-slate-400">${i18n.dict.common.tax} (${math.taxRate}%)</div><div class="text-sm font-mono font-bold text-sky-400 tabular-nums">+${math.taxAmount} EGP</div></div>
+              <div><div class="text-[10px] text-slate-400">${i18n.dict.common.net}</div><div class="text-base font-mono font-bold text-emerald-400 tabular-nums">${math.netTotal} EGP</div></div>
+            `;
+          }
+          return math;
+        };
+
+        patSel?.addEventListener('change', () => {
+          const pat = patientMap.get(patSel.value);
+          const def = discountService.getPatientDefaultDiscount(pat);
+          if (discTypeEl && discValEl) {
+            discTypeEl.value = def.type;
+            discValEl.value = String(def.value);
+          }
+          updateCalc();
+        });
+
+        typeSel?.addEventListener('change', () => {
+          if (docWrap) {
+            docWrap.style.display = typeSel.value === 'referred' ? 'block' : 'none';
+          }
+        });
+
+        document.querySelectorAll('.req-tst-chk').forEach((c) => c.addEventListener('change', updateCalc));
+        discTypeEl?.addEventListener('change', updateCalc);
+        discValEl?.addEventListener('input', updateCalc);
+        taxRateEl?.addEventListener('input', updateCalc);
+        updateCalc();
+
+        const form = document.getElementById('req-form') as HTMLFormElement | null;
+        form?.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (!(await enforcePermission('add', 'requests'))) return;
+          const chosen = getSelectedTests();
+          if (chosen.length === 0) {
+            showToast(i18n.bi('يرجى اختيار تحليل واحد على الأقل', 'Select at least one test'), 'warning');
+            return;
+          }
+          const math = updateCalc();
+          const reqId = `req_${Date.now()}`;
+          const seq = requests.length + 1001;
+          const reqNum = `REQ-2026-${seq}`;
+          const barcode = `BC2026${seq}`;
+          const rType = (typeSel?.value as RequestType) || 'referred';
+          const docSel = document.getElementById('req-doc-sel') as HTMLSelectElement | null;
+          const docId = rType === 'referred' ? docSel?.value : undefined;
+          const today = new Date().toISOString().slice(0, 10);
+
+          const newReq: LabRequest = {
+            id: reqId,
+            requestNumber: reqNum,
+            barcode,
+            patientId: patSel?.value || patients[0].id,
+            doctorId: docId,
+            type: rType,
+            status: 'awaiting_sample',
+            subtotal: math.subtotal,
+            discountType: math.discountType,
+            discountValue: math.discountValue,
+            discountAmount: math.discountAmount,
+            taxRate: math.taxRate,
+            taxAmount: math.taxAmount,
+            netTotal: math.netTotal,
+            createdBy: user?.username || 'admin',
+            createdAt: today,
+            notes: '',
+          };
+
+          const rItems: RequestItem[] = chosen.map((t, idx) => ({
+            id: `ri_${Date.now()}_${idx}`,
+            requestId: reqId,
+            testId: t.id,
+            price: t.price,
+            commissionEligible: t.commissionEligible,
+          }));
+
+          await requestsRepository.saveRequest(newReq, rItems);
+
+          // Automatically create Sample & Invoice + Journal Entry
+          const newSample: Sample = {
+            id: `smp_${Date.now()}`,
+            sampleCode: `SMP-${seq}`,
+            requestId: reqId,
+            patientId: newReq.patientId,
+            sampleType: chosen[0].sampleType,
+            tubeType: chosen[0].tubeType,
+            status: 'received',
+            receivedAt: `${today} 10:00`,
+            receivedBy: user?.username || 'technician',
+          };
+          await requestsRepository.saveSample(newSample);
+
+          const invId = `inv_${Date.now()}`;
+          const invNum = `INV-2026-${seq}`;
+          const newInv: Invoice = {
+            id: invId,
+            invoiceNumber: invNum,
+            requestId: reqId,
+            patientId: newReq.patientId,
+            doctorId: docId,
+            requestType: rType,
+            date: today,
+            subtotal: math.subtotal,
+            discountType: math.discountType,
+            discountValue: math.discountValue,
+            discountAmount: math.discountAmount,
+            taxRate: math.taxRate,
+            taxAmount: math.taxAmount,
+            netTotal: math.netTotal,
+            paidAmount: 0,
+            remainingAmount: math.netTotal,
+            paymentMethod: 'cash',
+            status: 'unpaid',
+            notes: '',
+            createdBy: user?.username || 'admin',
+          };
+
+          const invItems: InvoiceItem[] = math.itemShares.map((sh, idx) => {
+            const tObj = chosen.find((c) => c.id === sh.testId)!;
+            return {
+              id: `ii_${Date.now()}_${idx}`,
+              invoiceId: invId,
+              testId: sh.testId,
+              testNameAr: tObj.nameAr,
+              testNameEn: tObj.nameEn,
+              price: sh.price,
+              netAfterDiscountAndTax: sh.netAfterDiscountAndTax,
+              commissionEligible: sh.commissionEligible,
+            };
+          });
+
+          await invoicesRepository.save(newInv, invItems);
+          await accountingService.recordInvoiceJournal(newInv, user?.username || 'admin');
+          await authService.logAudit(`إنشاء طلب تحليل جديد: ${reqNum}`, 'requests', reqId, `Net: ${math.netTotal} EGP`);
+
+          showToast(i18n.bi(`تم حفظ الطلب ${reqNum} وإصدار الفاتورة ${invNum}`, `Created Request ${reqNum} & Invoice ${invNum}`), 'success');
+          close();
+          requests = await requestsRepository.getAllRequests();
+          renderTable();
+        });
+      }
+    );
+  };
+
+  const renderTable = () => {
+    const filteredRows = getFiltered();
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
+    const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
+    const canAdd = can(user, 'add', 'requests');
+    const canDelete = can(user, 'delete', 'requests');
+    const canPrint = can(user, 'print', 'requests');
+
+    container.innerHTML = `
+      <div class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
+          <div>
+            <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.requests}</h1>
+            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إدارة طلبات التحاليل، تطبيق خصم المريض الافتراضي، وطباعة ملصقات الباركود Code128', 'Manage lab requests, automatic patient default discounts, and Code128 barcode labels')}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            ${canPrint ? `<button id="req-print-all" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
+            ${canAdd ? `<button id="req-add-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">+ ${i18n.dict.actions.add}</button>` : ''}
+          </div>
+        </div>
+
+        ${renderSearchFilterBar({
+          searchInputId: 'req-search',
+          searchQuery,
+          filteredCount: filteredRows.length,
+          totalCount: requests.length,
+        })}
+
+        <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto">
+          <table class="w-full text-xs text-start">
+            <thead>
+              <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
+                <th class="py-3 px-3 text-start">${i18n.bi('رقم الطلب / الباركود', 'Request # / Barcode')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('المريض', 'Patient')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('النوع / الطبيب المحول', 'Type / Doctor')}</th>
+                <th class="py-3 px-3 text-start">${i18n.dict.common.total}</th>
+                <th class="py-3 px-3 text-start">${i18n.dict.common.discount}</th>
+                <th class="py-3 px-3 text-start">${i18n.dict.common.tax}</th>
+                <th class="py-3 px-3 text-start">${i18n.dict.common.net}</th>
+                <th class="py-3 px-3 text-start">${i18n.dict.common.status}</th>
+                <th class="py-3 px-3 text-start">${i18n.dict.common.actions}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${rows
+                .map((r) => {
+                  const pat = patientMap.get(r.patientId);
+                  const doc = r.doctorId ? doctorMap.get(r.doctorId) : undefined;
+                  return `
+                    <tr class="hover:bg-slate-50">
+                      <td class="py-2.5 px-3 font-mono">
+                        <div class="font-bold text-slate-900 tabular-nums">${r.requestNumber}</div>
+                        <div class="text-[11px] text-slate-400 tabular-nums">${r.barcode} · ${r.createdAt}</div>
+                      </td>
+                      <td class="py-2.5 px-3 font-bold text-slate-800">${pat?.name || r.patientId}</td>
+                      <td class="py-2.5 px-3 text-slate-600">
+                        ${r.type === 'referred' ? `${i18n.bi('محول:', 'Ref:')} ${doc?.nameAr || ''}` : i18n.bi('طلب داخلي', 'Internal')}
+                      </td>
+                      <td class="py-2.5 px-3 font-mono tabular-nums">${r.subtotal}</td>
+                      <td class="py-2.5 px-3 font-mono text-amber-700 tabular-nums">-${r.discountAmount}</td>
+                      <td class="py-2.5 px-3 font-mono text-sky-700 tabular-nums">+${r.taxAmount}</td>
+                      <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${r.netTotal} EGP</td>
+                      <td class="py-2.5 px-3 font-semibold text-slate-700">${i18n.dict.statuses[r.status] || r.status}</td>
+                      <td class="py-2.5 px-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                          <button type="button" data-a4="${r.id}" class="req-a4-btn text-sky-700 hover:underline font-semibold cursor-pointer">
+                            A4
+                          </button>
+                          <button type="button" data-th="${r.id}" class="req-th-btn text-emerald-700 hover:underline font-semibold cursor-pointer">
+                            80mm
+                          </button>
+                          <button type="button" data-bc="${r.id}" class="req-bc-btn text-indigo-700 hover:underline font-semibold cursor-pointer">
+                            ${i18n.dict.actions.printBarcode}
+                          </button>
+                          ${canDelete ? `<button type="button" data-del="${r.id}" class="req-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>` : ''}
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                })
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+        ${createPaginationControls(pagState, undefined, 'req-pag')}
+      </div>
+    `;
+
+    bindTablePagination(container, pagState, (page) => {
+      currentPage = page;
+      renderTable();
+    }, 'req-pag');
+
+    bindSearchInputWithFocus('req-search', searchQuery, (val) => {
+      searchQuery = val;
+      currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('req-add-btn')?.addEventListener('click', () => openNewRequestModal());
+
+    document.getElementById('req-print-all')?.addEventListener('click', () => {
+      const visible = getFiltered();
+      const html = `
+        <table class="print-table">
+          <thead><tr><th>Request #</th><th>Barcode</th><th>Patient</th><th>Subtotal</th><th>Discount</th><th>Tax</th><th>Net</th></tr></thead>
+          <tbody>
+            ${visible.map((r) => `<tr><td class="tabular-nums">${r.requestNumber}</td><td class="tabular-nums">${r.barcode}</td><td>${patientMap.get(r.patientId)?.name || ''}</td><td class="tabular-nums">${r.subtotal}</td><td class="tabular-nums">${r.discountAmount}</td><td class="tabular-nums">${r.taxAmount}</td><td class="tabular-nums">${r.netTotal} EGP</td></tr>`).join('')}
+          </tbody>
+        </table>
+      `;
+      printService.printA4(i18n.dict.nav.requests, html);
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.req-a4-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = requests.find((x) => x.id === btn.getAttribute('data-a4'));
+        if (!target) return;
+        const pat = patientMap.get(target.patientId);
+        const doc = target.doctorId ? doctorMap.get(target.doctorId) : undefined;
+        const items = await requestsRepository.getRequestItems(target.id);
+        const testMap = new Map(tests.map((t) => [t.id, t]));
+        const html = `
+          <div style="margin-bottom:12px; padding:10px; border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:space-between;">
+            <div>
+              <div><strong>${i18n.bi('رقم الطلب:', 'Request #:')}</strong> ${target.requestNumber} (${target.barcode})</div>
+              <div><strong>${i18n.bi('المريض:', 'Patient:')}</strong> ${pat?.name || ''} · ${pat?.phone || ''}</div>
+            </div>
+            <div>
+              <div><strong>${i18n.dict.common.date}:</strong> ${target.createdAt}</div>
+              <div><strong>${i18n.bi('الطبيب المحول:', 'Referring Doctor:')}</strong> ${doc ? doc.nameAr : i18n.bi('طلب داخلي', 'Internal')}</div>
+            </div>
+          </div>
+          <table class="print-table">
+            <thead><tr><th>#</th><th>Code</th><th>Test Name</th><th>Sample / Tube</th><th>Price</th></tr></thead>
+            <tbody>
+              ${items
+                .map((it, idx) => {
+                  const t = testMap.get(it.testId);
+                  return `<tr><td class="tabular-nums">${idx + 1}</td><td class="tabular-nums">${t?.code || ''}</td><td>${t ? `${t.nameAr} / ${t.nameEn}` : it.testId}</td><td>${t?.sampleType || ''} (${t?.tubeType || ''})</td><td class="tabular-nums">${it.price} EGP</td></tr>`;
+                })
+                .join('')}
+            </tbody>
+          </table>
+          <div style="margin-top:12px; text-align:end; font-weight:700;">
+            ${i18n.dict.common.total}: ${target.subtotal} EGP | ${i18n.dict.common.discount}: -${target.discountAmount} EGP | ${i18n.dict.common.tax}: +${target.taxAmount} EGP | ${i18n.dict.common.net}: ${target.netTotal} EGP
+          </div>
+        `;
+        await printService.printA4(`${i18n.bi('استمارة طلب تحاليل طبية', 'Lab Request Order')} — ${target.requestNumber}`, html);
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.req-th-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = requests.find((x) => x.id === btn.getAttribute('data-th'));
+        if (!target) return;
+        const pat = patientMap.get(target.patientId);
+        await printService.printThermal80mm(
+          i18n.bi('ملخص طلب تحاليل 80mm', 'Lab Request Summary'),
+          `
+            <div><strong>${i18n.bi('رقم الطلب:', 'Req #:')}</strong> ${target.requestNumber}</div>
+            <div><strong>${i18n.bi('المريض:', 'Patient:')}</strong> ${pat?.name || ''}</div>
+            <div><strong>${i18n.dict.common.date}:</strong> ${target.createdAt}</div>
+            <hr style="border-top:1px dashed #000; margin:6px 0;" />
+            <div style="display:flex; justify-content:space-between;"><span>${i18n.dict.common.total}:</span><span>${target.subtotal} EGP</span></div>
+            <div style="display:flex; justify-content:space-between;"><span>${i18n.dict.common.discount}:</span><span>-${target.discountAmount} EGP</span></div>
+            <div style="display:flex; justify-content:space-between;"><span>${i18n.dict.common.tax}:</span><span>+${target.taxAmount} EGP</span></div>
+            <div style="display:flex; justify-content:space-between; font-weight:700;"><span>${i18n.dict.common.net}:</span><span>${target.netTotal} EGP</span></div>
+          `,
+          target.barcode
+        );
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.req-bc-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = requests.find((x) => x.id === btn.getAttribute('data-bc'));
+        if (!target) return;
+        const pat = patientMap.get(target.patientId);
+        const items = await requestsRepository.getRequestItems(target.id);
+        await printService.printBarcodeLabel({
+          barcode: target.barcode,
+          requestNumber: target.requestNumber,
+          patientName: pat?.name || target.patientId,
+          date: target.createdAt,
+          sampleType: 'Whole Blood / Serum',
+          testsSummary: `${items.length || 2} Tests`,
+        });
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.req-del-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = requests.find((x) => x.id === btn.getAttribute('data-del'));
+        if (!target) return;
+        openDeleteConfirmModal({
+          recordLabel: `${target.requestNumber} (${patientMap.get(target.patientId)?.name || ''})`,
+          onConfirm: async (reason) => {
+            if (!(await enforcePermission('delete', 'requests'))) return;
+            await requestsRepository.deleteRequest(target.id);
+            await authService.logAudit(`حذف طلب تحليل: ${target.requestNumber}`, 'requests', target.id, reason || '');
+            showToast(i18n.bi('تم حذف الطلب بنجاح', 'Request deleted'), 'success');
+            requests = await requestsRepository.getAllRequests();
+            renderTable();
+          },
+        });
+      });
+    });
+  };
+
+  renderTable();
+}

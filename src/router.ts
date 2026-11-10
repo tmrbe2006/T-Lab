@@ -23,6 +23,9 @@ export type RouteId =
   | 'commissions'
   | 'settings'
   | 'printing'
+  | 'inventory'
+  | 'purchases'
+  | 'erpAccounting'
   | 'auditLogs'
   | 'testPlan';
 

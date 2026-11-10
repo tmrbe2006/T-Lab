@@ -1,6 +1,12 @@
 import { authService } from '../auth/auth.service';
-import { openCustomModal, openDeleteConfirmModal } from '../components/modal';
-import { showToast } from '../components/toast';
+import {
+  bindTablePagination,
+  createPaginationControls,
+  openCustomModal,
+  openDeleteConfirmModal,
+  paginateArray,
+  showToast,
+} from '../components/common';
 import { can, enforcePermission } from '../guards/permission.guard';
 import { i18n } from '../i18n';
 import { printService } from '../print/print.service';
@@ -12,6 +18,8 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
   let allPatients = await patientsRepository.getAll();
   const allRequests = await requestsRepository.getAllRequests();
   let searchQuery = '';
+  let currentPage = 1;
+  const itemsPerPage = 15;
 
   const getFiltered = (): Patient[] => {
     const q = searchQuery.trim().toLowerCase();
@@ -144,7 +152,11 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
   };
 
   const renderTable = () => {
-    const rows = getFiltered();
+    const filteredRows = getFiltered();
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
+    const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
     const canAdd = can(user, 'add', 'patients');
     const canEdit = can(user, 'edit', 'patients');
     const canDelete = can(user, 'delete', 'patients');
@@ -185,7 +197,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
             class="w-full sm:w-80 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs focus:border-sky-600 focus:outline-none"
           />
           <div class="text-xs text-slate-500 font-mono tabular-nums">
-            ${rows.length} / ${allPatients.length} ${i18n.bi('مريض', 'Patients')}
+            ${filteredRows.length} / ${allPatients.length} ${i18n.bi('مريض', 'Patients')}
           </div>
         </div>
 
@@ -245,12 +257,19 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
             </tbody>
           </table>
         </div>
+        ${createPaginationControls(pagState, undefined, 'pat-pag')}
       </div>
     `;
+
+    bindTablePagination(container, pagState, (page) => {
+      currentPage = page;
+      renderTable();
+    }, 'pat-pag');
 
     const searchInput = document.getElementById('pat-search-input') as HTMLInputElement | null;
     searchInput?.addEventListener('input', () => {
       searchQuery = searchInput.value;
+      currentPage = 1;
       renderTable();
       const newInput = document.getElementById('pat-search-input') as HTMLInputElement | null;
       if (newInput) {
