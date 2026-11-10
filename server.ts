@@ -235,6 +235,23 @@ async function startServer() {
     }
   });
 
+  // 0.c Download Inno Setup 6 Script (tlab-setup.iss)
+  app.get('/api/server/inno-setup-script', (_req, res) => {
+    try {
+      const issPath = path.join(__dirname, 'tlab-setup.iss');
+      if (fs.existsSync(issPath)) {
+        const content = fs.readFileSync(issPath, 'utf-8');
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="tlab-setup.iss"');
+        res.send(content);
+        return;
+      }
+      res.status(404).send('; tlab-setup.iss not found');
+    } catch (err: unknown) {
+      res.status(500).send(err instanceof Error ? err.message : String(err));
+    }
+  });
+
   // 1. Test MySQL 5.5 / 8.0.28 Connection
   app.post('/api/mysql/test-connection', async (req, res) => {
     const cfg = resolveConfig(req.body?.config);

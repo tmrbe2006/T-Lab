@@ -380,6 +380,13 @@ class MySQLSyncService {
             >
               💾 ${i18n.bi('حفظ بورت التشغيل', 'Save App Port')}
             </button>
+            <a
+              href="/api/server/inno-setup-script"
+              download="tlab-setup.iss"
+              class="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 cursor-pointer inline-flex items-center gap-1"
+            >
+              📦 ${i18n.bi('تنزيل ملف Inno Setup 6 (.iss)', 'Download Inno Setup 6 (.iss)')}
+            </a>
           </div>
         </div>
 
