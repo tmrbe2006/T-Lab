@@ -27,9 +27,29 @@
         window.addEventListener(
           'error',
           function (ev) {
+            var msg = (ev && ev.message ? String(ev.message) : '') + (ev && ev.error && ev.error.message ? String(ev.error.message) : '');
+            var file = ev && ev.filename ? String(ev.filename) : '';
             if (
-              (ev && ev.filename && String(ev.filename).indexOf('chrome-extension://') === 0) ||
-              (ev && ev.message && String(ev.message).indexOf('Cannot set property fetch') !== -1)
+              file.indexOf('chrome-extension://') === 0 ||
+              file.indexOf('@vite/client') !== -1 ||
+              msg.indexOf('Cannot set property fetch') !== -1 ||
+              msg.indexOf('WebSocket closed without opened') !== -1
+            ) {
+              ev.stopImmediatePropagation();
+              ev.preventDefault();
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'unhandledrejection',
+          function (ev) {
+            var reason = ev && ev.reason;
+            var msg = reason ? String(reason.message || reason) : '';
+            var stack = reason && reason.stack ? String(reason.stack) : '';
+            if (
+              msg.indexOf('WebSocket closed without opened') !== -1 ||
+              stack.indexOf('@vite/client') !== -1
             ) {
               ev.stopImmediatePropagation();
               ev.preventDefault();
