@@ -1,0 +1,233 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-ar: 'Cairo', 'Plus Jakarta Sans', sans-serif;
+    --font-en: 'Plus Jakarta Sans', 'Cairo', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --skin-primary: #0284c7;
+    --skin-primary-hover: #0369a1;
+    --skin-header-bg: #0f172a;
+    --skin-accent-soft: #e0f2fe;
+  }
+
+  html[lang="ar"] body {
+    font-family: var(--font-ar);
+  }
+
+  html[lang="en"] body {
+    font-family: var(--font-en);
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+}
+
+/* Dynamic Skin Classes */
+.skin-header {
+  background-color: var(--skin-header-bg) !important;
+}
+
+.skin-btn-primary,
+.bg-sky-600 {
+  background-color: var(--skin-primary) !important;
+}
+
+.skin-btn-primary:hover,
+.hover\:bg-sky-700:hover,
+.hover\:bg-sky-500:hover {
+  background-color: var(--skin-primary-hover) !important;
+}
+
+.skin-nav-active {
+  background-color: var(--skin-primary) !important;
+  color: #ffffff !important;
+}
+
+.text-sky-700 {
+  color: var(--skin-primary) !important;
+}
+
+/* Dark Mode Surface & Text Pairings (excluding print sheets) */
+html.dark body {
+  background-color: #090d16;
+  color: #f1f5f9;
+}
+
+html.dark #app .bg-slate-50 {
+  background-color: #0b1120;
+}
+
+html.dark #app .bg-slate-100 {
+  background-color: #111827;
+}
+
+html.dark #app .bg-white,
+html.dark #modal-root .bg-white:not(.print-paper-sheet) {
+  background-color: #131c2e;
+  color: #f1f5f9;
+}
+
+html.dark #app .border-slate-200,
+html.dark #app .border-slate-100,
+html.dark #modal-root .border-slate-200:not(.print-paper-sheet *) {
+  border-color: #1e293b;
+}
+
+html.dark #app .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b;
+}
+
+html.dark #app .text-slate-900,
+html.dark #modal-root .text-slate-900:not(.print-paper-sheet *) {
+  color: #f8fafc;
+}
+
+html.dark #app .text-slate-800,
+html.dark #app .text-slate-700,
+html.dark #modal-root .text-slate-700:not(.print-paper-sheet *) {
+  color: #cbd5e1;
+}
+
+html.dark #app .text-slate-600,
+html.dark #app .text-slate-500 {
+  color: #94a3b8;
+}
+
+html.dark #app input:not([type="checkbox"]),
+html.dark #app select,
+html.dark #app textarea,
+html.dark #modal-root input:not([type="checkbox"]),
+html.dark #modal-root select {
+  background-color: #0f172a;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+html.dark #app tr.hover\:bg-slate-50:hover,
+html.dark #app tr.hover\:bg-slate-50\/80:hover {
+  background-color: #1e293b;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+/* On-Screen Print Paper Sheet Preview Styling */
+.print-paper-sheet {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+.print-paper-sheet * {
+  color: inherit;
+}
+.print-paper-sheet table.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+.print-paper-sheet table.print-table th,
+.print-paper-sheet table.print-table td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 8px;
+  text-align: start;
+  color: #0f172a !important;
+}
+.print-paper-sheet table.print-table th {
+  background-color: #f1f5f9 !important;
+  font-weight: 700;
+}
+
+/* Print media rules: A4, Thermal 80mm, and Barcode Label */
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #app,
+  #modal-root,
+  #toast-root,
+  .no-print {
+    display: none !important;
+  }
+
+  #print-root {
+    display: block !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .print-a4 {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 12mm;
+    margin: 0 auto;
+    background: #fff !important;
+    color: #0f172a !important;
+    font-size: 12px;
+  }
+
+  .print-thermal {
+    width: 78mm;
+    padding: 4mm;
+    margin: 0 auto;
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11px;
+  }
+
+  .print-barcode {
+    width: 50mm;
+    min-height: 25mm;
+    padding: 2mm;
+    margin: 0 auto;
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10px;
+    text-align: center;
+    page-break-after: always;
+  }
+
+  table.print-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+
+  table.print-table th,
+  table.print-table td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: start;
+    color: #000 !important;
+  }
+
+  table.print-table th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

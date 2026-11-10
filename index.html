@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        try {
+          var currentFetch = window.fetch ? window.fetch.bind(window) : undefined;
+          if (currentFetch) {
+            var desc = {
+              configurable: true,
+              enumerable: true,
+              get: function () {
+                return currentFetch;
+              },
+              set: function (fn) {
+                currentFetch = fn;
+              },
+            };
+            Object.defineProperty(window, 'fetch', desc);
+            if (typeof Window !== 'undefined' && Window.prototype) {
+              Object.defineProperty(Window.prototype, 'fetch', desc);
+            }
+          }
+        } catch (e) {}
+        window.addEventListener(
+          'error',
+          function (ev) {
+            if (
+              (ev && ev.filename && String(ev.filename).indexOf('chrome-extension://') === 0) ||
+              (ev && ev.message && String(ev.message).indexOf('Cannot set property fetch') !== -1)
+            ) {
+              ev.stopImmediatePropagation();
+              ev.preventDefault();
+            }
+          },
+          true
+        );
+      })();
+    </script>
+    <title>Medical Lab Management System | نظام إدارة معمل التحاليل الطبية</title>
+    <meta name="description" content="نظام إدارة معمل تحاليل طبية متكامل ثنائي اللغة (عربي/إنجليزي) يعمل كتطبيق ويب تقدمي (PWA) مع قاعدة بيانات محلية IndexedDB ونظام محاسبي وصلاحيات متقدم." />
+    <meta property="og:title" content="Medical Lab Management System | نظام إدارة معمل التحاليل الطبية" />
+    <meta property="og:description" content="نظام إدارة معمل تحاليل طبية متكامل ثنائي اللغة (عربي/إنجليزي) يعمل كتطبيق ويب تقدمي (PWA) مع قاعدة بيانات محلية IndexedDB ونظام محاسبي وصلاحيات متقدم." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="MedLab Pro" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
+    <div id="app"></div>
+    <div id="print-root" class="hidden print:block"></div>
+    <div id="modal-root"></div>
+    <div id="toast-root" class="fixed bottom-4 z-50 flex flex-col gap-2 pointer-events-none" style="inset-inline-end: 1rem;"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

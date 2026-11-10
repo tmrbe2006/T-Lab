@@ -1,0 +1,6 @@
+{
+  "name": "Medical Lab Management System",
+  "description": "نظام إدارة معمل تحاليل طبية متكامل ثنائي اللغة (عربي/إنجليزي) يعمل كتطبيق ويب تقدمي (PWA) مع قاعدة بيانات محلية IndexedDB ونظام محاسبي وصلاحيات متقدم.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
