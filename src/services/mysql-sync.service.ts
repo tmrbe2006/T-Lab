@@ -282,6 +282,49 @@ class MySQLSyncService {
 
     return `
       <div class="space-y-5 text-xs">
+        <!-- App Server Port Selector (Windows / Local Server) -->
+        <div class="rounded-xl bg-white border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-sm text-slate-900">
+                🌐 ${i18n.bi('اختيار بورت تشغيل البرنامج (Server Port Selector)', 'Application Server Port Selector')}
+              </span>
+              <span id="${prefix}-active-port-badge" class="rounded-md bg-sky-100 text-sky-800 px-2 py-0.5 font-mono text-[11px] font-bold">
+                Port: ${window.location.port || '3000'}
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-500">
+              ${i18n.bi(
+                'اختر رقم البورت المفضل لتشغيل البرنامج على جهازك (أو شغل الملف start-windows.bat أو الأمر: npm run dev -- 4000):',
+                'Select your preferred port to run the app locally (or run start-windows.bat or: npm run dev -- 4000):'
+              )}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" data-port-preset="3000" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">3000</button>
+            <button type="button" data-port-preset="3001" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">3001</button>
+            <button type="button" data-port-preset="4000" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">4000</button>
+            <button type="button" data-port-preset="5000" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">5000</button>
+            <button type="button" data-port-preset="8080" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">8080</button>
+            <input
+              id="${prefix}-app-port-input"
+              type="number"
+              min="80"
+              max="65535"
+              value="${window.location.port || '3000'}"
+              placeholder="4000"
+              class="w-24 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-mono font-bold text-center"
+            />
+            <button
+              id="${prefix}-save-app-port-btn"
+              type="button"
+              class="rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer"
+            >
+              💾 ${i18n.bi('حفظ بورت التشغيل', 'Save App Port')}
+            </button>
+          </div>
+        </div>
+
         <!-- Quick Download .SQL Dump Banner -->
         <div class="rounded-xl bg-gradient-to-r from-slate-900 to-sky-950 text-white p-5 border border-sky-800/60 shadow-sm">
           <div class="flex flex-wrap items-center justify-between gap-4">
@@ -591,6 +634,67 @@ class MySQLSyncService {
         );
       } else {
         showResult(false, `✕ تعذر سحب البيانات من سيرفر MySQL: ${res.error}`);
+      }
+    });
+
+    // Load saved server port config
+    void fetch('/api/server/port-config')
+      .then((r) => r.json())
+      .then((info) => {
+        if (info?.savedPort) {
+          const portInput = container.querySelector(
+            `#${prefix}-app-port-input`
+          ) as HTMLInputElement | null;
+          if (portInput) portInput.value = String(info.savedPort);
+          const badge = container.querySelector(`#${prefix}-active-port-badge`);
+          if (badge) {
+            badge.textContent = `Active: ${info.activePort || 3000} | Saved: ${info.savedPort}`;
+          }
+        }
+      })
+      .catch(() => {});
+
+    container.querySelectorAll<HTMLButtonElement>(`.${prefix}-port-preset`).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const val = btn.getAttribute('data-port-preset');
+        const portInput = container.querySelector(
+          `#${prefix}-app-port-input`
+        ) as HTMLInputElement | null;
+        if (val && portInput) {
+          portInput.value = val;
+        }
+      });
+    });
+
+    container.querySelector(`#${prefix}-save-app-port-btn`)?.addEventListener('click', async () => {
+      const portInput = container.querySelector(
+        `#${prefix}-app-port-input`
+      ) as HTMLInputElement | null;
+      const desiredPort = Number(portInput?.value || 3000);
+      try {
+        const res = await fetch('/api/server/port-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port: desiredPort }),
+        });
+        const json = await res.json();
+        if (json.ok) {
+          showResult(
+            true,
+            `✓ تم حفظ بورت تشغيل البرنامج (${desiredPort}) في ملف port.config.json بنجاح! عند إعادة تشغيل السيرفر على جهازك سيعمل تلقائياً على http://localhost:${desiredPort}`
+          );
+          showToast(
+            i18n.bi(
+              `تم حفظ البورت ${desiredPort} بنجاح! أعد تشغيل السيرفر ليعمل عليه`,
+              `Port ${desiredPort} saved! Restart server to apply`
+            ),
+            'success'
+          );
+        } else {
+          showResult(false, `✕ ${json.error || 'تعذر حفظ البورت'}`);
+        }
+      } catch (e: unknown) {
+        showResult(false, `✕ ${e instanceof Error ? e.message : String(e)}`);
       }
     });
   }

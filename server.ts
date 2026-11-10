@@ -1,6 +1,7 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import fs from 'fs';
 import mysql from 'mysql2/promise';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -15,6 +16,50 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PORT_CONFIG_FILE = path.join(__dirname, 'port.config.json');
+
+function resolveRequestedPort(): number {
+  // 1. CLI arguments: e.g. `npm run dev -- 4000` or `npm run dev -- --port 4000`
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if ((arg === '--port' || arg === '-p') && args[i + 1]) {
+      const p = Number(args[i + 1]);
+      if (Number.isInteger(p) && p >= 80 && p <= 65535) return p;
+    }
+    if (arg.startsWith('--port=')) {
+      const p = Number(arg.split('=')[1]);
+      if (Number.isInteger(p) && p >= 80 && p <= 65535) return p;
+    }
+    if (/^\d{2,5}$/.test(arg)) {
+      const p = Number(arg);
+      if (p >= 80 && p <= 65535) return p;
+    }
+  }
+
+  // 2. Environment variable PORT
+  if (process.env.PORT) {
+    const envPort = Number(process.env.PORT);
+    if (Number.isInteger(envPort) && envPort >= 80 && envPort <= 65535) return envPort;
+  }
+
+  // 3. Saved port.config.json (used when running locally on Windows/Server outside cloud container)
+  if (process.cwd() !== '/app/applet') {
+    try {
+      if (fs.existsSync(PORT_CONFIG_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(PORT_CONFIG_FILE, 'utf-8'));
+        const savedPort = Number(parsed?.port);
+        if (Number.isInteger(savedPort) && savedPort >= 80 && savedPort <= 65535) {
+          return savedPort;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return 3000;
+}
 
 export interface MySQLConnectionConfig {
   host: string;
@@ -101,10 +146,41 @@ async function upsertRowInMySQL(
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT || 3000);
+  const PORT = resolveRequestedPort();
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+
+  // 0. Get & Save Preferred Local Server Port (port.config.json)
+  app.get('/api/server/port-config', (_req, res) => {
+    let savedPort = PORT;
+    try {
+      if (fs.existsSync(PORT_CONFIG_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(PORT_CONFIG_FILE, 'utf-8'));
+        if (parsed?.port) savedPort = Number(parsed.port);
+      }
+    } catch {
+      // ignore
+    }
+    res.json({ ok: true, activePort: PORT, savedPort });
+  });
+
+  app.post('/api/server/port-config', (req, res) => {
+    const newPort = Number(req.body?.port);
+    if (!Number.isInteger(newPort) || newPort < 80 || newPort > 65535) {
+      res.status(400).json({ ok: false, error: 'رقم البورت يجب أن يكون بين 80 و 65535' });
+      return;
+    }
+    try {
+      fs.writeFileSync(PORT_CONFIG_FILE, JSON.stringify({ port: newPort }, null, 2), 'utf-8');
+      res.json({ ok: true, savedPort: newPort, activePort: PORT });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
 
   // 1. Test MySQL 5.5 / 8.0.28 Connection
   app.post('/api/mysql/test-connection', async (req, res) => {
@@ -284,7 +360,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+        hmr: false,
       },
       appType: 'spa',
     });
@@ -297,9 +373,28 @@ async function startServer() {
     });
   }
 
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`T-Lab Server (with MySQL 5.5 / 8.0.28 Connector) running on http://localhost:${PORT}`);
-  });
+  const startListening = (portToTry: number) => {
+    const onError = (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE' && portToTry < 3010) {
+        console.warn(`⚠️ Port ${portToTry} is busy, trying port ${portToTry + 1}...`);
+        httpServer.removeListener('error', onError);
+        startListening(portToTry + 1);
+      } else {
+        console.error('Server failed to start:', err);
+      }
+    };
+
+    httpServer.once('error', onError);
+    httpServer.listen(portToTry, '0.0.0.0', () => {
+      httpServer.removeListener('error', onError);
+      console.log(`\n============================================================`);
+      console.log(`✅ T-Lab Server (MySQL 5.5 / 8.0.28 Ready) is running!`);
+      console.log(`🌐 Open in browser: http://localhost:${portToTry}`);
+      console.log(`============================================================\n`);
+    });
+  };
+
+  startListening(PORT);
 }
 
 startServer();

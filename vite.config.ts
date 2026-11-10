@@ -1,10 +1,34 @@
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
   plugins: [
+    {
+      name: 'silence-vite-ws-error',
+      transform(code, id) {
+        if (id.includes('vite/dist/client/client.mjs')) {
+          return code
+            .replace(
+              /reject\([^)]*"WebSocket closed without opened\."\)\);/g,
+              'resolve();'
+            )
+            .replace(
+              'transport.connect(createHMRHandler(handleMessage));',
+              'transport.connect(createHMRHandler(handleMessage)).catch(() => {});'
+            )
+            .replace(
+              'console.error(`[vite] failed to connect to websocket (${e}). `);',
+              ''
+            );
+        }
+        return null;
+      },
+    },
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -44,7 +68,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(rootDir, './src'),
     },
   },
   server: {
