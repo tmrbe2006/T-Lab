@@ -3,6 +3,7 @@ import { MedicalLabApp } from './app';
 import { authService } from './auth/auth.service';
 import { SecretsConfig } from './config/secrets.config';
 import { seedDatabase } from './db/seed';
+import { mysqlSyncService } from './services/mysql-sync.service';
 
 async function bootstrap(): Promise<void> {
   // Validate environment secrets configuration safely
@@ -17,8 +18,10 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  // Seed IndexedDB with initial demo data (if empty) and initialize Auth session
+  // Initialize Empty Database (Users + Roles + Permissions only by default)
   await seedDatabase(false);
+  // Automatically connect & pull from MySQL Server if running locally/configured in .env
+  await mysqlSyncService.autoSyncOnStartup();
   await authService.init();
 
   const root = document.getElementById('app');

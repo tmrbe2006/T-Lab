@@ -246,6 +246,7 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
   }
   try {
     localStorage.setItem('tlab_clean_db_mode', 'true');
+    localStorage.removeItem('tlab_demo_mode');
   } catch {
     // ignore
   }
@@ -255,6 +256,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
   if (forceReset) {
     try {
       localStorage.removeItem('tlab_clean_db_mode');
+      localStorage.setItem('tlab_demo_mode', 'true');
     } catch {
       // ignore
     }
@@ -264,13 +266,25 @@ export async function seedDatabase(forceReset = false): Promise<void> {
       }
     });
   } else {
+    const isDemoMode =
+      typeof localStorage !== 'undefined' && localStorage.getItem('tlab_demo_mode') === 'true';
+    if (!isDemoMode) {
+      // Default to Empty Database (all tables empty except Users, Roles, Permissions, Settings)
+      const isAlreadyClean =
+        typeof localStorage !== 'undefined' && localStorage.getItem('tlab_clean_db_mode') === 'true';
+      const existingUsers = await db.users.count();
+      if (!isAlreadyClean || existingUsers === 0) {
+        await resetToEmptyExceptUsers();
+      } else {
+        await db.permissions.bulkPut(buildRolePermissions());
+      }
+      return;
+    }
+
     const existingUsers = await db.users.count();
     if (existingUsers > 0) {
       await db.permissions.bulkPut(buildRolePermissions());
-      const isCleanMode = typeof localStorage !== 'undefined' && localStorage.getItem('tlab_clean_db_mode') === 'true';
-      if (!isCleanMode) {
-        await seedErpData(false);
-      }
+      await seedErpData(false);
       return;
     }
   }

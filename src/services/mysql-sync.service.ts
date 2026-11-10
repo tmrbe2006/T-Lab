@@ -214,11 +214,28 @@ class MySQLSyncService {
       try {
         for (const mapping of MYSQL_TABLES_CONFIG) {
           const rows = json.data[mapping.dexieTable];
-          if (Array.isArray(rows) && rows.length > 0) {
+          if (Array.isArray(rows)) {
+            if (
+              rows.length === 0 &&
+              (mapping.dexieTable === 'roles' ||
+                mapping.dexieTable === 'permissions' ||
+                mapping.dexieTable === 'settings' ||
+                mapping.dexieTable === 'users')
+            ) {
+              continue;
+            }
             const table = db.table(mapping.dexieTable);
             await table.clear();
-            await table.bulkPut(rows);
+            if (rows.length > 0) {
+              await table.bulkPut(rows);
+            }
           }
+        }
+        try {
+          localStorage.setItem('tlab_clean_db_mode', 'true');
+          localStorage.removeItem('tlab_demo_mode');
+        } catch {
+          // ignore
         }
         CacheService.clear();
       } finally {
@@ -234,6 +251,18 @@ class MySQLSyncService {
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+  }
+
+  /**
+   * Automatically pulls from the MySQL server configured in .env / localStorage on app startup
+   * so the user immediately enters their MySQL database (even if empty except users).
+   */
+  public async autoSyncOnStartup(): Promise<void> {
+    const cfg = this.getConfig();
+    const res = await this.pullAllFromMySQL(cfg);
+    if (res.ok) {
+      this.saveConfig({ ...cfg, autoSync: true });
     }
   }
 
@@ -613,7 +642,7 @@ class MySQLSyncService {
       CacheService.clear();
       showResult(
         true,
-        '✓ تم تفريغ جميع الجداول في البرنامج بالكامل مع الإبقاء على جدول المستخدمين فقط بنجاح!'
+        '✓ تم تفريغ جميع الجداول في البرنامج بالكامل مع الإبقاء على جدول المستخدمين فقط بنجاح! جاري تحديث الشاشة...'
       );
       showToast(
         i18n.bi(
@@ -622,6 +651,9 @@ class MySQLSyncService {
         ),
         'success'
       );
+      setTimeout(() => {
+        window.location.reload();
+      }, 600);
     });
 
     container.querySelector(`#${prefix}-dl-full-sql`)?.addEventListener('click', () => {
@@ -768,12 +800,15 @@ class MySQLSyncService {
       if (res.ok) {
         showResult(
           true,
-          `✓ تم سحب ${res.totalRowsPulled} سجلاً من قاعدة بيانات MySQL (${cfg.database}) وتحديث البرنامج بنجاح!`
+          `✓ تم سحب ${res.totalRowsPulled} سجلاً من قاعدة بيانات MySQL (${cfg.database}) وتحديث البرنامج بنجاح! جاري تحديث الشاشة...`
         );
         showToast(
           i18n.bi('تم سحب البيانات من سيرفر MySQL بنجاح', 'Data pulled from MySQL Server!'),
           'success'
         );
+        setTimeout(() => {
+          window.location.reload();
+        }, 600);
       } else {
         showResult(false, `✕ تعذر سحب البيانات من سيرفر MySQL: ${res.error}`);
       }
