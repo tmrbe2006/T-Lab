@@ -1,9 +1,11 @@
 import { closeModal, openModal, showToast } from '../components/common';
 import { db } from '../db/database';
 import {
+  buildEmptyExceptUsersMySQLDump,
   buildFullMySQLDump,
   MYSQL_TABLES_CONFIG,
 } from '../db/mysql-schema';
+import { resetToEmptyExceptUsers } from '../db/seed';
 import { i18n } from '../i18n';
 import { CacheService } from './cache.service';
 
@@ -96,6 +98,33 @@ class MySQLSyncService {
             'تم تنزيل ملف هيكل جداول MySQL (Schema Only) بنجاح',
             'MySQL Schema Only SQL file downloaded successfully'
           ),
+      'success'
+    );
+  }
+
+  /**
+   * Generates and downloads a MySQL 5.5 / 8.0.28 .sql script where all 26 tables
+   * are created and emptied (TRUNCATED), EXCEPT the `users` table.
+   */
+  public async downloadEmptyExceptUsersSQLDump(): Promise<void> {
+    const cfg = this.getConfig();
+    const usersRows = (await db.users.toArray()) as unknown as Record<string, unknown>[];
+    const sqlContent = buildEmptyExceptUsersMySQLDump(cfg.database || 'tlab_db', usersRows);
+
+    const blob = new Blob([sqlContent], { type: 'application/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const datePart = new Date().toISOString().slice(0, 10);
+    a.download = `tlab_empty_except_users_${datePart}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast(
+      i18n.bi(
+        'تم تنزيل اسكريبت قاعدة البيانات الفارغة (ماعدا جدول المستخدمين) بنجاح',
+        'Empty Database (Except Users) SQL Script downloaded successfully'
+      ),
       'success'
     );
   }
@@ -346,6 +375,13 @@ class MySQLSyncService {
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <button
+                id="${prefix}-dl-empty-users-sql"
+                type="button"
+                class="rounded-lg bg-amber-400 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300 cursor-pointer shadow-xs"
+              >
+                👤 ${i18n.bi('تنزيل اسكريبت قاعدة فارغة ماعدا المستخدمين (.SQL)', 'Download Empty DB Except Users (.SQL)')}
+              </button>
+              <button
                 id="${prefix}-dl-full-sql"
                 type="button"
                 class="rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 cursor-pointer shadow-xs"
@@ -358,6 +394,13 @@ class MySQLSyncService {
                 class="rounded-lg border border-white/25 bg-white/10 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-white/20 cursor-pointer"
               >
                 📄 ${i18n.bi('تنزيل هيكل الجداول فقط (Schema .SQL)', 'Download Schema Only (.SQL)')}
+              </button>
+              <button
+                id="${prefix}-clear-except-users-btn"
+                type="button"
+                class="rounded-lg bg-rose-600 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-rose-500 cursor-pointer"
+              >
+                🧹 ${i18n.bi('تفريغ جميع الجداول بالبرنامج ماعدا المستخدمين', 'Empty All Tables Except Users')}
               </button>
             </div>
           </div>
@@ -451,6 +494,13 @@ class MySQLSyncService {
             </label>
 
             <div class="flex flex-wrap items-center gap-2">
+              <button
+                id="${prefix}-save-env-btn"
+                type="button"
+                class="rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 cursor-pointer"
+              >
+                📄 ${i18n.bi('حفظ وتنزيل ملف .env', 'Save & Download .env')}
+              </button>
               <button
                 id="${prefix}-save-cfg"
                 type="button"
@@ -552,6 +602,28 @@ class MySQLSyncService {
       box.textContent = msg;
     };
 
+    container.querySelector(`#${prefix}-dl-empty-users-sql`)?.addEventListener('click', () => {
+      const cfg = readFormConfig();
+      this.saveConfig(cfg);
+      void this.downloadEmptyExceptUsersSQLDump();
+    });
+
+    container.querySelector(`#${prefix}-clear-except-users-btn`)?.addEventListener('click', async () => {
+      await resetToEmptyExceptUsers();
+      CacheService.clear();
+      showResult(
+        true,
+        '✓ تم تفريغ جميع الجداول في البرنامج بالكامل مع الإبقاء على جدول المستخدمين فقط بنجاح!'
+      );
+      showToast(
+        i18n.bi(
+          'تم تفريغ جميع الجداول بنجاح مع الإبقاء على المستخدمين فقط',
+          'All tables emptied except Users!'
+        ),
+        'success'
+      );
+    });
+
     container.querySelector(`#${prefix}-dl-full-sql`)?.addEventListener('click', () => {
       const cfg = readFormConfig();
       this.saveConfig(cfg);
@@ -562,6 +634,76 @@ class MySQLSyncService {
       const cfg = readFormConfig();
       this.saveConfig(cfg);
       void this.downloadSQLDump(false);
+    });
+
+    container.querySelector(`#${prefix}-save-env-btn`)?.addEventListener('click', async () => {
+      const cfg = readFormConfig();
+      this.saveConfig(cfg);
+      const portInput = container.querySelector(
+        `#${prefix}-app-port-input`
+      ) as HTMLInputElement | null;
+      const appPort = Number(portInput?.value || 3000);
+
+      const fallbackEnvText = [
+        '# ============================================================================',
+        '# T-Lab Medical Laboratory & ERP System - Server & MySQL Configuration (.env)',
+        '# إعدادات تشغيل السيرفر وربط قاعدة بيانات MySQL (5.5 / 8.0.28)',
+        '# ============================================================================',
+        '',
+        '# 1. إعدادات سيرفر البرنامج (Application Server Settings)',
+        `PORT=${appPort}`,
+        'HOST=0.0.0.0',
+        'NODE_ENV=development',
+        '',
+        '# 2. إعدادات سيرفر قاعدة بيانات MySQL (MySQL 5.5 / MySQL 8.0.28 Server Settings)',
+        `MYSQL_HOST=${cfg.host}`,
+        `MYSQL_PORT=${cfg.port}`,
+        `MYSQL_USER=${cfg.user}`,
+        `MYSQL_PASSWORD=${cfg.password || ''}`,
+        `MYSQL_DATABASE=${cfg.database}`,
+        'MYSQL_CHARSET=utf8_general_ci',
+        'MYSQL_CONNECTION_TIMEOUT=8000',
+        '',
+        '# 3. إعدادات المزامنة التلقائية مع MySQL (Auto-Sync Settings)',
+        `MYSQL_AUTO_SYNC=${cfg.autoSync ? 'true' : 'false'}`,
+        '',
+        '# 4. إعدادات إضافية اختيارية (Optional External Integrations)',
+        'GEMINI_API_KEY=',
+        `APP_URL=http://localhost:${appPort}`,
+        '',
+      ].join('\n');
+
+      let envContentToDownload = fallbackEnvText;
+      try {
+        const res = await fetch('/api/server/save-env', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appPort, config: cfg }),
+        });
+        const json = await res.json();
+        if (json?.ok && json?.envText) {
+          envContentToDownload = json.envText;
+        }
+      } catch {
+        // fallback to client download
+      }
+
+      const blob = new Blob([envContentToDownload], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '.env';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showResult(
+        true,
+        `✓ تم تحديث ملف .env في مجلد المشروع وتنزيل نسخة منه بنجاح (PORT=${appPort}, MYSQL=${cfg.user}@${cfg.host}:${cfg.port}/${cfg.database})`
+      );
+      showToast(
+        i18n.bi('تم حفظ وتنزيل ملف .env بنجاح', '.env file saved and downloaded!'),
+        'success'
+      );
     });
 
     container.querySelector(`#${prefix}-save-cfg`)?.addEventListener('click', () => {

@@ -627,3 +627,74 @@ export function buildFullMySQLDump(
   lines.push('-- End of T-Lab MySQL Dump');
   return lines.join('\n');
 }
+
+/**
+ * Generates a MySQL 5.5 & 8.0.28 script with ALL 26 tables created and emptied (TRUNCATED),
+ * EXCEPT the `users` table which is populated with the user accounts.
+ */
+export function buildEmptyExceptUsersMySQLDump(
+  databaseName: string,
+  usersRows: Record<string, unknown>[]
+): string {
+  const safeDb = databaseName.replace(/[^a-zA-Z0-9_]/g, '') || 'tlab_db';
+  const defaultUsers: Record<string, unknown>[] =
+    usersRows && usersRows.length > 0
+      ? usersRows
+      : [
+          { id: 'usr_1', username: 'owner', passwordHash: 'owner123', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
+          { id: 'usr_2', username: 'doctor', passwordHash: 'doctor123', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
+          { id: 'usr_3', username: 'chemist', passwordHash: 'chemist123', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
+          { id: 'usr_4', username: 'technician', passwordHash: 'tech123', fullNameAr: 'أحمد حسن فؤاد', fullNameEn: 'Ahmed Hassan Fouad', role: 'Technician', employeeId: 'emp_4', active: true, createdAt: '2023-05-01' },
+          { id: 'usr_5', username: 'admin', passwordHash: 'admin123', fullNameAr: 'مريم عادل نصار', fullNameEn: 'Mariam Adel Nassar', role: 'Receptionist', employeeId: 'emp_5', active: true, createdAt: '2023-07-12' },
+          { id: 'usr_6', username: 'accountant', passwordHash: 'accountant123', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
+        ];
+
+  const lines: string[] = [
+    '-- ============================================================================',
+    '-- T-Lab Medical Laboratory & ERP System - EMPTY DATABASE (EXCEPT USERS TABLE)',
+    '-- اسكريبت قاعدة بيانات فارغة الجداول بالكامل ماعدا جدول المستخدمين (users)',
+    '-- Compatible with: MySQL 5.5, 5.6, 5.7, and MySQL 8.0.28+ (Community Server)',
+    `-- Generated At: ${new Date().toISOString()}`,
+    `-- Target Database: ${safeDb}`,
+    '-- ============================================================================',
+    '',
+    'SET NAMES utf8;',
+    'SET time_zone = "+00:00";',
+    'SET foreign_key_checks = 0;',
+    'SET sql_mode = "NO_AUTO_VALUE_ON_ZERO";',
+    '',
+    `CREATE DATABASE IF NOT EXISTS \`${safeDb}\` DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;`,
+    `USE \`${safeDb}\`;`,
+    '',
+  ];
+
+  for (const mapping of MYSQL_TABLES_CONFIG) {
+    lines.push(`-- --------------------------------------------------------`);
+    lines.push(`-- Table structure for table \`${mapping.mysqlTable}\` (${mapping.titleAr})`);
+    lines.push(`-- --------------------------------------------------------`);
+    lines.push(buildCreateTableSQL(mapping));
+    lines.push(`TRUNCATE TABLE \`${mapping.mysqlTable}\`;`);
+    lines.push('');
+
+    if (mapping.dexieTable === 'users') {
+      const colNames = [...mapping.columns.map((c) => `\`${c.name}\``), '`raw_json`'].join(', ');
+      lines.push(`-- Dumping data ONLY for table \`users\` (${defaultUsers.length} user accounts)`);
+      const valuesList = defaultUsers.map((row) => {
+        const vals = [
+          ...mapping.columns.map((c) => escapeSqlValue(c.extract(row))),
+          escapeSqlValue(JSON.stringify(row)),
+        ];
+        return `(${vals.join(', ')})`;
+      });
+      lines.push(
+        `REPLACE INTO \`${mapping.mysqlTable}\` (${colNames}) VALUES\n${valuesList.join(',\n')};`
+      );
+      lines.push('');
+    }
+  }
+
+  lines.push('SET foreign_key_checks = 1;');
+  lines.push('-- End of T-Lab Empty Database (Users Only) SQL Script');
+  return lines.join('\n');
+}
+

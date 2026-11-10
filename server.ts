@@ -182,6 +182,59 @@ async function startServer() {
     }
   });
 
+  // 0.b Save Server & MySQL settings directly into .env file
+  app.post('/api/server/save-env', (req, res) => {
+    const appPort = Number(req.body?.appPort || PORT || 3000);
+    const cfg = resolveConfig(req.body?.config);
+    const autoSync = req.body?.config?.autoSync !== false;
+
+    const envText = [
+      '# ============================================================================',
+      '# T-Lab Medical Laboratory & ERP System - Server & MySQL Configuration (.env)',
+      '# إعدادات تشغيل السيرفر وربط قاعدة بيانات MySQL (5.5 / 8.0.28)',
+      '# ============================================================================',
+      '',
+      '# 1. إعدادات سيرفر البرنامج (Application Server Settings)',
+      `PORT=${appPort}`,
+      'HOST=0.0.0.0',
+      'NODE_ENV=development',
+      '',
+      '# 2. إعدادات سيرفر قاعدة بيانات MySQL (MySQL 5.5 / MySQL 8.0.28 Server Settings)',
+      `MYSQL_HOST=${cfg.host}`,
+      `MYSQL_PORT=${cfg.port}`,
+      `MYSQL_USER=${cfg.user}`,
+      `MYSQL_PASSWORD=${cfg.password || ''}`,
+      `MYSQL_DATABASE=${cfg.database}`,
+      'MYSQL_CHARSET=utf8_general_ci',
+      'MYSQL_CONNECTION_TIMEOUT=8000',
+      '',
+      '# 3. إعدادات المزامنة التلقائية مع MySQL (Auto-Sync Settings)',
+      `MYSQL_AUTO_SYNC=${autoSync ? 'true' : 'false'}`,
+      '',
+      '# 4. إعدادات إضافية اختيارية (Optional External Integrations)',
+      `GEMINI_API_KEY=${process.env.GEMINI_API_KEY || ''}`,
+      `APP_URL=http://localhost:${appPort}`,
+      '',
+    ].join('\n');
+
+    try {
+      const envFilePath = path.join(__dirname, '.env');
+      fs.writeFileSync(envFilePath, envText, 'utf-8');
+      fs.writeFileSync(PORT_CONFIG_FILE, JSON.stringify({ port: appPort }, null, 2), 'utf-8');
+      process.env.MYSQL_HOST = cfg.host;
+      process.env.MYSQL_PORT = String(cfg.port);
+      process.env.MYSQL_USER = cfg.user;
+      process.env.MYSQL_PASSWORD = cfg.password || '';
+      process.env.MYSQL_DATABASE = cfg.database;
+      res.json({ ok: true, envText });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   // 1. Test MySQL 5.5 / 8.0.28 Connection
   app.post('/api/mysql/test-connection', async (req, res) => {
     const cfg = resolveConfig(req.body?.config);

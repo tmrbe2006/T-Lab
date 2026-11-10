@@ -188,8 +188,76 @@ function buildRolePermissions(): RolePermission[] {
   return list;
 }
 
+export async function resetToEmptyExceptUsers(): Promise<void> {
+  const existingUsers = await db.users.toArray();
+  const existingRoles = await db.roles.toArray();
+  const existingSettings = await db.settings.toArray();
+
+  await db.transaction('rw', db.tables, async () => {
+    for (const table of db.tables) {
+      if (table.name === 'users' || table.name === 'roles' || table.name === 'permissions' || table.name === 'settings') {
+        continue;
+      }
+      await table.clear();
+    }
+  });
+
+  if (existingUsers.length === 0) {
+    await db.users.bulkPut([
+      { id: 'usr_1', username: 'owner', passwordHash: 'owner123', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
+      { id: 'usr_2', username: 'doctor', passwordHash: 'doctor123', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
+      { id: 'usr_3', username: 'chemist', passwordHash: 'chemist123', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
+      { id: 'usr_4', username: 'technician', passwordHash: 'tech123', fullNameAr: 'أحمد حسن فؤاد', fullNameEn: 'Ahmed Hassan Fouad', role: 'Technician', employeeId: 'emp_4', active: true, createdAt: '2023-05-01' },
+      { id: 'usr_5', username: 'admin', passwordHash: 'admin123', fullNameAr: 'مريم عادل نصار', fullNameEn: 'Mariam Adel Nassar', role: 'Receptionist', employeeId: 'emp_5', active: true, createdAt: '2023-07-12' },
+      { id: 'usr_6', username: 'accountant', passwordHash: 'accountant123', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
+    ]);
+  }
+  if (existingRoles.length === 0) {
+    await db.roles.bulkPut([
+      { id: 'role_owner', name: 'Owner', titleAr: 'مالك المعمل', titleEn: 'Lab Owner', descriptionAr: 'صلاحيات كاملة لإدارة النظام والمالية والصلاحيات', descriptionEn: 'Full system, financial, and permission control' },
+      { id: 'role_doctor', name: 'Doctor', titleAr: 'طبيب مختبر', titleEn: 'Lab Doctor', descriptionAr: 'مراجعة واعتماد النتائج الطبية والتقارير', descriptionEn: 'Medical review and final approval of lab results' },
+      { id: 'role_chemist', name: 'Chemist', titleAr: 'كيميائي', titleEn: 'Biochemist', descriptionAr: 'إجراء التحاليل وإدخال ومراجعة النتائج', descriptionEn: 'Perform analyses and enter/verify test parameters' },
+      { id: 'role_tech', name: 'Technician', titleAr: 'فني مختبر', titleEn: 'Lab Technician', descriptionAr: 'استقبال وسحب العينات وإدخال النتائج الأولية', descriptionEn: 'Sample collection, reception, and initial entry' },
+      { id: 'role_reception', name: 'Receptionist', titleAr: 'إداري / استقبال', titleEn: 'Receptionist', descriptionAr: 'تسجيل المرضى والطلبات والفواتير والمدفوعات', descriptionEn: 'Patient registration, requests, invoicing, and receipts' },
+      { id: 'role_accountant', name: 'Accountant', titleAr: 'محاسب', titleEn: 'Accountant', descriptionAr: 'إدارة الحسابات والقيود اليومية والصندوق وعمولات الأطباء', descriptionEn: 'Accounting, journal entries, cashbox, and doctor commissions' },
+    ]);
+  }
+  await db.permissions.bulkPut(buildRolePermissions());
+  if (existingSettings.length === 0) {
+    await db.settings.put({
+      id: 'default',
+      labNameAr: 'مختبرات الشفاء التخصصية للتحاليل الطبية',
+      labNameEn: 'Al-Shifa Specialized Medical Laboratories',
+      branchNameAr: 'الفرع الرئيسي',
+      branchNameEn: 'Main Branch',
+      addressAr: 'القاهرة',
+      addressEn: 'Cairo',
+      phone: '19014',
+      currency: 'EGP',
+      defaultTaxRate: 14,
+      defaultLanguage: 'ar',
+      enableCriticalAlerts: true,
+      commissionIncludesTax: true,
+      commissionFromCollectedOnly: true,
+      barcodeFormat: 'CODE128',
+      printFooterAr: 'تقرير معتمد إلكترونيًا',
+      printFooterEn: 'Electronically Validated Report',
+    });
+  }
+  try {
+    localStorage.setItem('tlab_clean_db_mode', 'true');
+  } catch {
+    // ignore
+  }
+}
+
 export async function seedDatabase(forceReset = false): Promise<void> {
   if (forceReset) {
+    try {
+      localStorage.removeItem('tlab_clean_db_mode');
+    } catch {
+      // ignore
+    }
     await db.transaction('rw', db.tables, async () => {
       for (const table of db.tables) {
         await table.clear();
@@ -198,9 +266,11 @@ export async function seedDatabase(forceReset = false): Promise<void> {
   } else {
     const existingUsers = await db.users.count();
     if (existingUsers > 0) {
-      // Ensure ERP version 3 data & permissions are seeded even on existing databases
       await db.permissions.bulkPut(buildRolePermissions());
-      await seedErpData(false);
+      const isCleanMode = typeof localStorage !== 'undefined' && localStorage.getItem('tlab_clean_db_mode') === 'true';
+      if (!isCleanMode) {
+        await seedErpData(false);
+      }
       return;
     }
   }
