@@ -1,9 +1,8 @@
 -- ============================================================================
 -- T-Lab Medical Laboratory & ERP System - EMPTY DATABASE (EXCEPT USERS TABLE)
 -- اسكريبت قاعدة بيانات فارغة الجداول بالكامل ماعدا جدول المستخدمين (users)
+-- يشمل الجداول الـ 29 الكاملة (بما فيها تخصصات الأطباء، الأقسام العلمية، وأنابيب السحب)
 -- Compatible with: MySQL 5.5, 5.6, 5.7, and MySQL 8.0.28+ (Community Server)
--- Generated At: 2026-11-10T17:09:32.116Z
--- Target Database: tlab_db
 -- ============================================================================
 
 SET NAMES utf8;
@@ -15,14 +14,16 @@ CREATE DATABASE IF NOT EXISTS `tlab_db` DEFAULT CHARACTER SET utf8 COLLATE utf8_
 USE `tlab_db`;
 
 -- --------------------------------------------------------
--- Table structure for table `patients` (المرضى (Patients))
+-- 1. جدول المرضى `patients` (يشمل الاسم بالإنجليزية وتاريخ الميلاد)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `patients` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
   `code` VARCHAR(64) NOT NULL,
   `name` VARCHAR(191) NOT NULL,
+  `name_en` VARCHAR(191),
   `gender` VARCHAR(16),
   `age` INT DEFAULT 0,
+  `birth_date` VARCHAR(32),
   `phone` VARCHAR(64),
   `national_id` VARCHAR(64),
   `address` VARCHAR(255),
@@ -37,7 +38,22 @@ CREATE TABLE IF NOT EXISTS `patients` (
 TRUNCATE TABLE `patients`;
 
 -- --------------------------------------------------------
--- Table structure for table `doctors` (الأطباء المحولون والداخليون (Doctors))
+-- 2. جدول تخصصات الأطباء `doctor_specialties` (جديد)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `doctor_specialties` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `code` VARCHAR(64) NOT NULL,
+  `name_ar` VARCHAR(191) NOT NULL,
+  `name_en` VARCHAR(191),
+  `notes` VARCHAR(255),
+  `active` TINYINT(1) DEFAULT 1,
+  `raw_json` LONGTEXT,
+  INDEX idx_doc_spec_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `doctor_specialties`;
+
+-- --------------------------------------------------------
+-- 3. جدول الأطباء المحولين والداخليين `doctors`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `doctors` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -57,7 +73,39 @@ CREATE TABLE IF NOT EXISTS `doctors` (
 TRUNCATE TABLE `doctors`;
 
 -- --------------------------------------------------------
--- Table structure for table `lab_tests` (كتالوج التحاليل الطبية (Lab Tests))
+-- 4. جدول الأقسام العلمية للتحاليل `scientific_departments` (جديد)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `scientific_departments` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `code` VARCHAR(64) NOT NULL,
+  `name_ar` VARCHAR(191) NOT NULL,
+  `name_en` VARCHAR(191),
+  `notes` VARCHAR(255),
+  `active` TINYINT(1) DEFAULT 1,
+  `raw_json` LONGTEXT,
+  INDEX idx_sci_dept_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `scientific_departments`;
+
+-- --------------------------------------------------------
+-- 5. جدول أنواع أنابيب سحب العينات `sample_tubes` (جديد)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `sample_tubes` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `code` VARCHAR(64) NOT NULL,
+  `name_ar` VARCHAR(191) NOT NULL,
+  `name_en` VARCHAR(191),
+  `cap_color` VARCHAR(64),
+  `additive` VARCHAR(128),
+  `notes` VARCHAR(255),
+  `active` TINYINT(1) DEFAULT 1,
+  `raw_json` LONGTEXT,
+  INDEX idx_sample_tubes_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `sample_tubes`;
+
+-- --------------------------------------------------------
+-- 6. جدول كتالوج التحاليل الطبية `lab_tests`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `lab_tests` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -66,6 +114,7 @@ CREATE TABLE IF NOT EXISTS `lab_tests` (
   `name_en` VARCHAR(191),
   `department` VARCHAR(128),
   `sample_type` VARCHAR(128),
+  `tube_type` VARCHAR(128),
   `price` DECIMAL(12,2) DEFAULT 0.00,
   `tat_hours` INT DEFAULT 24,
   `commission_eligible` TINYINT(1) DEFAULT 1,
@@ -77,7 +126,7 @@ CREATE TABLE IF NOT EXISTS `lab_tests` (
 TRUNCATE TABLE `lab_tests`;
 
 -- --------------------------------------------------------
--- Table structure for table `test_parameters` (بارامترات التحاليل والمعدلات الطبيعية (Test Parameters))
+-- 7. جدول بارامترات التحاليل `test_parameters`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `test_parameters` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -95,7 +144,7 @@ CREATE TABLE IF NOT EXISTS `test_parameters` (
 TRUNCATE TABLE `test_parameters`;
 
 -- --------------------------------------------------------
--- Table structure for table `lab_requests` (طلبات التحاليل (Lab Requests))
+-- 8. جدول طلبات التحاليل `lab_requests`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `lab_requests` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -116,7 +165,7 @@ CREATE TABLE IF NOT EXISTS `lab_requests` (
 TRUNCATE TABLE `lab_requests`;
 
 -- --------------------------------------------------------
--- Table structure for table `request_items` (بنود طلبات التحاليل (Request Items))
+-- 9. جدول بنود طلبات التحاليل `request_items`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `request_items` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -130,7 +179,7 @@ CREATE TABLE IF NOT EXISTS `request_items` (
 TRUNCATE TABLE `request_items`;
 
 -- --------------------------------------------------------
--- Table structure for table `samples` (العينات والباركود (Samples))
+-- 10. جدول العينات والباركود `samples`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `samples` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -147,7 +196,7 @@ CREATE TABLE IF NOT EXISTS `samples` (
 TRUNCATE TABLE `samples`;
 
 -- --------------------------------------------------------
--- Table structure for table `lab_results` (نتائج التحاليل الطبية (Lab Results))
+-- 11. جدول نتائج التحاليل الطبية `lab_results`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `lab_results` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -165,7 +214,7 @@ CREATE TABLE IF NOT EXISTS `lab_results` (
 TRUNCATE TABLE `lab_results`;
 
 -- --------------------------------------------------------
--- Table structure for table `invoices` (فواتير المرضى (Invoices))
+-- 12. جدول فواتير المرضى `invoices`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `invoices` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -190,7 +239,7 @@ CREATE TABLE IF NOT EXISTS `invoices` (
 TRUNCATE TABLE `invoices`;
 
 -- --------------------------------------------------------
--- Table structure for table `invoice_items` (بنود الفواتير (Invoice Items))
+-- 13. جدول بنود الفواتير `invoice_items`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `invoice_items` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -205,7 +254,7 @@ CREATE TABLE IF NOT EXISTS `invoice_items` (
 TRUNCATE TABLE `invoice_items`;
 
 -- --------------------------------------------------------
--- Table structure for table `payments` (سندات القبض والمدفوعات (Payments))
+-- 14. جدول سندات القبض والمدفوعات `payments`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `payments` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -222,7 +271,7 @@ CREATE TABLE IF NOT EXISTS `payments` (
 TRUNCATE TABLE `payments`;
 
 -- --------------------------------------------------------
--- Table structure for table `expenses` (المصروفات (Expenses))
+-- 15. جدول المصروفات `expenses`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `expenses` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -239,7 +288,7 @@ CREATE TABLE IF NOT EXISTS `expenses` (
 TRUNCATE TABLE `expenses`;
 
 -- --------------------------------------------------------
--- Table structure for table `doctor_commissions` (عمولات الأطباء (Doctor Commissions))
+-- 16. جدول عمولات الأطباء `doctor_commissions`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `doctor_commissions` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -257,7 +306,7 @@ CREATE TABLE IF NOT EXISTS `doctor_commissions` (
 TRUNCATE TABLE `doctor_commissions`;
 
 -- --------------------------------------------------------
--- Table structure for table `inventory_items` (أصناف المخزون والكواشف (Inventory Items))
+-- 17. جدول أصناف المخزون والكواشف `inventory_items`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `inventory_items` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -278,7 +327,7 @@ CREATE TABLE IF NOT EXISTS `inventory_items` (
 TRUNCATE TABLE `inventory_items`;
 
 -- --------------------------------------------------------
--- Table structure for table `inventory_lots` (التشغيلات وتواريخ الصلاحية (Inventory Lots / FEFO))
+-- 18. جدول التشغيلات وتواريخ الصلاحية `inventory_lots`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `inventory_lots` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -297,7 +346,7 @@ CREATE TABLE IF NOT EXISTS `inventory_lots` (
 TRUNCATE TABLE `inventory_lots`;
 
 -- --------------------------------------------------------
--- Table structure for table `stock_movements` (حركات المخزون (Stock Movements))
+-- 19. جدول حركات المخزون `stock_movements`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `stock_movements` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -315,7 +364,7 @@ CREATE TABLE IF NOT EXISTS `stock_movements` (
 TRUNCATE TABLE `stock_movements`;
 
 -- --------------------------------------------------------
--- Table structure for table `test_boms` (قوائم استهلاك الكواشف للتحاليل (Test BOMs))
+-- 20. جدول قوائم استهلاك الكواشف `test_boms`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `test_boms` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -329,7 +378,7 @@ CREATE TABLE IF NOT EXISTS `test_boms` (
 TRUNCATE TABLE `test_boms`;
 
 -- --------------------------------------------------------
--- Table structure for table `stock_taking_sessions` (جلسات الجرد الدوري للمخزون (Stock Taking Sessions))
+-- 21. جدول جلسات الجرد الدوري `stock_taking_sessions`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `stock_taking_sessions` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -344,7 +393,7 @@ CREATE TABLE IF NOT EXISTS `stock_taking_sessions` (
 TRUNCATE TABLE `stock_taking_sessions`;
 
 -- --------------------------------------------------------
--- Table structure for table `suppliers` (الموردون والشركات (Suppliers))
+-- 22. جدول الموردين والشركات `suppliers`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `suppliers` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -361,7 +410,7 @@ CREATE TABLE IF NOT EXISTS `suppliers` (
 TRUNCATE TABLE `suppliers`;
 
 -- --------------------------------------------------------
--- Table structure for table `purchase_invoices` (فواتير المشتريات والتوريد (Purchase Invoices))
+-- 23. جدول فواتير المشتريات والتوريد `purchase_invoices`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `purchase_invoices` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -379,7 +428,7 @@ CREATE TABLE IF NOT EXISTS `purchase_invoices` (
 TRUNCATE TABLE `purchase_invoices`;
 
 -- --------------------------------------------------------
--- Table structure for table `return_notes` (إشعارات المرتجعات الدائنة والمدينة (Return Notes))
+-- 24. جدول إشعارات المرتجعات `return_notes`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `return_notes` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -395,7 +444,7 @@ CREATE TABLE IF NOT EXISTS `return_notes` (
 TRUNCATE TABLE `return_notes`;
 
 -- --------------------------------------------------------
--- Table structure for table `chart_of_accounts` (شجرة الحسابات المحاسبية (Chart of Accounts))
+-- 25. جدول شجرة الحسابات المحاسبية `chart_of_accounts`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `chart_of_accounts` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -412,7 +461,7 @@ CREATE TABLE IF NOT EXISTS `chart_of_accounts` (
 TRUNCATE TABLE `chart_of_accounts`;
 
 -- --------------------------------------------------------
--- Table structure for table `journal_entries` (قيود اليومية المحاسبية (Journal Entries))
+-- 26. جدول قيود اليومية المحاسبية `journal_entries`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `journal_entries` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -431,7 +480,7 @@ CREATE TABLE IF NOT EXISTS `journal_entries` (
 TRUNCATE TABLE `journal_entries`;
 
 -- --------------------------------------------------------
--- Table structure for table `cost_centers` (مراكز التكلفة (Cost Centers))
+-- 27. جدول مراكز التكلفة `cost_centers`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `cost_centers` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -444,7 +493,7 @@ CREATE TABLE IF NOT EXISTS `cost_centers` (
 TRUNCATE TABLE `cost_centers`;
 
 -- --------------------------------------------------------
--- Table structure for table `period_locks` (إقفال الفترات المحاسبية (Period Closing Locks))
+-- 28. جدول إقفال الفترات المحاسبية `period_locks`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `period_locks` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -455,7 +504,7 @@ CREATE TABLE IF NOT EXISTS `period_locks` (
 TRUNCATE TABLE `period_locks`;
 
 -- --------------------------------------------------------
--- Table structure for table `cashbox_sessions` (ورديات الخزينة (Cashbox Sessions))
+-- 29. جدول ورديات الخزينة `cashbox_sessions`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `cashbox_sessions` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -468,7 +517,7 @@ CREATE TABLE IF NOT EXISTS `cashbox_sessions` (
 TRUNCATE TABLE `cashbox_sessions`;
 
 -- --------------------------------------------------------
--- Table structure for table `daily_closings` (التقفيل اليومي (Daily Closings))
+-- 30. جدول التقفيل اليومي `daily_closings`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `daily_closings` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -481,7 +530,7 @@ CREATE TABLE IF NOT EXISTS `daily_closings` (
 TRUNCATE TABLE `daily_closings`;
 
 -- --------------------------------------------------------
--- Table structure for table `employees` (الموظفون (Employees))
+-- 31. جدول الموظفين `employees`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `employees` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -496,7 +545,7 @@ CREATE TABLE IF NOT EXISTS `employees` (
 TRUNCATE TABLE `employees`;
 
 -- --------------------------------------------------------
--- Table structure for table `users` (حسابات المستخدمين (Users))
+-- 32. جدول حسابات المستخدمين `users` (الجدول الوحيد الممتلئ بالحسابات)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `users` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -509,7 +558,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 TRUNCATE TABLE `users`;
 
--- Dumping data ONLY for table `users` (6 user accounts)
+-- إدراج حسابات المستخدمين الافتراضية فقط في جدول `users`
 REPLACE INTO `users` (`id`, `username`, `full_name_ar`, `role`, `active`, `raw_json`) VALUES
 ('usr_1', 'owner', 'د. طارق المنشاوي (المالك)', 'Owner', 1, '{"id":"usr_1","username":"owner","passwordHash":"owner123","fullNameAr":"د. طارق المنشاوي (المالك)","fullNameEn":"Dr. Tarek El-Menshawy (Owner)","role":"Owner","employeeId":"emp_1","active":true,"createdAt":"2022-01-10"}'),
 ('usr_2', 'doctor', 'د. سلمى عبد الرحمن', 'Doctor', 1, '{"id":"usr_2","username":"doctor","passwordHash":"doctor123","fullNameAr":"د. سلمى عبد الرحمن","fullNameEn":"Dr. Salma Abdelrahman","role":"Doctor","employeeId":"emp_2","active":true,"createdAt":"2022-03-15"}'),
@@ -519,7 +568,7 @@ REPLACE INTO `users` (`id`, `username`, `full_name_ar`, `role`, `active`, `raw_j
 ('usr_6', 'accountant', 'خالد سعيد منصور', 'Accountant', 1, '{"id":"usr_6","username":"accountant","passwordHash":"accountant123","fullNameAr":"خالد سعيد منصور","fullNameEn":"Khaled Saeed Mansour","role":"Accountant","employeeId":"emp_6","active":true,"createdAt":"2022-11-01"}');
 
 -- --------------------------------------------------------
--- Table structure for table `roles` (الأدوار الوظيفية (Roles))
+-- 33. جدول الأدوار الوظيفية `roles`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `roles` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -530,7 +579,7 @@ CREATE TABLE IF NOT EXISTS `roles` (
 TRUNCATE TABLE `roles`;
 
 -- --------------------------------------------------------
--- Table structure for table `role_permissions` (صلاحيات الأدوار (Role Permissions))
+-- 34. جدول صلاحيات الأدوار `role_permissions`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `role_permissions` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -546,7 +595,7 @@ CREATE TABLE IF NOT EXISTS `role_permissions` (
 TRUNCATE TABLE `role_permissions`;
 
 -- --------------------------------------------------------
--- Table structure for table `lab_settings` (إعدادات المعمل (Lab Settings))
+-- 35. جدول إعدادات المعمل `lab_settings`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `lab_settings` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -560,7 +609,7 @@ CREATE TABLE IF NOT EXISTS `lab_settings` (
 TRUNCATE TABLE `lab_settings`;
 
 -- --------------------------------------------------------
--- Table structure for table `audit_logs` (سجل المراجعة الأمني (Audit Logs))
+-- 36. جدول سجل المراجعة الأمني `audit_logs`
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `audit_logs` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
