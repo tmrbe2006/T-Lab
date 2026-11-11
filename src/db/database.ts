@@ -86,6 +86,14 @@ export class MedicalLabDatabase extends Dexie {
   aiRecognitionFindings!: Table<import('../types').AiRecognitionFindingRecord, string>;
   aiCorrections!: Table<import('../types').AiUserCorrectionRecord, string>;
 
+  // Version 7 Enterprise Global Lab Modules (Critical Logs, Microbiology, QC Westgard, Home Visits, Corporate Contracts)
+  criticalValueLogs!: Table<import('../types').CriticalValueLog, string>;
+  cultureResults!: Table<import('../types').CultureSensitivityRecord, string>;
+  qcControlLots!: Table<import('../types').QcControlLot, string>;
+  qcRuns!: Table<import('../types').QcRunRecord, string>;
+  homeVisits!: Table<import('../types').HomeVisitRecord, string>;
+  corporateContracts!: Table<import('../types').CorporateContract, string>;
+
   constructor() {
     super('MedicalLabDB_v1');
 
@@ -163,6 +171,16 @@ export class MedicalLabDatabase extends Dexie {
       aiImageAnalyses: 'id, analysisNumber, modality, patientId, requestId, status, hasCriticalAlert, createdAt',
       aiRecognitionFindings: 'id, analysisId, analysisNumber, modality, groupKey, code, semanticColor, confidence, createdAt',
       aiCorrections: 'id, analysisId, findingId, modality, groupKey, originalCode, correctedCode, correctedBy, createdAt',
+    });
+
+    // Version 7: Global Enterprise Modules (Critical Value Logs, Cultures & Antibiogram, Westgard QC, Home Visits, Corporate Contracts)
+    this.version(7).stores({
+      criticalValueLogs: 'id, logNumber, resultId, requestId, patientId, notifiedAt, status',
+      cultureResults: 'id, reportNumber, requestId, patientId, specimenType, organismCode, status, createdAt',
+      qcControlLots: 'id, lotNumber, analyzerName, testId, level, active',
+      qcRuns: 'id, lotId, testId, level, runDate, westgardRule, status',
+      homeVisits: 'id, visitNumber, patientId, phlebotomistId, scheduledDate, status',
+      corporateContracts: 'id, code, category, active',
     });
   }
 }

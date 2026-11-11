@@ -1,5 +1,6 @@
 import { db } from './database';
 import { seedErpData } from './erp-seed';
+import { buildGlobalCatalogRecords, syncGlobalMedicalCatalog } from './global-medical-tests';
 import type {
   Account,
   AuditLog,
@@ -54,6 +55,10 @@ export const ALL_RESOURCES: ResourceScreen[] = [
   'bloodFilmAi',
   'urineMicroscopyAi',
   'stoolMicroscopyAi',
+  'microbiology',
+  'qualityControl',
+  'homeVisits',
+  'corporateContracts',
   'resultReview',
   'reports',
   'invoices',
@@ -115,6 +120,10 @@ function buildRolePermissions(): RolePermission[] {
             'bloodFilmAi',
             'urineMicroscopyAi',
             'stoolMicroscopyAi',
+            'microbiology',
+            'qualityControl',
+            'homeVisits',
+            'corporateContracts',
             'resultReview',
             'reports',
             'printing',
@@ -136,6 +145,9 @@ function buildRolePermissions(): RolePermission[] {
             'bloodFilmAi',
             'urineMicroscopyAi',
             'stoolMicroscopyAi',
+            'microbiology',
+            'qualityControl',
+            'homeVisits',
             'resultReview',
             'printing',
             'inventory',
@@ -154,6 +166,9 @@ function buildRolePermissions(): RolePermission[] {
             'bloodFilmAi',
             'urineMicroscopyAi',
             'stoolMicroscopyAi',
+            'microbiology',
+            'qualityControl',
+            'homeVisits',
             'printing',
             'inventory',
           ];
@@ -171,6 +186,8 @@ function buildRolePermissions(): RolePermission[] {
             'sampleTubes',
             'requests',
             'samples',
+            'homeVisits',
+            'corporateContracts',
             'invoices',
             'payments',
             'printing',
@@ -183,6 +200,7 @@ function buildRolePermissions(): RolePermission[] {
             'dashboard',
             'doctors',
             'doctorSpecialties',
+            'corporateContracts',
             'invoices',
             'payments',
             'accounts',
@@ -263,6 +281,9 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
   await db.doctorSpecialties.bulkPut(DEFAULT_DOCTOR_SPECIALTIES);
   await db.scientificDepartments.bulkPut(DEFAULT_SCIENTIFIC_DEPARTMENTS);
   await db.sampleTubes.bulkPut(DEFAULT_SAMPLE_TUBES);
+  const { tests: globalTests, testParameters: globalParams } = buildGlobalCatalogRecords();
+  await db.tests.bulkPut(globalTests);
+  await db.testParameters.bulkPut(globalParams);
   if (existingSettings.length === 0) {
     await db.settings.put({
       id: 'default',
@@ -317,6 +338,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
         await resetToEmptyExceptUsers();
       } else {
         await db.permissions.bulkPut(buildRolePermissions());
+        await syncGlobalMedicalCatalog(false);
       }
       return;
     }
@@ -324,6 +346,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
     const existingUsers = await db.users.count();
     if (existingUsers > 0) {
       await db.permissions.bulkPut(buildRolePermissions());
+      await syncGlobalMedicalCatalog(false);
       await seedErpData(false);
       return;
     }
@@ -420,99 +443,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
     };
   });
 
-  const rawTests: Array<[string, string, string, string, string, string, string, number, number, boolean]> = [
-    ['CBC', 'صورة دم كاملة', 'Complete Blood Count (CBC)', 'أمراض الدم', 'Whole Blood', 'EDTA Purple', '2 Hours', 180, 45, true],
-    ['FBS', 'سكر صائم بالدم', 'Fasting Blood Sugar (FBS)', 'الكيمياء الحيوية', 'Serum / Plasma', 'Fluoride Gray', '1 Hour', 90, 20, true],
-    ['HBA1C', 'السكر التراكمي HbA1c', 'Glycated Hemoglobin (HbA1c)', 'الكيمياء الحيوية', 'Whole Blood', 'EDTA Purple', '3 Hours', 280, 75, true],
-    ['LIPID', 'ملف الدهون الكامل', 'Complete Lipid Profile', 'الكيمياء الحيوية', 'Serum', 'Plain Red / Gel', '4 Hours', 380, 95, true],
-    ['ALT', 'إنزيم الكبد ALT (SGPT)', 'Alanine Aminotransferase (ALT)', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 120, 30, true],
-    ['AST', 'إنزيم الكبد AST (SGOT)', 'Aspartate Aminotransferase (AST)', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 120, 30, true],
-    ['BIL-T', 'الصفراء الكلية والمباشرة', 'Total & Direct Bilirubin', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 150, 35, true],
-    ['ALB', 'الألبومين بالدم', 'Serum Albumin', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 110, 25, true],
-    ['CREAT', 'الكرياتينين بالدم (وظائف كلى)', 'Serum Creatinine', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 110, 25, true],
-    ['UREA', 'البولينا بالدم', 'Blood Urea', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 110, 25, true],
-    ['UA', 'حمض اليوريك (النقرس)', 'Serum Uric Acid', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '2 Hours', 120, 28, true],
-    ['TSH', 'هرمون الغدة الدرقية TSH', 'Thyroid Stimulating Hormone (TSH)', 'الهرمونات', 'Serum', 'Gel Yellow', '6 Hours', 260, 70, true],
-    ['FT3', 'هرمون الغدة الدرقية الحر FT3', 'Free Triiodothyronine (FT3)', 'الهرمونات', 'Serum', 'Gel Yellow', '6 Hours', 240, 65, true],
-    ['FT4', 'هرمون الثيروكسين الحر FT4', 'Free Thyroxine (FT4)', 'الهرمونات', 'Serum', 'Gel Yellow', '6 Hours', 240, 65, true],
-    ['VIT-D', 'فيتامين د الكلي 25-OH', '25-Hydroxy Vitamin D', 'الهرمونات', 'Serum', 'Gel Yellow', '12 Hours', 550, 160, true],
-    ['VIT-B12', 'فيتامين ب12', 'Vitamin B12', 'الهرمونات', 'Serum', 'Gel Yellow', '12 Hours', 420, 120, true],
-    ['FERR', 'مخزون الحديد بالدم', 'Serum Ferritin', 'الهرمونات', 'Serum', 'Gel Yellow', '6 Hours', 320, 85, true],
-    ['IRON', 'الحديد الكلي بالدم', 'Serum Iron & TIBC', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '4 Hours', 220, 55, true],
-    ['CRP', 'بروتين سي التفاعلي الكمي', 'C-Reactive Protein (Quantitative)', 'المناعة', 'Serum', 'Plain Red', '2 Hours', 190, 45, true],
-    ['ESR', 'سرعة الترسيب', 'Erythrocyte Sedimentation Rate (ESR)', 'أمراض الدم', 'Whole Blood', 'Citrate Black', '2 Hours', 80, 15, false],
-    ['PT-INR', 'زمن وسيولة الدم PT & INR', 'Prothrombin Time & INR', 'أمراض الدم', 'Plasma', 'Citrate Blue', '2 Hours', 160, 40, true],
-    ['PTT', 'زمن التجلط الجزئي PTT', 'Activated Partial Thromboplastin Time', 'أمراض الدم', 'Plasma', 'Citrate Blue', '2 Hours', 160, 40, true],
-    ['D-DIMER', 'تحليل التجلط D-Dimer', 'D-Dimer Quantitative', 'أمراض الدم', 'Plasma', 'Citrate Blue', '3 Hours', 450, 130, true],
-    ['TROP-I', 'إنزيم القلب عالي الحساسية Troponin-I', 'High-Sensitivity Troponin-I', 'الكيمياء الحيوية', 'Serum', 'Heparin / Gel', '1 Hour', 480, 140, true],
-    ['PSA-T', 'دلالات أورام البروستاتا PSA', 'Total Prostate Specific Antigen (PSA)', 'الهرمونات', 'Serum', 'Gel Yellow', '12 Hours', 390, 110, true],
-    ['CA125', 'دلالات أورام المبيض CA-125', 'Cancer Antigen 125 (CA-125)', 'الهرمونات', 'Serum', 'Gel Yellow', '12 Hours', 420, 120, true],
-    ['BHCG', 'اختبار الحمل الرقمي بالدم', 'Beta-hCG Quantitative', 'الهرمونات', 'Serum', 'Gel Yellow', '3 Hours', 250, 60, true],
-    ['PRL', 'هرمون الحليب البرولاكتين', 'Serum Prolactin', 'الهرمونات', 'Serum', 'Gel Yellow', '6 Hours', 260, 70, true],
-    ['CALC', 'الكالسيوم الكلي والمتأين', 'Total & Ionized Calcium', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '3 Hours', 180, 45, true],
-    ['NA-K', 'الصوديوم والبوتاسيوم بالدم', 'Serum Electrolytes (Na & K)', 'الكيمياء الحيوية', 'Serum', 'Heparin Green', '2 Hours', 200, 50, true],
-    ['MG', 'الماغنسيوم بالدم', 'Serum Magnesium', 'الكيمياء الحيوية', 'Serum', 'Plain Red', '3 Hours', 150, 35, true],
-    ['HCV-AB', 'الأجسام المضادة لفيروس سي', 'HCV Antibodies (ELISA)', 'المناعة', 'Serum', 'Gel Yellow', '6 Hours', 220, 55, true],
-    ['HBSAG', 'المستضد السطحي لفيروس بي', 'HBsAg (ELISA)', 'المناعة', 'Serum', 'Gel Yellow', '6 Hours', 220, 55, true],
-    ['URINE', 'تحليل البول الكامل', 'Complete Urine Analysis', 'الطفيليات والميكروبيولوجي', 'Urine', 'Sterile Cup', '1 Hour', 90, 18, false],
-    ['STOOL', 'تحليل البراز الكامل', 'Complete Stool Analysis', 'الطفيليات والميكروبيولوجي', 'Stool', 'Sterile Cup', '1 Hour', 90, 18, false],
-  ];
-
-  const tests: LabTest[] = rawTests.map(
-    ([code, nameAr, nameEn, department, sampleType, tubeType, turnaroundTime, price, estimatedCost, commissionEligible], idx) => ({
-      id: `tst_${idx + 1}`,
-      code,
-      nameAr,
-      nameEn,
-      department,
-      sampleType,
-      tubeType,
-      turnaroundTime,
-      price,
-      estimatedCost,
-      active: true,
-      commissionEligible,
-      notes: 'يُحفظ في درجة حرارة الغرفة القياسية ويفصل خلال ساعة',
-    })
-  );
-
-  // Build test parameters: multi-parameter for CBC & Lipid Profile, plus standard parameters for all 35 tests
-  const testParameters: TestParameter[] = [
-    { id: 'prm_1', testId: 'tst_1', code: 'WBC', nameAr: 'كرات الدم البيضاء', nameEn: 'White Blood Cells (WBC)', unit: '10^3/µL', normalMaleMin: 4.0, normalMaleMax: 11.0, normalFemaleMin: 4.0, normalFemaleMax: 11.0, normalRangeText: '4.0 - 11.0', criticalLow: 2.0, criticalHigh: 30.0, resultType: 'numeric', decimalPlaces: 1, sortOrder: 1, active: true },
-    { id: 'prm_2', testId: 'tst_1', code: 'RBC', nameAr: 'كرات الدم الحمراء', nameEn: 'Red Blood Cells (RBC)', unit: '10^6/µL', normalMaleMin: 4.5, normalMaleMax: 5.9, normalFemaleMin: 4.1, normalFemaleMax: 5.1, normalRangeText: 'M: 4.5-5.9 / F: 4.1-5.1', criticalLow: 2.5, criticalHigh: 7.5, resultType: 'numeric', decimalPlaces: 2, sortOrder: 2, active: true },
-    { id: 'prm_3', testId: 'tst_1', code: 'HGB', nameAr: 'الهيموجلوبين', nameEn: 'Hemoglobin (Hb)', unit: 'g/dL', normalMaleMin: 13.5, normalMaleMax: 17.5, normalFemaleMin: 12.0, normalFemaleMax: 16.0, normalRangeText: 'M: 13.5-17.5 / F: 12.0-16.0', criticalLow: 7.0, criticalHigh: 20.0, resultType: 'numeric', decimalPlaces: 1, sortOrder: 3, active: true },
-    { id: 'prm_4', testId: 'tst_1', code: 'HCT', nameAr: 'الهيماتوكريت (حجم الخلايا)', nameEn: 'Hematocrit (HCT)', unit: '%', normalMaleMin: 41.0, normalMaleMax: 50.0, normalFemaleMin: 36.0, normalFemaleMax: 44.0, normalRangeText: 'M: 41-50% / F: 36-44%', criticalLow: 20.0, criticalHigh: 60.0, resultType: 'numeric', decimalPlaces: 1, sortOrder: 4, active: true },
-    { id: 'prm_5', testId: 'tst_1', code: 'PLT', nameAr: 'الصفائح الدموية', nameEn: 'Platelets Count', unit: '10^3/µL', normalMaleMin: 150, normalMaleMax: 450, normalFemaleMin: 150, normalFemaleMax: 450, normalRangeText: '150 - 450', criticalLow: 50, criticalHigh: 1000, resultType: 'numeric', decimalPlaces: 0, sortOrder: 5, active: true },
-    { id: 'prm_6', testId: 'tst_4', code: 'CHOL', nameAr: 'الكوليسترول الكلي', nameEn: 'Total Cholesterol', unit: 'mg/dL', normalMaleMin: 120, normalMaleMax: 200, normalFemaleMin: 120, normalFemaleMax: 200, normalRangeText: '< 200 Desirable', criticalLow: 50, criticalHigh: 400, resultType: 'numeric', decimalPlaces: 0, sortOrder: 1, active: true },
-    { id: 'prm_7', testId: 'tst_4', code: 'TG', nameAr: 'الدهون الثلاثية', nameEn: 'Triglycerides', unit: 'mg/dL', normalMaleMin: 40, normalMaleMax: 150, normalFemaleMin: 40, normalFemaleMax: 150, normalRangeText: '< 150 Normal', criticalLow: 20, criticalHigh: 500, resultType: 'numeric', decimalPlaces: 0, sortOrder: 2, active: true },
-    { id: 'prm_8', testId: 'tst_4', code: 'HDL', nameAr: 'الكوليسترول النافع HDL', nameEn: 'HDL Cholesterol', unit: 'mg/dL', normalMaleMin: 40, normalMaleMax: 90, normalFemaleMin: 50, normalFemaleMax: 95, normalRangeText: '> 40 mg/dL', criticalLow: 20, criticalHigh: 150, resultType: 'numeric', decimalPlaces: 0, sortOrder: 3, active: true },
-    { id: 'prm_9', testId: 'tst_4', code: 'LDL', nameAr: 'الكوليسترول الضار LDL', nameEn: 'LDL Cholesterol', unit: 'mg/dL', normalMaleMin: 50, normalMaleMax: 130, normalFemaleMin: 50, normalFemaleMax: 130, normalRangeText: '< 130 Normal', criticalLow: 20, criticalHigh: 300, resultType: 'numeric', decimalPlaces: 0, sortOrder: 4, active: true },
-  ];
-
-  // Add default parameter for remaining tests
-  let prmCounter = 10;
-  for (const t of tests) {
-    if (t.id === 'tst_1' || t.id === 'tst_4') continue;
-    testParameters.push({
-      id: `prm_${prmCounter++}`,
-      testId: t.id,
-      code: `${t.code}-VAL`,
-      nameAr: `نتيجة ${t.nameAr}`,
-      nameEn: `${t.nameEn} Level`,
-      unit: t.code === 'FBS' ? 'mg/dL' : t.code === 'HBA1C' ? '%' : t.code === 'CREAT' ? 'mg/dL' : t.code === 'TSH' ? 'µIU/mL' : 'U/L',
-      normalMaleMin: t.code === 'FBS' ? 70 : t.code === 'HBA1C' ? 4.0 : t.code === 'CREAT' ? 0.7 : 0.5,
-      normalMaleMax: t.code === 'FBS' ? 105 : t.code === 'HBA1C' ? 5.7 : t.code === 'CREAT' ? 1.3 : 45.0,
-      normalFemaleMin: t.code === 'FBS' ? 70 : t.code === 'HBA1C' ? 4.0 : t.code === 'CREAT' ? 0.6 : 0.5,
-      normalFemaleMax: t.code === 'FBS' ? 105 : t.code === 'HBA1C' ? 5.7 : t.code === 'CREAT' ? 1.1 : 45.0,
-      normalRangeText: t.code === 'FBS' ? '70 - 105 mg/dL' : t.code === 'HBA1C' ? '4.0 - 5.7 %' : t.code === 'CREAT' ? '0.6 - 1.3 mg/dL' : '0.5 - 45.0',
-      criticalLow: t.code === 'FBS' ? 45 : 0.1,
-      criticalHigh: t.code === 'FBS' ? 400 : 250,
-      resultType: 'numeric',
-      decimalPlaces: 1,
-      sortOrder: 1,
-      active: true,
-    });
-  }
+  const { tests, testParameters } = buildGlobalCatalogRecords();
 
   // Generate 50 requests, 45 samples, 35 results, 40 invoices, 50 payments, commissions, and journal entries
   const requests: LabRequest[] = [];
@@ -639,11 +570,23 @@ export async function seedDatabase(forceReset = false): Promise<void> {
         i <= 25 ? 'approved' : i <= 31 ? 'pending_review' : 'draft';
 
       const values = prms.map((p) => {
+        if (p.resultType === 'select' || p.resultType === 'text' || p.resultType === 'boolean') {
+          const textVal = p.options && p.options.length > 0 ? p.options[0] : p.normalRangeText || 'Normal';
+          return {
+            parameterId: p.id,
+            parameterNameAr: p.nameAr,
+            parameterNameEn: p.nameEn,
+            value: textVal,
+            unit: p.unit,
+            normalRange: p.normalRangeText,
+            flag: 'normal' as const,
+          };
+        }
         const val = isCrit
-          ? p.criticalHigh + 2
+          ? Number((p.criticalHigh + 1.5).toFixed(p.decimalPlaces || 1))
           : isHigh
-          ? p.normalMaleMax + 1.5
-          : Number(((p.normalMaleMin + p.normalMaleMax) / 2).toFixed(1));
+          ? Number((p.normalMaleMax + 1.5).toFixed(p.decimalPlaces || 1))
+          : Number(((p.normalMaleMin + p.normalMaleMax) / 2).toFixed(p.decimalPlaces || 1));
         const flag: LabResult['values'][0]['flag'] = isCrit
           ? 'critical_high'
           : isHigh

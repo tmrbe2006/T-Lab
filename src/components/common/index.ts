@@ -39,8 +39,24 @@ export {
 
 import { openCustomModal } from './modal';
 
-export function openModal(title: string, bodyHtml: string): void {
-  openCustomModal(title, bodyHtml);
+export function escapeHtml(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function openModal(
+  titleOrOpts: string | { title: string; content: string; size?: string },
+  bodyHtml?: string
+): void {
+  if (typeof titleOrOpts === 'string') {
+    openCustomModal(titleOrOpts, bodyHtml || '');
+  } else {
+    openCustomModal(titleOrOpts.title, titleOrOpts.content);
+  }
 }
 
 export function closeModal(): void {
@@ -63,6 +79,8 @@ export function pageHeader(
     </div>
   `;
 }
+
+export const renderPageHeader = pageHeader;
 
 export function emptyState(message: string): string {
   return `

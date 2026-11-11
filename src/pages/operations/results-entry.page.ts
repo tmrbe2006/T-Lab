@@ -1,5 +1,5 @@
 import { authService } from '../../auth/auth.service';
-import { openCustomModal, showToast } from '../../components/common';
+import { escapeHtml, openCustomModal, showToast } from '../../components/common';
 import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
@@ -8,17 +8,23 @@ import {
   requestsRepository,
   testsRepository,
 } from '../../repositories';
+import {
+  evaluateDeltaChecksForResult,
+  openCriticalReadBackModal,
+} from '../../services/enterprise-lab.service';
 import type { LabResult } from '../../types';
 
 export async function renderResultsEntryPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  let [results, patients, tests] = await Promise.all([
+  let [results, patients, tests, allParameters] = await Promise.all([
     requestsRepository.getAllResults(),
     patientsRepository.getAll(),
     testsRepository.getAllTests(),
+    testsRepository.getAllParameters(),
   ]);
   const patMap = new Map(patients.map((p) => [p.id, p]));
   const tstMap = new Map(tests.map((t) => [t.id, t]));
+  const paramMap = new Map(allParameters.map((p) => [p.id, p]));
 
   const openEntryModal = (res: LabResult) => {
     const canReopen = can(user, 'reopenResult', 'results');
@@ -32,35 +38,72 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
 
     const pat = patMap.get(res.patientId);
     const tst = tstMap.get(res.testId);
+    const deltaAlerts = evaluateDeltaChecksForResult(res, results);
 
     openCustomModal(
       `${i18n.bi('إدخال وتعديل نتائج التحليل:', 'Result Entry:')} ${tst?.nameEn || ''} — ${pat?.name || ''}`,
       `
         <form id="res-entry-form" class="space-y-4 text-xs">
           <div class="rounded-lg bg-slate-50 border border-slate-200 p-3 flex justify-between">
-            <span><strong>${i18n.bi('المريض:', 'Patient:')}</strong> ${pat?.name || ''} (${pat?.age || ''} Y)</span>
+            <span><strong>${i18n.bi('المريض:', 'Patient:')}</strong> ${pat?.name || ''} (${pat?.age || ''} Y · ${pat?.gender === 'female' ? 'أنثى F' : 'ذكر M'})</span>
             <span><strong>${i18n.bi('الحالة الحالية:', 'Current Status:')}</strong> ${res.status}</span>
           </div>
-          <div class="space-y-2.5">
+          ${
+            deltaAlerts.length > 0
+              ? `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-amber-950 font-bold space-y-1">
+                  ${deltaAlerts.map((da) => `<div>⚡ ${escapeHtml(i18n.bi(da.messageAr, da.messageEn))}</div>`).join('')}
+                </div>`
+              : ''
+          }
+          <div class="max-h-96 overflow-y-auto space-y-2.5 pr-1">
             ${res.values
-              .map(
-                (v, idx) => `
-                <div class="grid grid-cols-12 items-center gap-2 border-b border-slate-100 pb-2">
-                  <div class="col-span-5 font-semibold text-slate-800">${v.parameterNameAr} / ${v.parameterNameEn}</div>
-                  <div class="col-span-3">
+              .map((v, idx) => {
+                const prmDef = paramMap.get(v.parameterId);
+                const isSelect = prmDef?.resultType === 'select' && prmDef.options && prmDef.options.length > 0;
+                const isText = prmDef?.resultType === 'text' || prmDef?.resultType === 'boolean';
+
+                let inputHtml = '';
+                if (isSelect) {
+                  inputHtml = `
+                    <select name="val_${idx}" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
+                      ${prmDef!
+                        .options!.map(
+                          (opt) =>
+                            `<option value="${escapeHtml(opt)}" ${String(v.value) === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`
+                        )
+                        .join('')}
+                    </select>
+                  `;
+                } else if (isText) {
+                  inputHtml = `
+                    <input
+                      name="val_${idx}"
+                      type="text"
+                      value="${escapeHtml(String(v.value))}"
+                      class="w-full rounded border border-slate-300 px-2.5 py-1.5 font-mono font-bold text-slate-900"
+                    />
+                  `;
+                } else {
+                  inputHtml = `
                     <input
                       name="val_${idx}"
                       type="number"
-                      step="0.01"
+                      step="0.001"
                       value="${v.value}"
                       class="w-full rounded border border-slate-300 px-2.5 py-1.5 font-mono font-bold text-slate-900"
                     />
-                  </div>
+                  `;
+                }
+
+                return `
+                <div class="grid grid-cols-12 items-center gap-2 border-b border-slate-100 pb-2">
+                  <div class="col-span-5 font-semibold text-slate-800">${v.parameterNameAr} / <span class="text-slate-500">${v.parameterNameEn}</span></div>
+                  <div class="col-span-3">${inputHtml}</div>
                   <div class="col-span-2 font-mono text-slate-500">${v.unit}</div>
                   <div class="col-span-2 font-mono text-emerald-700 text-[11px]">${v.normalRange}</div>
                 </div>
-              `
-              )
+              `;
+              })
               .join('')}
           </div>
           <div>
@@ -91,16 +134,56 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
           if (!(await enforcePermission('edit', 'results'))) return;
           const fd = new FormData(form);
           let hasCritical = false;
+          const isFemale = pat?.gender === 'female';
 
           res.values = res.values.map((v, idx) => {
-            const num = Number(fd.get(`val_${idx}`));
+            const rawVal = fd.get(`val_${idx}`);
+            const prmDef = paramMap.get(v.parameterId);
+
+            if (prmDef && prmDef.resultType !== 'numeric') {
+              const strVal = String(rawVal ?? '').trim();
+              const lower = strVal.toLowerCase();
+              let flag: typeof v.flag = 'normal';
+              if (lower.includes('critical') || lower.includes('falciparum')) {
+                flag = 'critical_high';
+                hasCritical = true;
+              } else if (
+                lower.includes('positive') ||
+                lower.includes('reactive') ||
+                lower.includes('detected') ||
+                lower.includes('+++')
+              ) {
+                if (!lower.includes('non-reactive') && !lower.includes('not detected')) {
+                  flag = 'high';
+                }
+              }
+              return { ...v, value: strVal, flag };
+            }
+
+            const num = Number(rawVal);
             let flag: typeof v.flag = 'normal';
-            if (num >= 30 || num <= 2) {
-              flag = num >= 30 ? 'critical_high' : 'critical_low';
+            const minNorm = prmDef
+              ? isFemale
+                ? prmDef.normalFemaleMin
+                : prmDef.normalMaleMin
+              : 4;
+            const maxNorm = prmDef
+              ? isFemale
+                ? prmDef.normalFemaleMax
+                : prmDef.normalMaleMax
+              : 15;
+            const critLow = prmDef ? prmDef.criticalLow : 2;
+            const critHigh = prmDef ? prmDef.criticalHigh : 30;
+
+            if (critHigh > 0 && num >= critHigh) {
+              flag = 'critical_high';
               hasCritical = true;
-            } else if (num > 15) {
+            } else if (critLow > 0 && num <= critLow) {
+              flag = 'critical_low';
+              hasCritical = true;
+            } else if (maxNorm > 0 && num > maxNorm) {
               flag = 'high';
-            } else if (num < 4) {
+            } else if (minNorm > 0 && num < minNorm) {
               flag = 'low';
             }
             return { ...v, value: num, flag };
@@ -112,14 +195,26 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
 
           await requestsRepository.saveResult(res);
           await authService.logAudit(`إدخال نتائج التحليل ${res.id} (${targetMode})`, 'results', res.id);
-          if (hasCritical) {
-            showToast(i18n.bi('تنبيه: تم رصد قيمة حرجة (Critical Value) في النتيجة المدخلة!', 'CRITICAL VALUE detected in entered result!'), 'critical');
-          } else {
-            showToast(i18n.bi('تم حفظ النتيجة بنجاح', 'Result saved successfully'), 'success');
-          }
           close();
           results = await requestsRepository.getAllResults();
           renderView();
+
+          if (hasCritical) {
+            showToast(
+              i18n.bi(
+                '🚨 تم رصد قيمة حرجة تهدد الحياة! تم فتح نافذة إبلاغ الطوارئ الإلزامية (ISO 15189 Read-Back).',
+                '🚨 CRITICAL VALUE detected! Opening mandatory ISO 15189 Read-Back Escalation.'
+              ),
+              'critical'
+            );
+            openCriticalReadBackModal({
+              result: res,
+              patient: pat,
+              test: tst,
+            });
+          } else {
+            showToast(i18n.bi('تم حفظ النتيجة بنجاح', 'Result saved successfully'), 'success');
+          }
         });
       }
     );

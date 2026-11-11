@@ -21,13 +21,17 @@ const SIDEBAR_ITEMS: NavItem[] = [
   { route: 'doctors', resource: 'doctors', labelKey: 'doctors' },
   { route: 'doctorSpecialties', resource: 'doctorSpecialties', labelKey: 'doctorSpecialties' },
   { route: 'requests', resource: 'requests', labelKey: 'requests' },
+  { route: 'homeVisits', resource: 'homeVisits', labelKey: 'homeVisits' },
   { route: 'samples', resource: 'samples', labelKey: 'samples' },
   { route: 'results', resource: 'results', labelKey: 'results' },
+  { route: 'microbiology', resource: 'microbiology', labelKey: 'microbiology' },
+  { route: 'qualityControl', resource: 'qualityControl', labelKey: 'qualityControl' },
   { route: 'aiHub', resource: 'aiHub', labelKey: 'aiHub' },
   { route: 'bloodFilmAi', resource: 'bloodFilmAi', labelKey: 'bloodFilmAi' },
   { route: 'urineMicroscopyAi', resource: 'urineMicroscopyAi', labelKey: 'urineMicroscopyAi' },
   { route: 'stoolMicroscopyAi', resource: 'stoolMicroscopyAi', labelKey: 'stoolMicroscopyAi' },
   { route: 'resultReview', resource: 'resultReview', labelKey: 'resultReview' },
+  { route: 'corporateContracts', resource: 'corporateContracts', labelKey: 'corporateContracts' },
   { route: 'tests', resource: 'tests', labelKey: 'tests' },
   { route: 'scientificDepartments', resource: 'scientificDepartments', labelKey: 'scientificDepartments' },
   { route: 'sampleTubes', resource: 'sampleTubes', labelKey: 'sampleTubes' },
@@ -119,6 +123,10 @@ export const loadPage = async (
       const { renderRequestsPage } = await import('./pages/operations/requests.page');
       return renderRequestsPage;
     }
+    case 'homeVisits': {
+      const { renderHomeVisitsPage } = await import('./pages/operations/home-visits.page');
+      return renderHomeVisitsPage;
+    }
     case 'samples': {
       const { renderSamplesPage } = await import('./pages/operations/samples.page');
       return renderSamplesPage;
@@ -126,6 +134,14 @@ export const loadPage = async (
     case 'results': {
       const { renderResultsEntryPage } = await import('./pages/operations/results-entry.page');
       return renderResultsEntryPage;
+    }
+    case 'microbiology': {
+      const { renderMicrobiologyPage } = await import('./pages/operations/microbiology.page');
+      return renderMicrobiologyPage;
+    }
+    case 'qualityControl': {
+      const { renderQualityControlPage } = await import('./pages/operations/quality-control.page');
+      return renderQualityControlPage;
     }
     case 'aiHub': {
       const { renderAiHubPage } = await import('./pages/operations/microscopy-vision.page');
@@ -146,6 +162,10 @@ export const loadPage = async (
     case 'resultReview': {
       const { renderResultReviewPage } = await import('./pages/operations/results-review.page');
       return renderResultReviewPage;
+    }
+    case 'corporateContracts': {
+      const { renderCorporateContractsPage } = await import('./pages/finance/corporate-contracts.page');
+      return renderCorporateContractsPage;
     }
     case 'invoices': {
       const { renderInvoicesPage } = await import('./pages/finance/invoices.page');

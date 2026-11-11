@@ -9,6 +9,7 @@ import {
   renderSearchFilterBar,
   showToast,
 } from '../../components/common';
+import { syncGlobalMedicalCatalog } from '../../db/global-medical-tests';
 import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
@@ -28,26 +29,40 @@ export function setSelectedTestForParams(testId: string): void {
 
 export async function renderTestsCatalogPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  let [tests, departments, sampleTubes] = await Promise.all([
+  let [tests, allParams, departments, sampleTubes] = await Promise.all([
     testsRepository.getAllTests(),
+    testsRepository.getAllParameters(),
     lookupsRepository.getScientificDepartments(),
     lookupsRepository.getSampleTubes(),
   ]);
   let searchQuery = '';
+  let selectedDepartmentFilter = 'ALL';
   let currentPage = 1;
   const itemsPerPage = 15;
 
+  const getParamCountMap = () => {
+    const map = new Map<string, number>();
+    for (const p of allParams) {
+      map.set(p.testId, (map.get(p.testId) || 0) + 1);
+    }
+    return map;
+  };
+
   const getFiltered = () => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return tests;
-    return tests.filter(
-      (t) =>
+    return tests.filter((t) => {
+      if (selectedDepartmentFilter !== 'ALL' && t.department !== selectedDepartmentFilter) {
+        return false;
+      }
+      if (!q) return true;
+      return (
         t.code.toLowerCase().includes(q) ||
         t.nameAr.toLowerCase().includes(q) ||
         t.nameEn.toLowerCase().includes(q) ||
         t.department.toLowerCase().includes(q) ||
         t.tubeType.toLowerCase().includes(q)
-    );
+      );
+    });
   };
 
   const generateNextTestCode = (): string => {
@@ -209,6 +224,7 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
           showToast(i18n.bi('تم حفظ التحليل بنجاح', 'Test saved successfully'), 'success');
           close();
           tests = await testsRepository.getAllTests();
+          allParams = await testsRepository.getAllParameters();
           renderTable();
         });
       }
@@ -216,6 +232,7 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
   };
 
   const renderTable = () => {
+    const paramCounts = getParamCountMap();
     const filteredRows = getFiltered();
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
     if (currentPage > totalPages) currentPage = totalPages;
@@ -223,15 +240,19 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
     const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
     const canAdd = can(user, 'add', 'tests');
     const canPrint = can(user, 'print', 'tests');
+    const uniqueDepartments = Array.from(new Set(tests.map((t) => t.department)));
 
     container.innerHTML = `
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.tests}</h1>
-            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('كتالوج التحاليل الطبية، التكويد التلقائي، الأقسام العلمية، وأنواع أنابيب السحب', 'Medical tests catalog, auto test codes, scientific departments, and sample collection tubes')}</p>
+            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('موسوعة التحاليل الطبية العالمية الشاملة، بارامترات التقارير المعتمدة (WHO / CLSI / IFCC / CAP)، الأقسام العلمية، وأنواع أنابيب السحب', 'Global Medical Tests Encyclopedia, International Reporting Parameters (WHO / CLSI / IFCC / CAP), Scientific Departments & Sample Tubes')}</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <button id="tst-sync-global-btn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer">
+              🌍 ${i18n.bi('تحديث الموسوعة العالمية للتحاليل والبارامترات', 'Sync Global Medical Tests & Parameters')}
+            </button>
             <button id="tst-depts-btn" type="button" class="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer">
               ${i18n.bi('شاشة الأقسام العلمية', 'Scientific Departments')}
             </button>
@@ -241,6 +262,51 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
             ${canPrint ? `<button id="tst-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
             ${canAdd ? `<button id="tst-add-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">+ ${i18n.dict.actions.add}</button>` : ''}
           </div>
+        </div>
+
+        <!-- Global Reference Standards Summary Banner -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
+            <div class="text-[11px] font-semibold text-sky-700">${i18n.bi('إجمالي التحاليل الطبية المعتمدة', 'Total Registered Medical Tests')}</div>
+            <div class="text-xl font-extrabold font-mono text-sky-950 mt-0.5 tabular-nums">${tests.length} ${i18n.bi('تحليل وملف طبي', 'Tests & Profiles')}</div>
+          </div>
+          <div class="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+            <div class="text-[11px] font-semibold text-indigo-700">${i18n.bi('إجمالي البارامترات الفرعية الدقيقة', 'Total Sub-Parameters')}</div>
+            <div class="text-xl font-extrabold font-mono text-indigo-950 mt-0.5 tabular-nums">${allParams.length} ${i18n.bi('بارامتر عالمي', 'Parameters')}</div>
+          </div>
+          <div class="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+            <div class="text-[11px] font-semibold text-emerald-700">${i18n.bi('الأقسام العلمية المغطاة', 'Scientific Departments')}</div>
+            <div class="text-xl font-extrabold font-mono text-emerald-950 mt-0.5 tabular-nums">${uniqueDepartments.length} ${i18n.bi('أقسام تخصصية', 'Departments')}</div>
+          </div>
+          <div class="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+            <div class="text-[11px] font-semibold text-amber-800">${i18n.bi('المرجعية القياسية للتقارير', 'International Standards')}</div>
+            <div class="text-xs font-extrabold text-amber-950 mt-1">WHO · CLSI · IFCC · CAP · ISO 15189</div>
+          </div>
+        </div>
+
+        <!-- Department Quick Filter Bar -->
+        <div class="flex flex-wrap items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-2.5">
+          <span class="text-[11px] font-bold text-slate-600 px-2">${i18n.bi('تصفية حسب القسم العلمي:', 'Filter by Department:')}</span>
+          <button type="button" data-dept-filter="ALL" class="tst-dept-chip rounded-lg px-2.5 py-1 text-xs font-bold cursor-pointer ${
+            selectedDepartmentFilter === 'ALL'
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }">
+            ${i18n.bi('الكل', 'All')} (${tests.length})
+          </button>
+          ${uniqueDepartments
+            .map((dept) => {
+              const cnt = tests.filter((t) => t.department === dept).length;
+              const isAct = selectedDepartmentFilter === dept;
+              return `
+                <button type="button" data-dept-filter="${dept}" class="tst-dept-chip rounded-lg px-2.5 py-1 text-xs font-bold cursor-pointer ${
+                  isAct ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }">
+                  ${dept} (${cnt})
+                </button>
+              `;
+            })
+            .join('')}
         </div>
 
         ${renderSearchFilterBar({
@@ -258,6 +324,7 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
                 <th class="py-3 px-3 text-start">${i18n.bi('اسم التحليل (عربي / إنجليزي)', 'Test Name (AR / EN)')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('القسم العلمي', 'Department')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('العينة / أنبوبة السحب', 'Sample / Tube')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('عدد البارامترات', 'Parameters')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('السعر', 'Price')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('عمولة الطبيب', 'Comm. Eligible')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.actions}</th>
@@ -265,8 +332,9 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
             </thead>
             <tbody class="divide-y divide-slate-100">
               ${rows
-                .map(
-                  (t) => `
+                .map((t) => {
+                  const pCount = paramCounts.get(t.id) || 0;
+                  return `
                   <tr class="hover:bg-slate-50/80">
                     <td class="py-2.5 px-3 font-mono font-bold text-slate-800 tabular-nums">${t.code}</td>
                     <td class="py-2.5 px-3">
@@ -275,6 +343,11 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
                     </td>
                     <td class="py-2.5 px-3 font-semibold text-slate-700">${t.department}</td>
                     <td class="py-2.5 px-3 text-slate-600">${t.sampleType} · <span class="font-semibold text-slate-800">${t.tubeType}</span></td>
+                    <td class="py-2.5 px-3">
+                      <span class="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-mono text-[11px] font-bold text-indigo-800 tabular-nums">
+                        ${pCount} ${i18n.bi('بارامتر', 'Params')}
+                      </span>
+                    </td>
                     <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${t.price} EGP</td>
                     <td class="py-2.5 px-3 font-semibold ${t.commissionEligible ? 'text-emerald-700' : 'text-slate-400'}">
                       ${t.commissionEligible ? i18n.bi('نعم', 'Yes') : i18n.bi('لا', 'No')}
@@ -282,7 +355,7 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
                     <td class="py-2.5 px-3">
                       <div class="flex flex-wrap items-center gap-1.5">
                         <button data-prm="${t.id}" class="tst-prm-btn rounded border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 cursor-pointer">
-                          ${i18n.bi('البارامترات', 'Parameters')}
+                          ${i18n.bi('البارامترات', 'Parameters')} (${pCount})
                         </button>
                         <button data-edit="${t.id}" class="tst-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
                           ${i18n.dict.actions.edit}
@@ -293,8 +366,8 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
                       </div>
                     </td>
                   </tr>
-                `
-                )
+                `;
+                })
                 .join('')}
             </tbody>
           </table>
@@ -319,6 +392,28 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
       renderTable();
     });
 
+    document.querySelectorAll<HTMLButtonElement>('.tst-dept-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        selectedDepartmentFilter = chip.getAttribute('data-dept-filter') || 'ALL';
+        currentPage = 1;
+        renderTable();
+      });
+    });
+
+    document.getElementById('tst-sync-global-btn')?.addEventListener('click', async () => {
+      const res = await syncGlobalMedicalCatalog(true);
+      tests = await testsRepository.getAllTests();
+      allParams = await testsRepository.getAllParameters();
+      renderTable();
+      showToast(
+        i18n.bi(
+          `تم تحديث موسوعة التحاليل العالمية بنجاح (${res.testsAdded} تحليل و ${res.parametersSynced} بارامتر قياسي)`,
+          `Global Medical Catalog synced (${res.testsAdded} tests & ${res.parametersSynced} parameters)`
+        ),
+        'success'
+      );
+    });
+
     document.getElementById('tst-depts-btn')?.addEventListener('click', () => router.navigate('scientificDepartments'));
     document.getElementById('tst-tubes-btn')?.addEventListener('click', () => router.navigate('sampleTubes'));
     document.getElementById('tst-add-btn')?.addEventListener('click', () => openTestForm());
@@ -327,9 +422,9 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
       const visible = getFiltered();
       const html = `
         <table class="print-table">
-          <thead><tr><th>Code</th><th>Test Name</th><th>Department</th><th>Sample / Tube</th><th>Price</th></tr></thead>
+          <thead><tr><th>Code</th><th>Test Name</th><th>Department</th><th>Sample / Tube</th><th>Params</th><th>Price</th></tr></thead>
           <tbody>
-            ${visible.map((t) => `<tr><td class="tabular-nums">${t.code}</td><td>${t.nameAr} / ${t.nameEn}</td><td>${t.department}</td><td>${t.sampleType} (${t.tubeType})</td><td class="tabular-nums">${t.price} EGP</td></tr>`).join('')}
+            ${visible.map((t) => `<tr><td class="tabular-nums">${t.code}</td><td>${t.nameAr} / ${t.nameEn}</td><td>${t.department}</td><td>${t.sampleType} (${t.tubeType})</td><td class="tabular-nums">${paramCounts.get(t.id) || 0}</td><td class="tabular-nums">${t.price} EGP</td></tr>`).join('')}
           </tbody>
         </table>
       `;
@@ -362,6 +457,7 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
             await authService.logAudit(`حذف تحليل: ${target.code}`, 'tests', target.id, reason || '');
             showToast(i18n.bi('تم حذف التحليل وبارامتراته', 'Test deleted'), 'success');
             tests = await testsRepository.getAllTests();
+            allParams = await testsRepository.getAllParameters();
             renderTable();
           },
         });

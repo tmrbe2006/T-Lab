@@ -20,6 +20,10 @@ import {
 } from '../../repositories';
 import { accountingService } from '../../services/accounting.service';
 import { commissionService } from '../../services/commission.service';
+import {
+  buildInvoiceWhatsAppMessage,
+  openWhatsAppDispatchModal,
+} from '../../services/enterprise-lab.service';
 import type { Invoice, Payment, PaymentMethod } from '../../types';
 
 export async function renderInvoicesPage(container: HTMLElement): Promise<void> {
@@ -167,8 +171,8 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.invoices}</h1>
             <p class="text-xs text-slate-500 mt-0.5">
               ${i18n.bi(
-                'إدارة الفواتير الضريبية (الصافي = الإجمالي - الخصم + الضريبة بعد الخصم). لا تظهر نسبة الطبيب ولا تُخصم داخل الفاتورة.',
-                'Manage invoices (Net = Subtotal - Discount + Tax after discount). Doctor commission is never displayed or deducted on invoices.'
+                'إدارة الفواتير الضريبية وفواتير التعاقدات، تحصيل الدفعات، وإرسال الفاتورة للمريض عبر واتساب بنقرة واحدة.',
+                'Manage tax & corporate invoices, record payments, and send invoices via 1-Click WhatsApp.'
               )}
             </p>
           </div>
@@ -197,7 +201,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <th class="py-3 px-3 text-start">${i18n.bi('رقم الفاتورة / التاريخ', 'Invoice # / Date')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('المريض', 'Patient')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('المريض والتعاقد', 'Patient & Contract')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.total}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.discount}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.tax}</th>
@@ -218,7 +222,14 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                         <div class="font-bold text-slate-900 tabular-nums">${inv.invoiceNumber}</div>
                         <div class="text-[11px] text-slate-400 tabular-nums">${inv.date}</div>
                       </td>
-                      <td class="py-2.5 px-3 font-bold text-slate-800">${pat?.name || inv.patientId}</td>
+                      <td class="py-2.5 px-3">
+                        <div class="font-bold text-slate-800">${pat?.name || inv.patientId}</div>
+                        ${
+                          inv.contractName
+                            ? `<div class="text-[10px] font-bold text-indigo-700">🏢 ${inv.contractName} (تحمل مريض: ${inv.patientShareAmount ?? inv.netTotal} EGP)</div>`
+                            : ''
+                        }
+                      </td>
                       <td class="py-2.5 px-3 font-mono tabular-nums">${inv.subtotal}</td>
                       <td class="py-2.5 px-3 font-mono text-amber-700 tabular-nums">-${inv.discountAmount}</td>
                       <td class="py-2.5 px-3 font-mono text-sky-700 tabular-nums">+${inv.taxAmount}</td>
@@ -237,6 +248,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                               ? `<button data-pay="${inv.id}" class="inv-pay-btn text-emerald-700 hover:underline font-bold cursor-pointer">${i18n.dict.actions.addPayment}</button>`
                               : ''
                           }
+                          <button data-wa-inv="${inv.id}" class="inv-wa-btn rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-emerald-500 cursor-pointer">💬 واتساب</button>
                           ${
                             canPrint
                               ? `<button data-a4="${inv.id}" class="inv-a4-btn text-sky-700 hover:underline font-semibold cursor-pointer">A4</button>
@@ -324,6 +336,23 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
       btn.addEventListener('click', () => {
         const target = invoices.find((x) => x.id === btn.getAttribute('data-pay'));
         if (target) openAddPaymentModal(target);
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.inv-wa-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const inv = invoices.find((x) => x.id === btn.getAttribute('data-wa-inv'));
+        if (!inv) return;
+        const pat = patMap.get(inv.patientId);
+        const msg = buildInvoiceWhatsAppMessage({ patient: pat, invoice: inv });
+        openWhatsAppDispatchModal({
+          recipientName: pat?.name || inv.patientId,
+          phone: pat?.phone || '01000000000',
+          titleAr: 'إرسال الفاتورة والإيصال عبر واتساب',
+          titleEn: 'Send Invoice & Receipt via WhatsApp',
+          messageBody: msg,
+          referenceId: inv.id,
+        });
       });
     });
 

@@ -14,7 +14,28 @@ export function can(
   if (user.role === 'Owner') return true;
 
   const actionsMap = authService.getPermissionsFor(user.role, resource);
-  if (!actionsMap) return false;
+  if (!actionsMap) {
+    // Fallback for newly added enterprise modules on existing databases
+    if (resource === 'microbiology' || resource === 'qualityControl') {
+      if (user.role === 'Doctor' || user.role === 'Chemist') {
+        return ['view', 'add', 'edit', 'delete', 'print', 'export', 'approve'].includes(action);
+      }
+      if (user.role === 'Technician') {
+        return ['view', 'add', 'edit', 'print'].includes(action);
+      }
+    }
+    if (resource === 'homeVisits') {
+      if (['Doctor', 'Chemist', 'Technician', 'Receptionist'].includes(user.role)) {
+        return ['view', 'add', 'edit', 'delete', 'print'].includes(action);
+      }
+    }
+    if (resource === 'corporateContracts') {
+      if (['Accountant', 'Receptionist', 'Doctor'].includes(user.role)) {
+        return ['view', 'add', 'edit', 'print', 'export', 'discount'].includes(action);
+      }
+    }
+    return false;
+  }
   return Boolean(actionsMap[action]);
 }
 

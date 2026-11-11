@@ -59,7 +59,11 @@ export type ResourceScreen =
   | 'aiHub'
   | 'bloodFilmAi'
   | 'urineMicroscopyAi'
-  | 'stoolMicroscopyAi';
+  | 'stoolMicroscopyAi'
+  | 'microbiology'
+  | 'qualityControl'
+  | 'homeVisits'
+  | 'corporateContracts';
 
 export type MicroscopyModality = 'blood_film' | 'urine_sediment' | 'stool_parasitology';
 
@@ -405,6 +409,11 @@ export interface LabRequest {
   barcode: string;
   patientId: string;
   doctorId?: string;
+  contractId?: string;
+  contractName?: string;
+  patientShareAmount?: number;
+  companyShareAmount?: number;
+  homeVisitFee?: number;
   type: RequestType;
   status: RequestStatus;
   subtotal: number;
@@ -485,6 +494,11 @@ export interface Invoice {
   requestId: string;
   patientId: string;
   doctorId?: string;
+  contractId?: string;
+  contractName?: string;
+  patientShareAmount?: number;
+  companyShareAmount?: number;
+  homeVisitFee?: number;
   requestType: RequestType;
   date: string;
   subtotal: number;
@@ -679,5 +693,180 @@ export interface LabSettings {
   printFooterEn: string;
 }
 
+// ============================================================================
+// Enterprise Global Laboratory Modules (ISO 15189, CLSI, Westgard, B2B, Dispatch)
+// ============================================================================
+
+export interface DeltaCheckAlert {
+  parameterId: string;
+  parameterNameAr: string;
+  parameterNameEn: string;
+  unit: string;
+  previousValue: number;
+  currentValue: number;
+  deltaPercent: number;
+  previousDate: string;
+  hoursElapsed: number;
+  thresholdPercent: number;
+  severity: 'warning' | 'critical';
+  messageAr: string;
+  messageEn: string;
+}
+
+export interface CriticalValueLog {
+  id: string;
+  logNumber: string;
+  resultId: string;
+  requestId: string;
+  patientId: string;
+  patientName: string;
+  testNameAr: string;
+  testNameEn: string;
+  criticalParametersSummary: string;
+  notifiedPersonType: 'doctor' | 'patient' | 'nurse_icu';
+  notifiedPersonName: string;
+  notifiedPhone: string;
+  notifiedAt: string;
+  notifiedBy: string;
+  readBackConfirmed: boolean;
+  clinicalActionNotes: string;
+  status: 'escalated_confirmed' | 'pending_retry';
+}
+
+export type AntibioticSensitivityFlag = 'S' | 'I' | 'R';
+
+export interface CultureAntibioticResult {
+  antibioticCode: string;
+  antibioticNameEn: string;
+  antibioticClass: string;
+  sensitivity: AntibioticSensitivityFlag;
+  micValue: string;
+  clsiBreakpoint: string;
+}
+
+export interface CultureSensitivityRecord {
+  id: string;
+  reportNumber: string;
+  requestId: string;
+  requestNumber: string;
+  patientId: string;
+  patientName: string;
+  doctorName?: string;
+  specimenType: 'urine' | 'blood' | 'pus_wound' | 'stool' | 'sputum' | 'csf' | 'swab';
+  specimenSourceAr: string;
+  specimenSourceEn: string;
+  growthStatus: 'positive_growth' | 'no_growth_48h' | 'mixed_flora';
+  colonyCount: string;
+  incubationHours: number;
+  gramStainAr: string;
+  gramStainEn: string;
+  pusCellsCount: string;
+  epithelialCellsCount: string;
+  organismCode: string;
+  organismNameEn: string;
+  organismNameAr: string;
+  resistanceMechanisms: Array<'ESBL' | 'MRSA' | 'CRE' | 'VRE' | 'AmpC' | 'None'>;
+  standardGuideline: 'CLSI_2025' | 'EUCAST_2025';
+  antibiotics: CultureAntibioticResult[];
+  clinicalNotesAr: string;
+  clinicalNotesEn: string;
+  status: 'draft' | 'approved';
+  enteredBy: string;
+  approvedBy?: string;
+  createdAt: string;
+}
+
+export type WestgardRuleCode = 'in_control' | '1_2s' | '1_3s' | '2_2s' | 'R_4s' | '4_1s';
+
+export interface QcControlLot {
+  id: string;
+  lotNumber: string;
+  analyzerName: string;
+  department: string;
+  testId: string;
+  testCode: string;
+  testNameAr: string;
+  testNameEn: string;
+  unit: string;
+  level: 'Level 1 (Low)' | 'Level 2 (Normal)' | 'Level 3 (High)';
+  targetMean: number;
+  targetSd: number;
+  expiryDate: string;
+  qcLocked: boolean;
+  active: boolean;
+}
+
+export interface QcRunRecord {
+  id: string;
+  lotId: string;
+  lotNumber: string;
+  testId: string;
+  testCode: string;
+  testNameEn: string;
+  analyzerName: string;
+  level: 'Level 1 (Low)' | 'Level 2 (Normal)' | 'Level 3 (High)';
+  runDate: string;
+  measuredValue: number;
+  targetMean: number;
+  targetSd: number;
+  zScore: number;
+  westgardRule: WestgardRuleCode;
+  status: 'accepted' | 'warning' | 'rejected';
+  correctiveAction?: string;
+  operatorName: string;
+}
+
+export type HomeVisitStatus =
+  | 'scheduled'
+  | 'dispatched'
+  | 'sample_collected'
+  | 'delivered_to_lab'
+  | 'cancelled';
+
+export interface HomeVisitRecord {
+  id: string;
+  visitNumber: string;
+  patientId: string;
+  patientName: string;
+  patientPhone: string;
+  address: string;
+  landmark: string;
+  gpsCoordinates?: string;
+  scheduledDate: string;
+  scheduledTimeSlot: string;
+  phlebotomistId: string;
+  phlebotomistName: string;
+  phlebotomistPhone: string;
+  requestedTestsSummary: string;
+  visitFee: number;
+  estimatedTestsTotal: number;
+  fastingRequired: boolean;
+  status: HomeVisitStatus;
+  collectedAt?: string;
+  deliveredAt?: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface CorporateContract {
+  id: string;
+  code: string;
+  nameAr: string;
+  nameEn: string;
+  category: 'syndicate' | 'insurance' | 'corporate' | 'lab_to_lab';
+  discountPercent: number;
+  patientCoPayPercent: number; // e.g., 20 means patient pays 20% of net
+  companyCoveragePercent: number; // e.g., 80 means company/insurance covers 80% of net
+  creditLimit: number;
+  currentBalance: number;
+  contactPerson: string;
+  phone: string;
+  taxNumber?: string;
+  active: boolean;
+  notes: string;
+}
+
 export * from './erp.types';
+
 

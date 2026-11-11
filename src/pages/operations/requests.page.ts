@@ -21,7 +21,9 @@ import {
 } from '../../repositories';
 import { accountingService } from '../../services/accounting.service';
 import { discountService } from '../../services/discount.service';
+import { ensureEnterpriseSeedData } from '../../services/enterprise-lab.service';
 import { invoiceService } from '../../services/invoice.service';
+import { db } from '../../db/database';
 import type {
   DiscountType,
   Invoice,
@@ -33,12 +35,14 @@ import type {
 } from '../../types';
 
 export async function renderRequestsPage(container: HTMLElement): Promise<void> {
+  await ensureEnterpriseSeedData();
   const user = authService.getCurrentUser();
   let requests = await requestsRepository.getAllRequests();
-  const [patients, doctors, tests] = await Promise.all([
+  const [patients, doctors, tests, contracts] = await Promise.all([
     patientsRepository.getAll(),
     doctorsRepository.getAll(),
     testsRepository.getAllTests(),
+    db.corporateContracts.toArray(),
   ]);
 
   const patientMap = new Map(patients.map((p) => [p.id, p]));
@@ -83,7 +87,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
         : i18n.bi('إنشاء طلب تحاليل جديد + توليد باركود وفاتورة تلقائية', 'Create New Lab Request + Auto Barcode & Invoice'),
       `
         <form id="req-form" class="space-y-4 text-xs">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label class="block font-semibold mb-1">${i18n.bi('المريض *', 'Patient *')}</label>
               <select id="req-pat-sel" name="patientId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
@@ -93,6 +97,18 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                       `<option value="${p.id}" ${p.id === selectedPat?.id ? 'selected' : ''}>${p.name}${
                         p.nameEn ? ` (${p.nameEn})` : ''
                       } — ${p.code}</option>`
+                  )
+                  .join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">${i18n.bi('جهة التعاقد / التأمين / النقابة', 'Corporate / Insurance Contract')}</label>
+              <select id="req-contract-sel" name="contractId" class="w-full rounded-lg border border-indigo-300 bg-indigo-50/50 px-3 py-2 text-xs font-bold text-indigo-950">
+                <option value="">${i18n.bi('نقدي مباشر (Cash Walk-in)', 'Direct Cash (No Contract)')}</option>
+                ${contracts
+                  .map(
+                    (c) =>
+                      `<option value="${c.id}" ${c.id === existingReq?.contractId ? 'selected' : ''}>${i18n.bi(c.nameAr, c.nameEn)} (خصم ${c.discountPercent}% | تحمل مريض ${c.patientCoPayPercent}%)</option>`
                   )
                   .join('')}
               </select>
@@ -158,7 +174,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           </div>
 
           <!-- Live Calculation Summary -->
-          <div id="req-calc-preview" class="rounded-lg bg-slate-900 text-white p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center"></div>
+          <div id="req-calc-preview" class="rounded-lg bg-slate-900 text-white p-4 grid grid-cols-2 sm:grid-cols-6 gap-3 text-center"></div>
 
           <div class="flex justify-end gap-2 pt-2">
             <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
@@ -173,6 +189,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
       `,
       (close) => {
         const patSel = document.getElementById('req-pat-sel') as HTMLSelectElement | null;
+        const contractSel = document.getElementById('req-contract-sel') as HTMLSelectElement | null;
         const typeSel = document.getElementById('req-type-sel') as HTMLSelectElement | null;
         const docWrap = document.getElementById('req-doc-wrap');
         const discTypeEl = document.getElementById('req-disc-type') as HTMLSelectElement | null;
@@ -193,21 +210,40 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           const dVal = Number(discValEl?.value) || 0;
           const tRate = Number(taxRateEl?.value) || 14;
           const math = invoiceService.calculateInvoiceTotals(chosen, dType, dVal, tRate, 0);
+          const selectedContract = contracts.find((c) => c.id === contractSel?.value);
+          const patientShare = selectedContract
+            ? Number(((math.netTotal * selectedContract.patientCoPayPercent) / 100).toFixed(2))
+            : math.netTotal;
+          const companyShare = selectedContract
+            ? Number((math.netTotal - patientShare).toFixed(2))
+            : 0;
+
           if (calcPreview) {
             calcPreview.innerHTML = `
               <div><div class="text-[10px] text-slate-400">${i18n.dict.common.total}</div><div class="text-sm font-mono font-bold tabular-nums">${math.subtotal} EGP</div></div>
               <div><div class="text-[10px] text-slate-400">${i18n.dict.common.discount}</div><div class="text-sm font-mono font-bold text-amber-400 tabular-nums">-${math.discountAmount} EGP</div></div>
               <div><div class="text-[10px] text-slate-400">${i18n.dict.common.tax} (${math.taxRate}%)</div><div class="text-sm font-mono font-bold text-sky-400 tabular-nums">+${math.taxAmount} EGP</div></div>
               <div><div class="text-[10px] text-slate-400">${i18n.dict.common.net}</div><div class="text-base font-mono font-bold text-emerald-400 tabular-nums">${math.netTotal} EGP</div></div>
+              <div><div class="text-[10px] text-slate-400">${i18n.bi('تحمل المريض', 'Patient Co-Pay')}</div><div class="text-sm font-mono font-bold text-white tabular-nums">${patientShare} EGP</div></div>
+              <div><div class="text-[10px] text-slate-400">${i18n.bi('مطالبة الجهة', 'Company Claim')}</div><div class="text-sm font-mono font-bold text-indigo-300 tabular-nums">${companyShare} EGP</div></div>
             `;
           }
-          return math;
+          return { ...math, selectedContract, patientShare, companyShare };
         };
+
+        contractSel?.addEventListener('change', () => {
+          const selectedContract = contracts.find((c) => c.id === contractSel.value);
+          if (selectedContract && discTypeEl && discValEl) {
+            discTypeEl.value = 'percentage';
+            discValEl.value = String(selectedContract.discountPercent);
+          }
+          updateCalc();
+        });
 
         patSel?.addEventListener('change', () => {
           const pat = patientMap.get(patSel.value);
           const def = discountService.getPatientDefaultDiscount(pat);
-          if (discTypeEl && discValEl) {
+          if (!contractSel?.value && discTypeEl && discValEl) {
             discTypeEl.value = def.type;
             discValEl.value = String(def.value);
           }
@@ -246,6 +282,10 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               ...existingReq,
               patientId: patSel?.value || existingReq.patientId,
               doctorId: docId,
+              contractId: math.selectedContract?.id,
+              contractName: math.selectedContract ? i18n.bi(math.selectedContract.nameAr, math.selectedContract.nameEn) : undefined,
+              patientShareAmount: math.patientShare,
+              companyShareAmount: math.companyShare,
               type: rType,
               subtotal: math.subtotal,
               discountType: math.discountType,
@@ -335,6 +375,10 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             barcode,
             patientId: patSel?.value || patients[0]?.id || '',
             doctorId: docId,
+            contractId: math.selectedContract?.id,
+            contractName: math.selectedContract ? i18n.bi(math.selectedContract.nameAr, math.selectedContract.nameEn) : undefined,
+            patientShareAmount: math.patientShare,
+            companyShareAmount: math.companyShare,
             type: rType,
             status: 'awaiting_sample',
             subtotal: math.subtotal,
@@ -381,6 +425,10 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             requestId: reqId,
             patientId: newReq.patientId,
             doctorId: docId,
+            contractId: math.selectedContract?.id,
+            contractName: math.selectedContract ? i18n.bi(math.selectedContract.nameAr, math.selectedContract.nameEn) : undefined,
+            patientShareAmount: math.patientShare,
+            companyShareAmount: math.companyShare,
             requestType: rType,
             date: today,
             subtotal: math.subtotal,
