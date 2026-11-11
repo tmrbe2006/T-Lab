@@ -55,7 +55,188 @@ export type ResourceScreen =
   | 'erpAccounting'
   | 'doctorSpecialties'
   | 'scientificDepartments'
-  | 'sampleTubes';
+  | 'sampleTubes'
+  | 'aiHub'
+  | 'bloodFilmAi'
+  | 'urineMicroscopyAi'
+  | 'stoolMicroscopyAi';
+
+export type MicroscopyModality = 'blood_film' | 'urine_sediment' | 'stool_parasitology';
+
+export type VisionEngineMode =
+  | 'tlab_ensemble_v4'
+  | 'tlab_deepmorph'
+  | 'tlab_qvision_hd'
+  | 'tlab_optical_morphometric';
+
+export type AiSemanticColor = 'green' | 'yellow' | 'red';
+
+export type AiFindingGroupKey =
+  // Blood Film Groups
+  | 'rbc'
+  | 'wbc'
+  | 'platelets'
+  | 'parasites'
+  | 'artifacts'
+  // Urine Microscopy Groups
+  | 'cells'
+  | 'casts'
+  | 'crystals'
+  | 'microorganisms'
+  | 'others'
+  // Stool Microscopy Groups
+  | 'protozoa'
+  | 'helminths'
+  | 'larvae';
+
+export interface MicroscopyDetectedItem {
+  id?: string;
+  code: string;
+  groupKey?: AiFindingGroupKey;
+  categoryAr: string;
+  categoryEn: string;
+  nameAr: string;
+  nameEn: string;
+  scientificName?: string;
+  sizeMicrons?: string;
+  stainColorAr?: string;
+  associatedDiseasesAr?: string;
+  differentialCriteriaAr?: string;
+  differentialCriteriaEn?: string;
+  confidenceTierAr?: string;
+  confidenceTierEn?: string;
+  countOrGrade: string;
+  percentage?: number;
+  confidence: number;
+  severity: 'normal' | 'mild' | 'moderate' | 'critical';
+  semanticColor?: AiSemanticColor;
+  clinicalSignificanceAr: string;
+  clinicalSignificanceEn: string;
+  isCorrected?: boolean;
+  boundingBoxes?: Array<{ x: number; y: number; w: number; h: number; label: string }>;
+}
+
+export interface MicroscopyScanRecord {
+  id: string;
+  scanNumber: string;
+  modality: MicroscopyModality;
+  engineMode: VisionEngineMode;
+  patientId?: string;
+  patientName?: string;
+  requestId?: string;
+  requestNumber?: string;
+  stainOrPrep: string;
+  magnification: string;
+  sampleQualityAr: string;
+  overallDiagnosisAr: string;
+  overallDiagnosisEn: string;
+  clinicalRecommendationsAr: string;
+  clinicalRecommendationsEn?: string;
+  inconsistencyWarningsAr?: string[];
+  inconsistencyWarningsEn?: string[];
+  requiresSpecialistReview?: boolean;
+  hasCriticalAlert?: boolean;
+  criticalAlertMessageAr?: string;
+  criticalAlertMessageEn?: string;
+  imageDeleted?: boolean;
+  detectedItems: MicroscopyDetectedItem[];
+  differentialSummary?: Record<string, number>;
+  imageThumbnail?: string;
+  analyzedBy: string;
+  createdAt: string;
+}
+
+/**
+ * 1. جدول تحليلات الصور (aiImageAnalyses)
+ * يحتفظ بكل عملية تحليل صور مجهرية تم إجراؤها
+ */
+export interface AiImageAnalysisRecord {
+  id: string;
+  analysisNumber: string;
+  modality: MicroscopyModality;
+  engineMode: VisionEngineMode;
+  engineSystemNameAr: string;
+  engineSystemNameEn: string;
+  patientId?: string;
+  patientName?: string;
+  requestId?: string;
+  requestNumber?: string;
+  stainOrPrep: string;
+  magnification: string;
+  contrastEnhanced: boolean;
+  noiseReduced: boolean;
+  overallConfidence: number;
+  requiresSpecialistReview: boolean;
+  hasCriticalAlert: boolean;
+  criticalAlertMessageAr?: string;
+  criticalAlertMessageEn?: string;
+  inconsistencyWarningsAr: string[];
+  inconsistencyWarningsEn: string[];
+  clinicalInterpretationAr: string;
+  clinicalInterpretationEn: string;
+  recommendationsAr: string;
+  recommendationsEn: string;
+  imageDataUrl?: string;
+  imageDeleted: boolean;
+  findingsCount: number;
+  status: 'completed' | 'reviewed' | 'corrected';
+  analyzedBy: string;
+  createdAt: string;
+}
+
+/**
+ * 2. جدول نتائج التعرف (aiRecognitionFindings)
+ * يحتفظ بكل نتيجة مكتشفة ومصنفة داخل التحليل
+ */
+export interface AiRecognitionFindingRecord {
+  id: string;
+  analysisId: string;
+  analysisNumber: string;
+  modality: MicroscopyModality;
+  groupKey: AiFindingGroupKey;
+  groupTitleAr: string;
+  groupTitleEn: string;
+  code: string;
+  nameAr: string;
+  nameEn: string;
+  scientificName?: string;
+  countOrGrade: string;
+  confidence: number;
+  severity: 'normal' | 'mild' | 'moderate' | 'critical';
+  semanticColor: AiSemanticColor;
+  clinicalSignificanceAr: string;
+  clinicalSignificanceEn: string;
+  isCorrected: boolean;
+  boundingBoxes?: Array<{ x: number; y: number; w: number; h: number; label: string }>;
+  createdAt: string;
+}
+
+/**
+ * 3. جدول التصحيحات (aiCorrections)
+ * يحتفظ بتصحيحات الأخصائيين لتدريب وتحسين دقة النظام تلقائيًا
+ */
+export interface AiUserCorrectionRecord {
+  id: string;
+  analysisId: string;
+  findingId: string;
+  modality: MicroscopyModality;
+  groupKey: AiFindingGroupKey;
+  originalCode: string;
+  originalNameAr: string;
+  originalNameEn: string;
+  originalCountOrGrade: string;
+  originalConfidence: number;
+  correctedCode: string;
+  correctedNameAr: string;
+  correctedNameEn: string;
+  correctedCountOrGrade: string;
+  correctedSeverity: 'normal' | 'mild' | 'moderate' | 'critical';
+  correctedSemanticColor: AiSemanticColor;
+  correctionReason: string;
+  chromaticSignature?: string;
+  correctedBy: string;
+  createdAt: string;
+}
 
 export interface DoctorSpecialty {
   id: string;

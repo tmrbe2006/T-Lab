@@ -1,3 +1,4 @@
+import { GoogleGenAI, Type } from '@google/genai';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
@@ -421,6 +422,287 @@ async function startServer() {
       const message = err instanceof Error ? err.message : String(err);
       res.status(400).json({ ok: false, error: message });
     }
+  });
+
+  // 6. White-Label Clinical Microscopy Vision Analyzer (Blood Film, Urine Sediment, Stool Parasitology)
+  const modelQuotaCooldowns = new Map<string, number>();
+  app.post('/api/microscopy/analyze', async (req, res) => {
+    const {
+      modality,
+      imageBase64,
+      mimeType = 'image/png',
+      stainOrPrep = '',
+      magnification = '40x HPF',
+      clinicalNotes = '',
+      morphometricHints = '',
+    } = (req.body || {}) as {
+      modality: 'blood_film' | 'urine_sediment' | 'stool_parasitology';
+      engineMode?: string;
+      imageBase64: string;
+      mimeType?: string;
+      stainOrPrep?: string;
+      magnification?: string;
+      clinicalNotes?: string;
+      morphometricHints?: string;
+    };
+
+    if (!imageBase64) {
+      res.status(400).json({ ok: false, error: 'Missing microscope image data' });
+      return;
+    }
+
+    const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+
+    const modalityInstructions: Record<string, string> = {
+      blood_film: `You are an expert Clinical Hematopathologist analyzing a Peripheral Blood Smear (فيلم صورة الدم).
+Strictly forbid cross-modality anatomical contradictions (never report urine casts/crystals or stool ova in a blood film).
+Classify every detected element into one of these exact groupKey values:
+- "rbc": Red Blood Cells (Normocytic, Microcytic, Macrocytic, Normochromic, Hypochromic, Hyperchromic, Target cells/Codocytes, Sickle cells/Drepanocytes, Elliptocytes/Ovalocytes, Spherocytes, Teardrop/Dacrocytes, Acanthocytes/Spur cells [irregular 3-12 projections], Echinocytes/Burr cells [regular 10-30 short projections], Keratocytes/Bite/Helmet cells, Schistocytes/Fragmented RBCs, Stomatocytes, Rouleaux/Agglutination, Howell-Jolly bodies, Cabot rings, Basophilic stippling, Pappenheimer bodies).
+- "wbc": White Blood Cells (Segmented Neutrophils, Band Neutrophils, Left Shift, Toxic Granulation, Döhle Bodies, Cytoplasmic Vacuolation, Hypersegmented Neutrophils [>=6 lobes], Pelger-Huët Anomaly, Chédiak-Higashi, Small Mature Lymphocytes, Large Granular Lymphocytes LGL, Atypical/Reactive Lymphocytes, Hairy Cells, Lymphoblasts, Mature Monocytes, Atypical Monocytes/Promonocytes, Mature Eosinophils, Atypical Eosinophils, Mature Basophils, Myeloblasts [check Auer rods], Promyelocytes, Myelocytes, Metamyelocytes, Plasma Cells, Megakaryocyte fragments, Smudge/Basket cells).
+- "platelets": Platelets (Normal adequacy 7-20/HPF, Large/Giant Platelets >5µm, Microplatelets <1.5µm, Platelet Clumping/Satellitism, True Thrombocytopenia, Thrombocytosis).
+- "parasites": Blood Parasites (Plasmodium falciparum [delicate rings, double chromatin dots, banana gametocytes], P. vivax & P. ovale [enlarged RBCs + Schüffner dots], P. malariae [band trophozoites + rosette schizonts], Babesia [Maltese cross tetrads without hemozoin], Microfilariae [Wuchereria bancrofti, Brugia malayi, Loa loa], Trypanosoma, Leishmania amastigotes).
+- "artifacts": Smear Artifacts & Contaminants (Endothelial/Squamous Epithelial cells, Cryoglobulin/Crystal precipitates, Bacterial/Fungal overgrowth vs true bacteremia, Stain Precipitate).`,
+      urine_sediment: `You are an expert Clinical Pathologist analyzing a Urine Sediment Wet Mount (فحص رواسب البول المجهري).
+Strictly forbid cross-modality anatomical contradictions (never report intestinal stool ova like Ascaris/Trichuris/Taenia or blood smear elements in urine).
+Classify every detected element into one of these exact groupKey values:
+- "cells": Urinary Cells (Isomorphic RBCs [smooth 7µm discs], Dysmorphic RBCs [4 subtypes: Ring/Donut, Bleb/Acanthocyte G1 Mickey-Mouse ears, Mushroom, Star/Crenated], Ghost RBCs, Neutrophils/Pus Cells, Degenerated WBCs & Clumps, Glitter Cells, Urinary Monocytes/Histiocytes, Urinary Lymphocytes, Squamous Epithelial, Transitional/Urothelial [Superficial, Intermediate, Basal], Renal Tubular Epithelial RTE, Caudate Epithelial, Columnar Epithelial, Fatty Epithelial/Oval Fat Bodies).
+- "casts": Urinary Casts (Hyaline, Coarse Granular [muddy brown], Fine Granular, RBC Casts, WBC Casts, RTE Epithelial Casts, Waxy Casts [broad, cracked edges, high refractive index], Fatty Casts [Maltese cross], Broad/Renal Failure Casts, Mixed Casts).
+- "crystals": Urinary Crystals (Acidic pH<7: Calcium Oxalate Dihydrate [octahedral envelope] & Monohydrate [dumbbell/ovoid/spindle], Uric Acid [diamond/rhombic, rosette, barrel, needle], Amorphous Urates, Cystine [colorless hexagonal], Tyrosine [fine dark needle sheaves], Leucine [concentric oily spheres], Cholesterol [notched rectangular plates], Sulfonamides, Xanthine, Bilirubin; Alkaline pH>7: Triple Phosphate/Struvite [coffin-lid], Calcium Phosphate [stellar/rosette, needle, amorphous], Calcium Carbonate [tiny dumbbells/spheres], Ammonium Biurate [thornapple]; Drug Crystals: Ampicillin, Ceftriaxone, Acyclovir, Indinavir, Methotrexate).
+- "microorganisms": Microorganisms & Parasites (Bacilli & Cocci Bacteria, Candida Budding Yeast & Pseudohyphae [do not lyse in acetic acid unlike RBCs], Trichomonas vaginalis, Schistosoma haematobium terminal-spine ova & S. mansoni lateral-spine spillover).
+- "others": Other Elements & Artifacts (Spermatozoa, Mucus Threads, Cloth/Diaper Fibers [flat, sharp refractive edges unlike cylindrical casts], Free Lipid Droplets, Starch Granules [dimpled Y-hilum], Air Bubbles).`,
+      stool_parasitology: `You are an expert Clinical Parasitologist analyzing a Stool Microscopy Wet Mount (فحص البراز المجهري).
+Strictly forbid cross-modality anatomical contradictions (never report urinary casts or blood film cells in stool).
+Classify every detected element into one of these exact groupKey values:
+- "protozoa": Intestinal Protozoa (Entamoeba histolytica [trophozoite with ingested RBCs + central karyosome; 1-4 nuclei cyst with rounded chromatoid bars], E. coli [trophozoite with eccentric karyosome; large 1-8 nuclei cyst with splintered chromatoid bars], Endolimax nana [blot-like karyosome], Iodamoeba bütschlii [huge iodine-dark glycogen vacuole], Entamoeba hartmanni [<10µm], Giardia lamblia [pear-shaped owl-face trophozoite & oval 4-nuclei cyst], Chilomastix mesnili [lemon-shaped cyst with anterior knob], Dientamoeba fragilis, Balantidium coli [giant ciliated trophozoite & cyst with kidney macronucleus], Cryptosporidium oocysts [4-6µm], Cyclospora cayetanensis [8-10µm], Cystoisospora belli [25-30µm ellipsoidal], Sarcocystis, Microsporidia).
+- "helminths": Helminths & Ova (Ascaris lumbricoides fertilized [mammillated golden-brown] & unfertilized [elongated 90µm], Trichuris trichiura [barrel-shaped with bipolar plugs], Enterobius vermicularis [flattened D-shaped], Ancylostoma duodenale & Necator americanus [thin transparent shell with 4-8 blastomeres], Toxocara spp., Schistosoma mansoni [lateral spine], S. haematobium [terminal spine], S. japonicum [minute lateral knob], Fasciola hepatica & Fasciolopsis buski [giant operculated 140µm], Paragonimus westermani, Clonorchis sinensis / Opisthorchis [small flask-shaped operculated with shoulders], Heterophyes heterophyes, Taenia saginata/solium [radially striated embryophore + 6-hooked oncosphere] & gravid proglottids, Hymenolepis nana [polar knobs WITH 4-8 polar filaments], Hymenolepis diminuta [NO polar filaments], Diphyllobothrium latum [operculated + abopercular knob], Dipylidium caninum egg packets).
+- "larvae": Helminth Larvae (Strongyloides stercoralis rhabditiform larvae [short buccal cavity + prominent genital primordium] & filariform larvae, Trichinella spiralis).
+- "cells": Cellular Elements (Fecal RBCs, Fecal WBCs/Pus Cells, Intestinal Epithelial Cells).
+- "crystals": Fecal Crystals (Charcot-Leyden hexagonal bipyramidal compass-needle crystals, Hematoxylin/Fatty acid/Calcium oxalate crystals).
+- "others": Digestion & Other Elements (Undigested striated muscle fibers [creatorrhea], Undigested starch granules [blue-black in iodine], Neutral fat globules [steatorrhea], Plant fibers/spirals/vegetable cells, Mucus strands, Food debris, Budding yeast/fungi, Enteric bacteria, Pollen/Spore artifacts).`,
+    };
+
+    const systemPrompt = `${modalityInstructions[modality] || modalityInstructions.blood_film}
+Stain/Preparation: ${stainOrPrep}. Magnification: ${magnification}.
+Additional Context / Morphometric Features: ${clinicalNotes} ${morphometricHints}
+
+Calibrate confidence scores strictly using the 5-Tier Clinical Confidence Scale:
+- 95-100%: Confirmed Identification (تعرف مؤكد)
+- 85-94%: High-Confidence Identification (تعرف عالي الثقة)
+- 70-84%: Moderate-Confidence Identification (تعرف متوسط الثقة)
+- 50-69%: Low Confidence - Specialist Review Recommended (تعرف منخفض الثقة - يُنصح بمراجعة أخصائي)
+- < 50%: Uncertain - Requires Human Expert (غير مؤكد - يحتاج خبير بشري)
+
+Return a strict JSON object with these exact keys:
+- sampleQualityAr: Arabic description of slide staining, white balance, and focus quality.
+- overallDiagnosisAr: Comprehensive Arabic clinical morphological interpretation (note that these are assistive microscopy findings requiring physician review).
+- overallDiagnosisEn: Comprehensive English clinical morphological interpretation.
+- clinicalRecommendationsAr: Actionable Arabic recommendations for follow-up or confirmatory tests.
+- clinicalRecommendationsEn: Actionable English recommendations for follow-up or confirmatory tests.
+- detectedItems: Array of detected morphological entities. Each item must have:
+  - code: Atlas code if matching (e.g. "RBC-SICKLE", "URN-CRY-CAOX-DI", "STL-HEL-ASCARIS-FERT") or descriptive code
+  - groupKey: Exact groupKey string from the modality instructions above
+  - categoryAr: Group title in Arabic
+  - categoryEn: Group title in English
+  - nameAr: Precise Arabic name
+  - nameEn: Precise English name
+  - scientificName: Scientific/Latin name or morphological term
+  - countOrGrade: Quantitative/semi-quantitative reading (e.g. "62%", "12-15 / HPF", "++ Moderate", "Seen (2 Ova / LPF)")
+  - percentage: Numeric percentage if applicable (0-100)
+  - confidence: Numeric confidence score (0 to 100)
+  - severity: One of "normal", "mild", "moderate", "critical"
+  - semanticColor: One of "green" (normal), "yellow" (note/mild), "red" (abnormal/critical)
+  - clinicalSignificanceAr: Arabic explanation of clinical significance
+  - clinicalSignificanceEn: English explanation of clinical significance
+  - boundingBoxes: Array of 1 to 3 regions [{ "x": number (10-80), "y": number (10-80), "w": number (8-22), "h": number (8-22), "label": string }] indicating approximate percentage coordinates on the slide.`;
+
+    let primaryResult: Record<string, unknown> | null = null;
+    let verificationResult: Record<string, unknown> | null = null;
+
+    // Stage 1: Primary Vision Engine with automatic multi-model quota failover
+    if (process.env.GEMINI_API_KEY) {
+      const candidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash'];
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          sampleQualityAr: { type: Type.STRING },
+          overallDiagnosisAr: { type: Type.STRING },
+          overallDiagnosisEn: { type: Type.STRING },
+          clinicalRecommendationsAr: { type: Type.STRING },
+          clinicalRecommendationsEn: { type: Type.STRING },
+          detectedItems: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                code: { type: Type.STRING },
+                groupKey: { type: Type.STRING },
+                categoryAr: { type: Type.STRING },
+                categoryEn: { type: Type.STRING },
+                nameAr: { type: Type.STRING },
+                nameEn: { type: Type.STRING },
+                scientificName: { type: Type.STRING },
+                countOrGrade: { type: Type.STRING },
+                percentage: { type: Type.NUMBER },
+                confidence: { type: Type.NUMBER },
+                severity: { type: Type.STRING },
+                semanticColor: { type: Type.STRING },
+                clinicalSignificanceAr: { type: Type.STRING },
+                clinicalSignificanceEn: { type: Type.STRING },
+                boundingBoxes: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      x: { type: Type.NUMBER },
+                      y: { type: Type.NUMBER },
+                      w: { type: Type.NUMBER },
+                      h: { type: Type.NUMBER },
+                      label: { type: Type.STRING },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      for (const modelName of candidateModels) {
+        if (primaryResult) break;
+        const cooldownUntil = modelQuotaCooldowns.get(modelName) || 0;
+        if (Date.now() < cooldownUntil) continue;
+
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: mimeType || 'image/png',
+                    data: cleanBase64,
+                  },
+                },
+                {
+                  text: systemPrompt,
+                },
+              ],
+            },
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema,
+            },
+          });
+
+          const rawText = (response.text ?? '').trim();
+          if (rawText) {
+            primaryResult = JSON.parse(rawText);
+          }
+        } catch (gemErr) {
+          const errMsg = gemErr instanceof Error ? gemErr.message : String(gemErr);
+          if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota')) {
+            // Put this model on cooldown for 15 minutes and transparently fall over to next model / stage
+            modelQuotaCooldowns.set(modelName, Date.now() + 15 * 60 * 1000);
+          }
+        }
+      }
+    }
+
+    // Stage 2: Secondary Verification Vision Engine
+    try {
+      const visionResp = await fetch('https://text.pollinations.ai/openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'openai',
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt,
+            },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'Verify and analyze this clinical microscopy slide and return the strict JSON report.' },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${mimeType || 'image/png'};base64,${cleanBase64}`,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (visionResp.ok) {
+        const visionJson = (await visionResp.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        const content = visionJson?.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed && Array.isArray(parsed.detectedItems) && parsed.detectedItems.length > 0) {
+            verificationResult = parsed;
+          }
+        }
+      }
+    } catch {
+      // Verification fallback handled gracefully
+    }
+
+    // Stage 3: Merge & Cross-Verify Primary + Verification Results
+    if (primaryResult && Array.isArray(primaryResult.detectedItems) && primaryResult.detectedItems.length > 0) {
+      if (verificationResult && Array.isArray(verificationResult.detectedItems)) {
+        const verItems = verificationResult.detectedItems as Array<Record<string, unknown>>;
+        const mergedItems = (primaryResult.detectedItems as Array<Record<string, unknown>>).map((item) => {
+          const match = verItems.find(
+            (v) =>
+              String(v.code || '').toUpperCase() === String(item.code || '').toUpperCase() ||
+              String(v.nameEn || '').toLowerCase() === String(item.nameEn || '').toLowerCase()
+          );
+          if (match) {
+            const c1 = Number(item.confidence) || 90;
+            const c2 = Number(match.confidence) || 90;
+            return {
+              ...item,
+              confidence: Math.min(99.6, Math.round(((c1 + c2) / 2 + 2.5) * 10) / 10),
+            };
+          }
+          return item;
+        });
+        for (const vItem of verItems) {
+          const exists = mergedItems.some(
+            (m) => String(m.code || '').toUpperCase() === String(vItem.code || '').toUpperCase()
+          );
+          if (!exists && (Number(vItem.confidence) || 0) >= 75) {
+            mergedItems.push(vItem);
+          }
+        }
+        primaryResult.detectedItems = mergedItems;
+      }
+      res.json({ ok: true, result: primaryResult });
+      return;
+    }
+
+    if (verificationResult && Array.isArray(verificationResult.detectedItems) && verificationResult.detectedItems.length > 0) {
+      res.json({ ok: true, result: verificationResult });
+      return;
+    }
+
+    res.json({ ok: false, useLocalMorphometricEngine: true });
   });
 
   const http = await import('http');

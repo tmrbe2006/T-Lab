@@ -626,5 +626,100 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 TRUNCATE TABLE `audit_logs`;
 
+-- --------------------------------------------------------
+-- 37. جدول فحوصات الرؤية المجهرية الذكية `microscopy_scans` (فيلم الدم / رواسب البول / طفيليات البراز)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `microscopy_scans` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `scan_number` VARCHAR(64) NOT NULL,
+  `modality` VARCHAR(32) NOT NULL,
+  `patient_id` VARCHAR(64),
+  `patient_name` VARCHAR(191),
+  `request_id` VARCHAR(64),
+  `engine_label` VARCHAR(191),
+  `summary_ar` TEXT,
+  `status` VARCHAR(32),
+  `created_at` VARCHAR(32),
+  `raw_json` LONGTEXT,
+  INDEX idx_mscan_num (scan_number),
+  INDEX idx_mscan_mod (modality),
+  INDEX idx_mscan_pat (patient_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `microscopy_scans`;
+
+-- --------------------------------------------------------
+-- 38. جدول تحليلات الصور المجهرية الذكية `ai_image_analyses`
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ai_image_analyses` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `analysis_number` VARCHAR(64) NOT NULL,
+  `modality` VARCHAR(32) NOT NULL,
+  `engine_system_name_ar` VARCHAR(191),
+  `patient_id` VARCHAR(64),
+  `patient_name` VARCHAR(191),
+  `request_id` VARCHAR(64),
+  `overall_confidence` DECIMAL(6,2) DEFAULT 0.00,
+  `requires_specialist_review` TINYINT(1) DEFAULT 0,
+  `has_critical_alert` TINYINT(1) DEFAULT 0,
+  `image_deleted` TINYINT(1) DEFAULT 0,
+  `findings_count` INT DEFAULT 0,
+  `status` VARCHAR(32),
+  `analyzed_by` VARCHAR(64),
+  `created_at` VARCHAR(32),
+  `raw_json` LONGTEXT,
+  INDEX idx_aia_num (analysis_number),
+  INDEX idx_aia_mod (modality),
+  INDEX idx_aia_pat (patient_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `ai_image_analyses`;
+
+-- --------------------------------------------------------
+-- 39. جدول نتائج التعرف الآلي `ai_recognition_findings`
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ai_recognition_findings` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `analysis_id` VARCHAR(64) NOT NULL,
+  `analysis_number` VARCHAR(64),
+  `modality` VARCHAR(32) NOT NULL,
+  `group_key` VARCHAR(32) NOT NULL,
+  `code` VARCHAR(64) NOT NULL,
+  `name_ar` VARCHAR(191),
+  `name_en` VARCHAR(191),
+  `count_or_grade` VARCHAR(64),
+  `confidence` DECIMAL(6,2) DEFAULT 0.00,
+  `semantic_color` VARCHAR(16),
+  `is_corrected` TINYINT(1) DEFAULT 0,
+  `created_at` VARCHAR(32),
+  `raw_json` LONGTEXT,
+  INDEX idx_arf_analysis (analysis_id),
+  INDEX idx_arf_group (group_key),
+  INDEX idx_arf_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `ai_recognition_findings`;
+
+-- --------------------------------------------------------
+-- 40. جدول تصحيحات المستخدمين للتعلم المستمر `ai_corrections`
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `ai_corrections` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `analysis_id` VARCHAR(64) NOT NULL,
+  `finding_id` VARCHAR(64) NOT NULL,
+  `modality` VARCHAR(32) NOT NULL,
+  `group_key` VARCHAR(32),
+  `original_code` VARCHAR(64),
+  `original_name_ar` VARCHAR(191),
+  `corrected_code` VARCHAR(64),
+  `corrected_name_ar` VARCHAR(191),
+  `corrected_count_or_grade` VARCHAR(64),
+  `correction_reason` VARCHAR(255),
+  `corrected_by` VARCHAR(64),
+  `created_at` VARCHAR(32),
+  `raw_json` LONGTEXT,
+  INDEX idx_aic_analysis (analysis_id),
+  INDEX idx_aic_mod (modality),
+  INDEX idx_aic_orig (original_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+TRUNCATE TABLE `ai_corrections`;
+
 SET foreign_key_checks = 1;
 -- End of T-Lab Empty Database (Users Only) SQL Script

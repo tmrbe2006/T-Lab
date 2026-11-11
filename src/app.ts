@@ -23,6 +23,10 @@ const SIDEBAR_ITEMS: NavItem[] = [
   { route: 'requests', resource: 'requests', labelKey: 'requests' },
   { route: 'samples', resource: 'samples', labelKey: 'samples' },
   { route: 'results', resource: 'results', labelKey: 'results' },
+  { route: 'aiHub', resource: 'aiHub', labelKey: 'aiHub' },
+  { route: 'bloodFilmAi', resource: 'bloodFilmAi', labelKey: 'bloodFilmAi' },
+  { route: 'urineMicroscopyAi', resource: 'urineMicroscopyAi', labelKey: 'urineMicroscopyAi' },
+  { route: 'stoolMicroscopyAi', resource: 'stoolMicroscopyAi', labelKey: 'stoolMicroscopyAi' },
   { route: 'resultReview', resource: 'resultReview', labelKey: 'resultReview' },
   { route: 'tests', resource: 'tests', labelKey: 'tests' },
   { route: 'scientificDepartments', resource: 'scientificDepartments', labelKey: 'scientificDepartments' },
@@ -122,6 +126,22 @@ export const loadPage = async (
     case 'results': {
       const { renderResultsEntryPage } = await import('./pages/operations/results-entry.page');
       return renderResultsEntryPage;
+    }
+    case 'aiHub': {
+      const { renderAiHubPage } = await import('./pages/operations/microscopy-vision.page');
+      return renderAiHubPage;
+    }
+    case 'bloodFilmAi': {
+      const { renderBloodFilmAiPage } = await import('./pages/operations/microscopy-vision.page');
+      return renderBloodFilmAiPage;
+    }
+    case 'urineMicroscopyAi': {
+      const { renderUrineMicroscopyAiPage } = await import('./pages/operations/microscopy-vision.page');
+      return renderUrineMicroscopyAiPage;
+    }
+    case 'stoolMicroscopyAi': {
+      const { renderStoolMicroscopyAiPage } = await import('./pages/operations/microscopy-vision.page');
+      return renderStoolMicroscopyAiPage;
     }
     case 'resultReview': {
       const { renderResultReviewPage } = await import('./pages/operations/results-review.page');

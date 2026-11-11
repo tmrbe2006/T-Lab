@@ -16,7 +16,7 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
+    "@google/genai": "^3.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/cors": "^2.8.19",
     "@vitejs/plugin-react": "^6.1.1",

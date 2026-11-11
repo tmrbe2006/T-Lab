@@ -80,6 +80,12 @@ export class MedicalLabDatabase extends Dexie {
   scientificDepartments!: Table<ScientificDepartment, string>;
   sampleTubes!: Table<SampleTube, string>;
 
+  // Version 5 & 6 Digital Microscopy & Intelligent Recognition Stores
+  microscopyScans!: Table<import('../types').MicroscopyScanRecord, string>;
+  aiImageAnalyses!: Table<import('../types').AiImageAnalysisRecord, string>;
+  aiRecognitionFindings!: Table<import('../types').AiRecognitionFindingRecord, string>;
+  aiCorrections!: Table<import('../types').AiUserCorrectionRecord, string>;
+
   constructor() {
     super('MedicalLabDB_v1');
 
@@ -145,6 +151,18 @@ export class MedicalLabDatabase extends Dexie {
       doctorSpecialties: 'id, code, nameAr, active',
       scientificDepartments: 'id, code, nameAr, active',
       sampleTubes: 'id, code, nameAr, active',
+    });
+
+    // Version 5: Digital Microscopy Vision Scans (Blood Film, Urine Sediment, Stool Parasitology)
+    this.version(5).stores({
+      microscopyScans: 'id, scanNumber, modality, patientId, requestId, createdAt',
+    });
+
+    // Version 6: Dedicated 3-Table AI Microscopy Architecture (Analyses, Recognition Findings, User Corrections)
+    this.version(6).stores({
+      aiImageAnalyses: 'id, analysisNumber, modality, patientId, requestId, status, hasCriticalAlert, createdAt',
+      aiRecognitionFindings: 'id, analysisId, analysisNumber, modality, groupKey, code, semanticColor, confidence, createdAt',
+      aiCorrections: 'id, analysisId, findingId, modality, groupKey, originalCode, correctedCode, correctedBy, createdAt',
     });
   }
 }
