@@ -7,6 +7,7 @@ import type {
   DailyClosing,
   Doctor,
   DoctorCommission,
+  DoctorSpecialty,
   Employee,
   Expense,
   InventoryItem,
@@ -27,6 +28,8 @@ import type {
   Role,
   RolePermission,
   Sample,
+  SampleTube,
+  ScientificDepartment,
   StockMovement,
   StockTakingSession,
   Supplier,
@@ -71,6 +74,11 @@ export class MedicalLabDatabase extends Dexie {
   returnNotes!: Table<ReturnNote, string>;
   costCenters!: Table<CostCenter, string>;
   periodLocks!: Table<PeriodClosingLock, string>;
+
+  // Version 4 Master Lookups Stores
+  doctorSpecialties!: Table<DoctorSpecialty, string>;
+  scientificDepartments!: Table<ScientificDepartment, string>;
+  sampleTubes!: Table<SampleTube, string>;
 
   constructor() {
     super('MedicalLabDB_v1');
@@ -129,6 +137,14 @@ export class MedicalLabDatabase extends Dexie {
       returnNotes: 'id, noteNumber, type, originalInvoiceId, date, status',
       costCenters: 'id, code, active',
       periodLocks: 'id, periodMonth, locked',
+    });
+
+    // Version 4: Doctor Specialties, Scientific Departments & Sample Tubes
+    this.version(4).stores({
+      patients: 'id, code, name, nameEn, phone, nationalId, active, createdAt',
+      doctorSpecialties: 'id, code, nameAr, active',
+      scientificDepartments: 'id, code, nameAr, active',
+      sampleTubes: 'id, code, nameAr, active',
     });
   }
 }

@@ -10,12 +10,16 @@ import {
 import { can, enforcePermission } from '../guards/permission.guard';
 import { i18n } from '../i18n';
 import { printService } from '../print/print.service';
-import { doctorsRepository } from '../repositories';
+import { doctorsRepository, lookupsRepository } from '../repositories';
+import { router } from '../router';
 import type { Doctor, DoctorType } from '../types';
 
 export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  let allDoctors = await doctorsRepository.getAll();
+  let [allDoctors, specialties] = await Promise.all([
+    doctorsRepository.getAll(),
+    lookupsRepository.getDoctorSpecialties(),
+  ]);
   let searchQuery = '';
   let currentPage = 1;
   const itemsPerPage = 15;
@@ -32,8 +36,72 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
     );
   };
 
-  const openDoctorForm = (existing?: Doctor) => {
+  const generateNextDoctorCode = (): string => {
+    const nums = allDoctors.map((d) => {
+      const m = d.code.match(/(\d+)/);
+      return m ? parseInt(m[1], 10) : 0;
+    });
+    const maxNum = nums.length > 0 ? Math.max(...nums) : 0;
+    return `DOC-${String(maxNum + 1).padStart(2, '0')}`;
+  };
+
+  const printSingleDoctor = (d: Doctor) => {
+    const typeLabel =
+      d.type === 'referred'
+        ? i18n.bi('طبيب محول خارجي (Referred)', 'External Referring Doctor')
+        : d.type === 'contracted'
+        ? i18n.bi('طبيب متعاقد (Contracted)', 'Contracted Doctor')
+        : i18n.bi('طبيب داخلي بالمعمل (Internal)', 'Internal Lab Doctor');
+
+    const html = `
+      <div style="border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin-bottom:14px;">
+        <h3 style="margin:0 0 12px 0; font-size:15px; color:#0f172a; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+          ${i18n.bi('بطاقة بيانات الطبيب المسجل', 'Registered Doctor Profile Card')} — ${d.code}
+        </h3>
+        <table class="print-table">
+          <tbody>
+            <tr>
+              <th style="width:28%;">${i18n.bi('كود الطبيب', 'Doctor Code')}</th>
+              <td class="tabular-nums"><strong>${d.code}</strong></td>
+              <th style="width:28%;">${i18n.bi('نوع التعاقد', 'Doctor Type')}</th>
+              <td>${typeLabel}</td>
+            </tr>
+            <tr>
+              <th>${i18n.bi('اسم الطبيب (عربي)', 'Doctor Name (Arabic)')}</th>
+              <td><strong>${d.nameAr}</strong></td>
+              <th>${i18n.bi('اسم الطبيب (إنجليزي)', 'Doctor Name (English)')}</th>
+              <td dir="ltr"><strong>${d.nameEn}</strong></td>
+            </tr>
+            <tr>
+              <th>${i18n.bi('التخصص الطبي', 'Medical Specialty')}</th>
+              <td><strong>${d.specialty}</strong></td>
+              <th>${i18n.bi('رقم الهاتف', 'Phone Number')}</th>
+              <td class="tabular-nums">${d.phone || '-'}</td>
+            </tr>
+            <tr>
+              <th>${i18n.bi('نسبة عمولة الطبيب الافتراضية', 'Default Commission Rate')}</th>
+              <td class="tabular-nums">${d.commissionRate}% (${d.commissionEnabled ? i18n.bi('فعالة', 'Active') : i18n.bi('غير فعالة', 'Disabled')})</td>
+              <th>${i18n.dict.common.status}</th>
+              <td>${d.active ? i18n.dict.common.active : i18n.dict.common.inactive}</td>
+            </tr>
+            <tr>
+              <th>${i18n.dict.common.notes}</th>
+              <td colspan="3">${d.notes || '-'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+    printService.printA4(`${i18n.bi('بيانات الطبيب:', 'Doctor Profile:')} ${d.nameAr}`, html);
+  };
+
+  const openDoctorForm = async (existing?: Doctor) => {
+    specialties = await lookupsRepository.getDoctorSpecialties();
+    const activeSpecialties = specialties.filter((s) => s.active !== false);
     const isEdit = Boolean(existing);
+    const currentSpec = existing?.specialty || activeSpecialties[0]?.nameAr || 'باطنة عامة';
+    const hasCurrentInList = activeSpecialties.some((s) => s.nameAr === currentSpec);
+
     openCustomModal(
       isEdit
         ? i18n.bi(`تعديل بيانات الطبيب: ${existing?.nameAr}`, `Edit Doctor: ${existing?.nameEn}`)
@@ -46,11 +114,30 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
           </div>
           <div>
             <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('اسم الطبيب (إنجليزي) *', 'Doctor Name (English) *')}</label>
-            <input name="nameEn" required value="${existing?.nameEn || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <input name="nameEn" required value="${existing?.nameEn || ''}" dir="ltr" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-left" />
           </div>
           <div>
-            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('التخصص الطبي', 'Specialty')}</label>
-            <input name="specialty" required value="${existing?.specialty || 'باطنة عامة'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <div class="flex items-center justify-between mb-1">
+              <label class="block font-semibold text-slate-700">${i18n.bi('التخصص الطبي *', 'Medical Specialty *')}</label>
+              <button type="button" id="doc-manage-specs-link" class="text-[11px] font-bold text-sky-700 hover:underline cursor-pointer">
+                + ${i18n.bi('إدارة التخصصات', 'Manage Specialties')}
+              </button>
+            </div>
+            <select name="specialty" required class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">
+              ${
+                !hasCurrentInList && currentSpec
+                  ? `<option value="${currentSpec}" selected>${currentSpec}</option>`
+                  : ''
+              }
+              ${activeSpecialties
+                .map(
+                  (s) =>
+                    `<option value="${s.nameAr}" ${s.nameAr === currentSpec ? 'selected' : ''}>${s.nameAr}${
+                      s.nameEn ? ` — ${s.nameEn}` : ''
+                    }</option>`
+                )
+                .join('')}
+            </select>
           </div>
           <div>
             <label class="block font-semibold text-slate-700 mb-1">${i18n.dict.common.phone}</label>
@@ -94,6 +181,11 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
         </form>
       `,
       (close) => {
+        document.getElementById('doc-manage-specs-link')?.addEventListener('click', () => {
+          close();
+          router.navigate('doctorSpecialties');
+        });
+
         const form = document.getElementById('doctor-form') as HTMLFormElement | null;
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
@@ -107,7 +199,7 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
           const rate = docType === 'internal' ? 0 : Math.max(0, Number(fd.get('commissionRate')) || 0);
           const record: Doctor = {
             id: existing?.id || `doc_${Date.now()}`,
-            code: existing?.code || `DOC-0${allDoctors.length + 1}`,
+            code: existing?.code || generateNextDoctorCode(),
             nameAr: String(fd.get('nameAr') || '').trim(),
             nameEn: String(fd.get('nameEn') || '').trim(),
             specialty: String(fd.get('specialty') || '').trim(),
@@ -123,7 +215,7 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
             isEdit ? `تعديل طبيب: ${record.nameAr}` : `إضافة طبيب: ${record.nameAr}`,
             'doctors',
             record.id,
-            `Commission Rate: ${record.commissionRate}%`
+            `Specialty: ${record.specialty} | Commission Rate: ${record.commissionRate}%`
           );
           showToast(i18n.bi('تم حفظ بيانات الطبيب بنجاح', 'Doctor saved successfully'), 'success');
           close();
@@ -141,8 +233,6 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
     const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
     const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
     const canAdd = can(user, 'add', 'doctors');
-    const canEdit = can(user, 'edit', 'doctors');
-    const canDelete = can(user, 'delete', 'doctors');
     const canPrint = can(user, 'print', 'doctors');
 
     container.innerHTML = `
@@ -152,12 +242,15 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
             <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.doctors}</h1>
             <p class="text-xs text-slate-500 mt-0.5">
               ${i18n.bi(
-                'إدارة الأطباء المحولين ونسب العمولة الافتراضية (تُحسب فقط على المبالغ المحصلة من الطلبات المحولة)',
-                'Manage referring doctors and default commission percentages (calculated strictly on collected referred requests)'
+                'إدارة الأطباء المحولين، اختيار التخصص من جدول التخصصات الطبية، ونسب العمولة الافتراضية',
+                'Manage referring doctors, medical specialties combobox, and default commission percentages'
               )}
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="doc-specialties-btn" type="button" class="rounded-lg border border-indigo-300 bg-indigo-50 px-3.5 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer">
+              ${i18n.bi('شاشة تخصصات الأطباء', 'Doctor Specialties')}
+            </button>
             ${
               canPrint
                 ? `<button id="doc-print-btn" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>`
@@ -203,26 +296,25 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
                     <td class="py-2.5 px-3 font-mono font-semibold text-slate-700 tabular-nums">${d.code}</td>
                     <td class="py-2.5 px-3">
                       <div class="font-bold text-slate-900">${d.nameAr}</div>
-                      <div class="text-[11px] text-slate-500">${d.nameEn}</div>
+                      <div class="text-[11px] text-slate-500" dir="ltr">${d.nameEn}</div>
                     </td>
-                    <td class="py-2.5 px-3 text-slate-700">${d.specialty}</td>
+                    <td class="py-2.5 px-3 font-semibold text-slate-700">${d.specialty}</td>
                     <td class="py-2.5 px-3 text-slate-600">${d.type}</td>
                     <td class="py-2.5 px-3 font-mono font-bold ${d.commissionEnabled ? 'text-emerald-700' : 'text-slate-400'} tabular-nums">
                       ${d.commissionRate}% ${d.commissionEnabled ? '' : '(Disabled)'}
                     </td>
                     <td class="py-2.5 px-3 font-mono text-slate-600 tabular-nums">${d.phone}</td>
                     <td class="py-2.5 px-3">
-                      <div class="flex items-center gap-2">
-                        ${
-                          canEdit
-                            ? `<button type="button" data-edit-id="${d.id}" class="doc-edit-btn text-sky-700 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.edit}</button>`
-                            : ''
-                        }
-                        ${
-                          canDelete
-                            ? `<button type="button" data-del-id="${d.id}" class="doc-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>`
-                            : ''
-                        }
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <button type="button" data-print-id="${d.id}" class="doc-row-print-btn rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 cursor-pointer">
+                          ${i18n.bi('طباعة', 'Print')}
+                        </button>
+                        <button type="button" data-edit-id="${d.id}" class="doc-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                          ${i18n.dict.actions.edit}
+                        </button>
+                        <button type="button" data-del-id="${d.id}" class="doc-del-btn rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                          ${i18n.dict.actions.delete}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -236,10 +328,15 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
       </div>
     `;
 
-    bindTablePagination(container, pagState, (page) => {
-      currentPage = page;
-      renderTable();
-    }, 'doc-pag');
+    bindTablePagination(
+      container,
+      pagState,
+      (page) => {
+        currentPage = page;
+        renderTable();
+      },
+      'doc-pag'
+    );
 
     const searchInput = document.getElementById('doc-search-input') as HTMLInputElement | null;
     searchInput?.addEventListener('input', () => {
@@ -251,6 +348,10 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
         newInput.focus();
         newInput.setSelectionRange(searchQuery.length, searchQuery.length);
       }
+    });
+
+    document.getElementById('doc-specialties-btn')?.addEventListener('click', () => {
+      router.navigate('doctorSpecialties');
     });
 
     document.getElementById('doc-add-btn')?.addEventListener('click', () => openDoctorForm());
@@ -288,6 +389,14 @@ export async function renderDoctorsPage(container: HTMLElement): Promise<void> {
         </table>
       `;
       printService.printA4(i18n.dict.nav.doctors, html);
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.doc-row-print-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-print-id');
+        const target = allDoctors.find((d) => d.id === id);
+        if (target) printSingleDoctor(target);
+      });
     });
 
     document.querySelectorAll<HTMLButtonElement>('.doc-edit-btn').forEach((btn) => {

@@ -52,43 +52,67 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
     if (!q) return requests;
     return requests.filter((r) => {
       const pName = patientMap.get(r.patientId)?.name.toLowerCase() || '';
+      const pNameEn = (patientMap.get(r.patientId)?.nameEn || '').toLowerCase();
       return (
         r.requestNumber.toLowerCase().includes(q) ||
         r.barcode.toLowerCase().includes(q) ||
-        pName.includes(q)
+        pName.includes(q) ||
+        pNameEn.includes(q)
       );
     });
   };
 
-  const openNewRequestModal = () => {
+  const openRequestModal = async (existingReq?: LabRequest) => {
+    const isEdit = Boolean(existingReq);
     const canDiscount = can(user, 'discount', 'requests');
-    const firstPat = patients[0];
-    const initDisc = discountService.getPatientDefaultDiscount(firstPat);
+    const existingItems = existingReq ? await requestsRepository.getRequestItems(existingReq.id) : [];
+    const existingTestIds = new Set(existingItems.map((it) => it.testId));
+
+    const selectedPat = existingReq
+      ? patientMap.get(existingReq.patientId) || patients[0]
+      : patients[0];
+    const initDisc = existingReq
+      ? { type: existingReq.discountType, value: existingReq.discountValue }
+      : discountService.getPatientDefaultDiscount(selectedPat);
+    const initTaxRate = existingReq ? existingReq.taxRate : 14;
+    const initType: RequestType = existingReq ? existingReq.type : 'referred';
 
     openCustomModal(
-      i18n.bi('إنشاء طلب تحاليل جديد + توليد باركود وفاتورة تلقائية', 'Create New Lab Request + Auto Barcode & Invoice'),
+      isEdit
+        ? i18n.bi(`تعديل طلب التحاليل: ${existingReq?.requestNumber}`, `Edit Lab Request: ${existingReq?.requestNumber}`)
+        : i18n.bi('إنشاء طلب تحاليل جديد + توليد باركود وفاتورة تلقائية', 'Create New Lab Request + Auto Barcode & Invoice'),
       `
         <form id="req-form" class="space-y-4 text-xs">
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label class="block font-semibold mb-1">${i18n.bi('المريض *', 'Patient *')}</label>
               <select id="req-pat-sel" name="patientId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
-                ${patients.map((p) => `<option value="${p.id}">${p.name} (${p.code})</option>`).join('')}
+                ${patients
+                  .map(
+                    (p) =>
+                      `<option value="${p.id}" ${p.id === selectedPat?.id ? 'selected' : ''}>${p.name}${
+                        p.nameEn ? ` (${p.nameEn})` : ''
+                      } — ${p.code}</option>`
+                  )
+                  .join('')}
               </select>
             </div>
             <div>
               <label class="block font-semibold mb-1">${i18n.bi('نوع الطلب', 'Request Type')}</label>
               <select id="req-type-sel" name="type" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
-                <option value="referred">${i18n.bi('محول من طبيب خارجي (Referred)', 'Referred by Doctor')}</option>
-                <option value="internal">${i18n.bi('طلب داخلي مباشر (Internal)', 'Internal Direct Request')}</option>
+                <option value="referred" ${initType === 'referred' ? 'selected' : ''}>${i18n.bi('محول من طبيب خارجي (Referred)', 'Referred by Doctor')}</option>
+                <option value="internal" ${initType === 'internal' ? 'selected' : ''}>${i18n.bi('طلب داخلي مباشر (Internal)', 'Internal Direct Request')}</option>
               </select>
             </div>
-            <div id="req-doc-wrap">
+            <div id="req-doc-wrap" style="display: ${initType === 'referred' ? 'block' : 'none'};">
               <label class="block font-semibold mb-1">${i18n.bi('الطبيب المحول', 'Referring Doctor')}</label>
               <select id="req-doc-sel" name="doctorId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs">
                 ${doctors
                   .filter((d) => d.type !== 'internal')
-                  .map((d) => `<option value="${d.id}">${d.nameAr}</option>`)
+                  .map(
+                    (d) =>
+                      `<option value="${d.id}" ${d.id === existingReq?.doctorId ? 'selected' : ''}>${d.nameAr}</option>`
+                  )
                   .join('')}
               </select>
             </div>
@@ -98,17 +122,18 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             <label class="block font-semibold mb-1.5">${i18n.bi('اختر التحاليل المطلوبة *', 'Select Requested Lab Tests *')}</label>
             <div class="max-h-44 overflow-y-auto rounded-lg border border-slate-200 p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50">
               ${tests
-                .map(
-                  (t, idx) => `
+                .map((t, idx) => {
+                  const isChecked = isEdit ? existingTestIds.has(t.id) : idx < 2;
+                  return `
                   <label class="flex items-center justify-between gap-2 rounded bg-white border border-slate-200 px-2.5 py-1.5 cursor-pointer">
                     <span class="flex items-center gap-2">
-                      <input type="checkbox" name="testIds" value="${t.id}" ${idx < 2 ? 'checked' : ''} class="req-tst-chk accent-sky-600" />
+                      <input type="checkbox" name="testIds" value="${t.id}" ${isChecked ? 'checked' : ''} class="req-tst-chk accent-sky-600" />
                       <span class="font-semibold text-slate-800">${t.code} — ${i18n.bi(t.nameAr, t.nameEn)}</span>
                     </span>
                     <span class="font-mono font-bold text-slate-900 tabular-nums">${t.price} EGP</span>
                   </label>
-                `
-                )
+                `;
+                })
                 .join('')}
             </div>
           </div>
@@ -128,7 +153,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             </div>
             <div>
               <label class="block font-semibold mb-1">${i18n.bi('الضريبة (تُحسب بعد الخصم %)', 'Tax After Discount (%)')}</label>
-              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="50" value="14" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="50" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
             </div>
           </div>
 
@@ -137,7 +162,11 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
 
           <div class="flex justify-end gap-2 pt-2">
             <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
-              ${i18n.bi('حفظ الطلب وإصدار الباركود والفاتورة', 'Save Request & Generate Barcode/Invoice')}
+              ${
+                isEdit
+                  ? i18n.bi('حفظ تعديلات الطلب والفاتورة', 'Save Request & Invoice Changes')
+                  : i18n.bi('حفظ الطلب وإصدار الباركود والفاتورة', 'Save Request & Generate Barcode/Invoice')
+              }
             </button>
           </div>
         </form>
@@ -200,27 +229,111 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
         const form = document.getElementById('req-form') as HTMLFormElement | null;
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
-          if (!(await enforcePermission('add', 'requests'))) return;
+          if (!(await enforcePermission(isEdit ? 'edit' : 'add', 'requests'))) return;
           const chosen = getSelectedTests();
           if (chosen.length === 0) {
             showToast(i18n.bi('يرجى اختيار تحليل واحد على الأقل', 'Select at least one test'), 'warning');
             return;
           }
           const math = updateCalc();
-          const reqId = `req_${Date.now()}`;
-          const seq = requests.length + 1001;
-          const reqNum = `REQ-2026-${seq}`;
-          const barcode = `BC2026${seq}`;
           const rType = (typeSel?.value as RequestType) || 'referred';
           const docSel = document.getElementById('req-doc-sel') as HTMLSelectElement | null;
           const docId = rType === 'referred' ? docSel?.value : undefined;
           const today = new Date().toISOString().slice(0, 10);
 
+          if (isEdit && existingReq) {
+            const updatedReq: LabRequest = {
+              ...existingReq,
+              patientId: patSel?.value || existingReq.patientId,
+              doctorId: docId,
+              type: rType,
+              subtotal: math.subtotal,
+              discountType: math.discountType,
+              discountValue: math.discountValue,
+              discountAmount: math.discountAmount,
+              taxRate: math.taxRate,
+              taxAmount: math.taxAmount,
+              netTotal: math.netTotal,
+            };
+
+            const rItems: RequestItem[] = chosen.map((t, idx) => ({
+              id: `ri_${Date.now()}_${idx}`,
+              requestId: existingReq.id,
+              testId: t.id,
+              price: t.price,
+              commissionEligible: t.commissionEligible,
+            }));
+
+            await requestsRepository.saveRequest(updatedReq, rItems);
+
+            // Update linked invoice if exists
+            const allInvs = await invoicesRepository.getAll();
+            const linkedInv = allInvs.find((inv) => inv.requestId === existingReq.id);
+            if (linkedInv) {
+              const newRemaining = Math.max(0, Number((math.netTotal - linkedInv.paidAmount).toFixed(2)));
+              const newStatus =
+                linkedInv.paidAmount >= math.netTotal && math.netTotal > 0
+                  ? 'paid'
+                  : linkedInv.paidAmount > 0
+                  ? 'partial'
+                  : 'unpaid';
+              const updatedInv: Invoice = {
+                ...linkedInv,
+                patientId: updatedReq.patientId,
+                doctorId: docId,
+                requestType: rType,
+                subtotal: math.subtotal,
+                discountType: math.discountType,
+                discountValue: math.discountValue,
+                discountAmount: math.discountAmount,
+                taxRate: math.taxRate,
+                taxAmount: math.taxAmount,
+                netTotal: math.netTotal,
+                remainingAmount: newRemaining,
+                status: newStatus,
+              };
+              const invItems: InvoiceItem[] = math.itemShares.map((sh, idx) => {
+                const tObj = chosen.find((c) => c.id === sh.testId)!;
+                return {
+                  id: `ii_${Date.now()}_${idx}`,
+                  invoiceId: linkedInv.id,
+                  testId: sh.testId,
+                  testNameAr: tObj.nameAr,
+                  testNameEn: tObj.nameEn,
+                  price: sh.price,
+                  netAfterDiscountAndTax: sh.netAfterDiscountAndTax,
+                  commissionEligible: sh.commissionEligible,
+                };
+              });
+              await invoicesRepository.save(updatedInv, invItems);
+            }
+
+            await authService.logAudit(
+              `تعديل طلب تحليل: ${updatedReq.requestNumber}`,
+              'requests',
+              updatedReq.id,
+              `Net: ${math.netTotal} EGP`
+            );
+            showToast(
+              i18n.bi(`تم تعديل الطلب ${updatedReq.requestNumber} بنجاح`, `Request ${updatedReq.requestNumber} updated`),
+              'success'
+            );
+            close();
+            requests = await requestsRepository.getAllRequests();
+            renderTable();
+            return;
+          }
+
+          const reqId = `req_${Date.now()}`;
+          const seq = requests.length + 1001;
+          const reqNum = `REQ-2026-${seq}`;
+          const barcode = `BC2026${seq}`;
+
           const newReq: LabRequest = {
             id: reqId,
             requestNumber: reqNum,
             barcode,
-            patientId: patSel?.value || patients[0].id,
+            patientId: patSel?.value || patients[0]?.id || '',
             doctorId: docId,
             type: rType,
             status: 'awaiting_sample',
@@ -319,7 +432,6 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
     const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
     const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
     const canAdd = can(user, 'add', 'requests');
-    const canDelete = can(user, 'delete', 'requests');
     const canPrint = can(user, 'print', 'requests');
 
     container.innerHTML = `
@@ -368,7 +480,10 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                         <div class="font-bold text-slate-900 tabular-nums">${r.requestNumber}</div>
                         <div class="text-[11px] text-slate-400 tabular-nums">${r.barcode} · ${r.createdAt}</div>
                       </td>
-                      <td class="py-2.5 px-3 font-bold text-slate-800">${pat?.name || r.patientId}</td>
+                      <td class="py-2.5 px-3">
+                        <div class="font-bold text-slate-800">${pat?.name || r.patientId}</div>
+                        ${pat?.nameEn ? `<div class="text-[11px] text-slate-500" dir="ltr">${pat.nameEn}</div>` : ''}
+                      </td>
                       <td class="py-2.5 px-3 text-slate-600">
                         ${r.type === 'referred' ? `${i18n.bi('محول:', 'Ref:')} ${doc?.nameAr || ''}` : i18n.bi('طلب داخلي', 'Internal')}
                       </td>
@@ -378,17 +493,22 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                       <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${r.netTotal} EGP</td>
                       <td class="py-2.5 px-3 font-semibold text-slate-700">${i18n.dict.statuses[r.status] || r.status}</td>
                       <td class="py-2.5 px-3">
-                        <div class="flex flex-wrap items-center gap-2">
-                          <button type="button" data-a4="${r.id}" class="req-a4-btn text-sky-700 hover:underline font-semibold cursor-pointer">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <button type="button" data-a4="${r.id}" class="req-a4-btn rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-sky-700 hover:bg-slate-100 cursor-pointer">
                             A4
                           </button>
-                          <button type="button" data-th="${r.id}" class="req-th-btn text-emerald-700 hover:underline font-semibold cursor-pointer">
+                          <button type="button" data-th="${r.id}" class="req-th-btn rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 cursor-pointer">
                             80mm
                           </button>
-                          <button type="button" data-bc="${r.id}" class="req-bc-btn text-indigo-700 hover:underline font-semibold cursor-pointer">
+                          <button type="button" data-bc="${r.id}" class="req-bc-btn rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 cursor-pointer">
                             ${i18n.dict.actions.printBarcode}
                           </button>
-                          ${canDelete ? `<button type="button" data-del="${r.id}" class="req-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>` : ''}
+                          <button type="button" data-edit="${r.id}" class="req-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                            ${i18n.dict.actions.edit}
+                          </button>
+                          <button type="button" data-del="${r.id}" class="req-del-btn rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                            ${i18n.dict.actions.delete}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -402,10 +522,15 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
       </div>
     `;
 
-    bindTablePagination(container, pagState, (page) => {
-      currentPage = page;
-      renderTable();
-    }, 'req-pag');
+    bindTablePagination(
+      container,
+      pagState,
+      (page) => {
+        currentPage = page;
+        renderTable();
+      },
+      'req-pag'
+    );
 
     bindSearchInputWithFocus('req-search', searchQuery, (val) => {
       searchQuery = val;
@@ -413,7 +538,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
       renderTable();
     });
 
-    document.getElementById('req-add-btn')?.addEventListener('click', () => openNewRequestModal());
+    document.getElementById('req-add-btn')?.addEventListener('click', () => openRequestModal());
 
     document.getElementById('req-print-all')?.addEventListener('click', () => {
       const visible = getFiltered();
@@ -440,7 +565,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           <div style="margin-bottom:12px; padding:10px; border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:space-between;">
             <div>
               <div><strong>${i18n.bi('رقم الطلب:', 'Request #:')}</strong> ${target.requestNumber} (${target.barcode})</div>
-              <div><strong>${i18n.bi('المريض:', 'Patient:')}</strong> ${pat?.name || ''} · ${pat?.phone || ''}</div>
+              <div><strong>${i18n.bi('المريض:', 'Patient:')}</strong> ${pat?.name || ''}${pat?.nameEn ? ` / ${pat.nameEn}` : ''} · ${pat?.phone || ''}</div>
             </div>
             <div>
               <div><strong>${i18n.dict.common.date}:</strong> ${target.createdAt}</div>
@@ -502,6 +627,13 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           sampleType: 'Whole Blood / Serum',
           testsSummary: `${items.length || 2} Tests`,
         });
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.req-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = requests.find((x) => x.id === btn.getAttribute('data-edit'));
+        if (target) openRequestModal(target);
       });
     });
 

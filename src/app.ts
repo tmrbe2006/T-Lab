@@ -19,11 +19,14 @@ const SIDEBAR_ITEMS: NavItem[] = [
   { route: 'dashboard', resource: 'dashboard', labelKey: 'dashboard' },
   { route: 'patients', resource: 'patients', labelKey: 'patients' },
   { route: 'doctors', resource: 'doctors', labelKey: 'doctors' },
+  { route: 'doctorSpecialties', resource: 'doctorSpecialties', labelKey: 'doctorSpecialties' },
   { route: 'requests', resource: 'requests', labelKey: 'requests' },
   { route: 'samples', resource: 'samples', labelKey: 'samples' },
   { route: 'results', resource: 'results', labelKey: 'results' },
   { route: 'resultReview', resource: 'resultReview', labelKey: 'resultReview' },
   { route: 'tests', resource: 'tests', labelKey: 'tests' },
+  { route: 'scientificDepartments', resource: 'scientificDepartments', labelKey: 'scientificDepartments' },
+  { route: 'sampleTubes', resource: 'sampleTubes', labelKey: 'sampleTubes' },
   { route: 'testParameters', resource: 'testParameters', labelKey: 'testParameters' },
   { route: 'inventory', resource: 'inventory', labelKey: 'inventory' },
   { route: 'purchases', resource: 'purchases', labelKey: 'purchases' },
@@ -64,6 +67,10 @@ export const loadPage = async (
       const { renderDoctorsPage } = await import('./pages/doctors.page');
       return renderDoctorsPage;
     }
+    case 'doctorSpecialties': {
+      const { renderDoctorSpecialtiesPage } = await import('./pages/catalog/lookups.page');
+      return renderDoctorSpecialtiesPage;
+    }
     case 'employees': {
       const { renderEmployeesPage } = await import('./pages/staff/employees.page');
       return renderEmployeesPage;
@@ -79,6 +86,14 @@ export const loadPage = async (
     case 'tests': {
       const { renderTestsCatalogPage } = await import('./pages/catalog/tests-catalog.page');
       return renderTestsCatalogPage;
+    }
+    case 'scientificDepartments': {
+      const { renderScientificDepartmentsPage } = await import('./pages/catalog/lookups.page');
+      return renderScientificDepartmentsPage;
+    }
+    case 'sampleTubes': {
+      const { renderSampleTubesPage } = await import('./pages/catalog/lookups.page');
+      return renderSampleTubesPage;
     }
     case 'testParameters': {
       const { renderTestParametersPage } = await import('./pages/catalog/test-parameters.page');

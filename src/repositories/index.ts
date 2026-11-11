@@ -8,3 +8,5 @@ export * from './permissions.repository';
 export * from './doctors.repository';
 export * from './accounting.repository';
 export * from './optimized.repository';
+export * from './lookups.repository';
+

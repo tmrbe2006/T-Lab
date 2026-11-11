@@ -52,7 +52,42 @@ export type ResourceScreen =
   | 'printing'
   | 'inventory'
   | 'purchases'
-  | 'erpAccounting';
+  | 'erpAccounting'
+  | 'doctorSpecialties'
+  | 'scientificDepartments'
+  | 'sampleTubes';
+
+export interface DoctorSpecialty {
+  id: string;
+  code: string;
+  nameAr: string;
+  nameEn: string;
+  notes?: string;
+  active: boolean;
+}
+
+export interface ScientificDepartment {
+  id: string;
+  code: string;
+  nameAr: string;
+  nameEn: string;
+  prefix?: string;
+  notes?: string;
+  active: boolean;
+}
+
+export interface SampleTube {
+  id: string;
+  code: string;
+  nameAr: string;
+  nameEn: string;
+  capColor: string;
+  additive: string;
+  color?: string;
+  sampleType?: string;
+  notes?: string;
+  active: boolean;
+}
 
 export interface Role {
   id: string;
@@ -101,6 +136,7 @@ export interface Patient {
   id: string;
   code: string;
   name: string;
+  nameEn?: string;
   phone: string;
   gender: 'male' | 'female';
   birthDate: string;

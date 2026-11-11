@@ -12,7 +12,7 @@ import {
 import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
-import { testsRepository } from '../../repositories';
+import { lookupsRepository, testsRepository } from '../../repositories';
 import { router } from '../../router';
 import type { LabTest } from '../../types';
 
@@ -28,7 +28,11 @@ export function setSelectedTestForParams(testId: string): void {
 
 export async function renderTestsCatalogPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  let tests = await testsRepository.getAllTests();
+  let [tests, departments, sampleTubes] = await Promise.all([
+    testsRepository.getAllTests(),
+    lookupsRepository.getScientificDepartments(),
+    lookupsRepository.getSampleTubes(),
+  ]);
   let searchQuery = '';
   let currentPage = 1;
   const itemsPerPage = 15;
@@ -41,54 +45,118 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
         t.code.toLowerCase().includes(q) ||
         t.nameAr.toLowerCase().includes(q) ||
         t.nameEn.toLowerCase().includes(q) ||
-        t.department.toLowerCase().includes(q)
+        t.department.toLowerCase().includes(q) ||
+        t.tubeType.toLowerCase().includes(q)
     );
   };
 
-  const openTestForm = (existing?: LabTest) => {
+  const generateNextTestCode = (): string => {
+    const nums = tests.map((t) => {
+      const m = t.code.match(/(\d+)/);
+      return m ? parseInt(m[1], 10) : 1000;
+    });
+    const maxNum = nums.length > 0 ? Math.max(1000, ...nums) : 1000;
+    return `TST-${maxNum + 1}`;
+  };
+
+  const openTestForm = async (existing?: LabTest) => {
+    [departments, sampleTubes] = await Promise.all([
+      lookupsRepository.getScientificDepartments(),
+      lookupsRepository.getSampleTubes(),
+    ]);
+    const activeDepts = departments.filter((d) => d.active !== false);
+    const activeTubes = sampleTubes.filter((t) => t.active !== false);
+
     const isEdit = Boolean(existing);
+    const autoCode = existing?.code || generateNextTestCode();
+    const currentDept = existing?.department || activeDepts[0]?.nameAr || 'الكيمياء الحيوية';
+    const hasCurrentDept = activeDepts.some((d) => d.nameAr === currentDept);
+
+    const currentTube = existing?.tubeType || activeTubes[0]?.nameAr || 'Plain Red';
+    const hasCurrentTube = activeTubes.some((t) => t.nameAr === currentTube || t.nameEn === currentTube);
+
     openCustomModal(
-      isEdit ? i18n.bi(`تعديل تحليل: ${existing?.nameAr}`, `Edit Test: ${existing?.nameEn}`) : i18n.bi('إضافة تحليل جديد للكتالوج', 'Add New Lab Test'),
+      isEdit
+        ? i18n.bi(`تعديل تحليل: ${existing?.nameAr}`, `Edit Test: ${existing?.nameEn}`)
+        : i18n.bi('إضافة تحليل جديد للكتالوج', 'Add New Lab Test'),
       `
         <form id="test-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('كود التحليل *', 'Test Code *')}</label>
-            <input name="code" required value="${existing?.code || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('كود التحليل (يُولّد أوتوماتيكيًا) *', 'Test Code (Auto-generated) *')}</label>
+            <input name="code" required value="${autoCode}" class="w-full rounded-lg border border-sky-300 bg-sky-50/40 px-3 py-2 text-sm font-mono font-bold text-slate-900" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('القسم العلمي *', 'Department *')}</label>
-            <input name="department" required value="${existing?.department || 'الكيمياء الحيوية'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <div class="flex items-center justify-between mb-1">
+              <label class="block font-semibold text-slate-700">${i18n.bi('القسم العلمي *', 'Scientific Department *')}</label>
+              <button type="button" id="tst-manage-depts-link" class="text-[11px] font-bold text-sky-700 hover:underline cursor-pointer">
+                + ${i18n.bi('إدارة الأقسام العلمية', 'Manage Departments')}
+              </button>
+            </div>
+            <select name="department" required class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">
+              ${
+                !hasCurrentDept && currentDept
+                  ? `<option value="${currentDept}" selected>${currentDept}</option>`
+                  : ''
+              }
+              ${activeDepts
+                .map(
+                  (d) =>
+                    `<option value="${d.nameAr}" ${d.nameAr === currentDept ? 'selected' : ''}>${d.nameAr}${
+                      d.nameEn ? ` — ${d.nameEn}` : ''
+                    }</option>`
+                )
+                .join('')}
+            </select>
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('اسم التحليل (عربي) *', 'Test Name (AR) *')}</label>
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('اسم التحليل (عربي) *', 'Test Name (AR) *')}</label>
             <input name="nameAr" required value="${existing?.nameAr || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('اسم التحليل (إنجليزي) *', 'Test Name (EN) *')}</label>
-            <input name="nameEn" required value="${existing?.nameEn || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('اسم التحليل (إنجليزي) *', 'Test Name (EN) *')}</label>
+            <input name="nameEn" required value="${existing?.nameEn || ''}" dir="ltr" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-left" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('نوع العينة', 'Sample Type')}</label>
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('نوع العينة', 'Sample Type')}</label>
             <input name="sampleType" required value="${existing?.sampleType || 'Serum'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('أنبوبة السحب', 'Tube Type')}</label>
-            <input name="tubeType" required value="${existing?.tubeType || 'Plain Red'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <div class="flex items-center justify-between mb-1">
+              <label class="block font-semibold text-slate-700">${i18n.bi('أنبوبة السحب *', 'Sample Collection Tube *')}</label>
+              <button type="button" id="tst-manage-tubes-link" class="text-[11px] font-bold text-sky-700 hover:underline cursor-pointer">
+                + ${i18n.bi('إدارة أنابيب السحب', 'Manage Sample Tubes')}
+              </button>
+            </div>
+            <select name="tubeType" required class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">
+              ${
+                !hasCurrentTube && currentTube
+                  ? `<option value="${currentTube}" selected>${currentTube}</option>`
+                  : ''
+              }
+              ${activeTubes
+                .map((tb) => {
+                  const isSel = tb.nameAr === currentTube || tb.nameEn === currentTube;
+                  return `<option value="${tb.nameAr}" ${isSel ? 'selected' : ''}>${tb.nameAr}${
+                    tb.capColor ? ` [${tb.capColor}]` : ''
+                  }</option>`;
+                })
+                .join('')}
+            </select>
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('مدة النتيجة', 'Turnaround Time')}</label>
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('مدة النتيجة', 'Turnaround Time')}</label>
             <input name="turnaroundTime" required value="${existing?.turnaroundTime || '2 Hours'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('سعر التحليل (EGP) *', 'Price (EGP) *')}</label>
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('سعر التحليل (EGP) *', 'Price (EGP) *')}</label>
             <input name="price" type="number" min="0" required value="${existing?.price ?? 150}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('التكلفة التقريبية (EGP)', 'Estimated Cost')}</label>
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('التكلفة التقريبية (EGP)', 'Estimated Cost')}</label>
             <input name="estimatedCost" type="number" min="0" value="${existing?.estimatedCost ?? 40}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('يدخل في عمولة الطبيب المحول؟', 'Eligible for Doctor Commission?')}</label>
+            <label class="block font-semibold text-slate-700 mb-1">${i18n.bi('يدخل في عمولة الطبيب المحول؟', 'Eligible for Doctor Commission?')}</label>
             <select name="commissionEligible" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
               <option value="true" ${existing?.commissionEligible !== false ? 'selected' : ''}>${i18n.bi('نعم - يدخل في العمولة', 'Yes - Eligible')}</option>
               <option value="false" ${existing?.commissionEligible === false ? 'selected' : ''}>${i18n.bi('لا - مستثنى من العمولة', 'No - Excluded')}</option>
@@ -102,6 +170,15 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
         </form>
       `,
       (close) => {
+        document.getElementById('tst-manage-depts-link')?.addEventListener('click', () => {
+          close();
+          router.navigate('scientificDepartments');
+        });
+        document.getElementById('tst-manage-tubes-link')?.addEventListener('click', () => {
+          close();
+          router.navigate('sampleTubes');
+        });
+
         const form = document.getElementById('test-form') as HTMLFormElement | null;
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
@@ -109,7 +186,7 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
           const fd = new FormData(form);
           const rec: LabTest = {
             id: existing?.id || `tst_${Date.now()}`,
-            code: String(fd.get('code') || '').trim().toUpperCase(),
+            code: String(fd.get('code') || autoCode).trim().toUpperCase(),
             nameAr: String(fd.get('nameAr') || '').trim(),
             nameEn: String(fd.get('nameEn') || '').trim(),
             department: String(fd.get('department') || '').trim(),
@@ -123,7 +200,12 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
             notes: existing?.notes || '',
           };
           await testsRepository.saveTest(rec);
-          await authService.logAudit(isEdit ? `تعديل تحليل: ${rec.code}` : `إضافة تحليل: ${rec.code}`, 'tests', rec.id);
+          await authService.logAudit(
+            isEdit ? `تعديل تحليل: ${rec.code}` : `إضافة تحليل: ${rec.code}`,
+            'tests',
+            rec.id,
+            `Dept: ${rec.department} | Tube: ${rec.tubeType}`
+          );
           showToast(i18n.bi('تم حفظ التحليل بنجاح', 'Test saved successfully'), 'success');
           close();
           tests = await testsRepository.getAllTests();
@@ -140,8 +222,6 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
     const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
     const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
     const canAdd = can(user, 'add', 'tests');
-    const canEdit = can(user, 'edit', 'tests');
-    const canDelete = can(user, 'delete', 'tests');
     const canPrint = can(user, 'print', 'tests');
 
     container.innerHTML = `
@@ -149,9 +229,15 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.tests}</h1>
-            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('كتالوج التحاليل الطبية، أنواع العينات، الأسعار، وأهلية عمولة الأطباء', 'Medical tests catalog, sample tubes, pricing, and commission eligibility')}</p>
+            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('كتالوج التحاليل الطبية، التكويد التلقائي، الأقسام العلمية، وأنواع أنابيب السحب', 'Medical tests catalog, auto test codes, scientific departments, and sample collection tubes')}</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="tst-depts-btn" type="button" class="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer">
+              ${i18n.bi('شاشة الأقسام العلمية', 'Scientific Departments')}
+            </button>
+            <button id="tst-tubes-btn" type="button" class="rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800 hover:bg-teal-100 cursor-pointer">
+              ${i18n.bi('شاشة أنابيب السحب', 'Sample Tubes')}
+            </button>
             ${canPrint ? `<button id="tst-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
             ${canAdd ? `<button id="tst-add-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">+ ${i18n.dict.actions.add}</button>` : ''}
           </div>
@@ -170,8 +256,8 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <th class="py-3 px-3 text-start">${i18n.dict.common.code}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('اسم التحليل (عربي / إنجليزي)', 'Test Name (AR / EN)')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('القسم', 'Department')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('العينة / الأنبوبة', 'Sample / Tube')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('القسم العلمي', 'Department')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('العينة / أنبوبة السحب', 'Sample / Tube')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('السعر', 'Price')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('عمولة الطبيب', 'Comm. Eligible')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.actions}</th>
@@ -185,21 +271,25 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
                     <td class="py-2.5 px-3 font-mono font-bold text-slate-800 tabular-nums">${t.code}</td>
                     <td class="py-2.5 px-3">
                       <div class="font-bold text-slate-900">${t.nameAr}</div>
-                      <div class="text-[11px] text-slate-500">${t.nameEn}</div>
+                      <div class="text-[11px] text-slate-500" dir="ltr">${t.nameEn}</div>
                     </td>
-                    <td class="py-2.5 px-3 text-slate-700">${t.department}</td>
-                    <td class="py-2.5 px-3 text-slate-600">${t.sampleType} · ${t.tubeType}</td>
+                    <td class="py-2.5 px-3 font-semibold text-slate-700">${t.department}</td>
+                    <td class="py-2.5 px-3 text-slate-600">${t.sampleType} · <span class="font-semibold text-slate-800">${t.tubeType}</span></td>
                     <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${t.price} EGP</td>
                     <td class="py-2.5 px-3 font-semibold ${t.commissionEligible ? 'text-emerald-700' : 'text-slate-400'}">
                       ${t.commissionEligible ? i18n.bi('نعم', 'Yes') : i18n.bi('لا', 'No')}
                     </td>
                     <td class="py-2.5 px-3">
-                      <div class="flex items-center gap-2">
-                        <button data-prm="${t.id}" class="tst-prm-btn text-indigo-700 hover:underline font-semibold cursor-pointer">
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <button data-prm="${t.id}" class="tst-prm-btn rounded border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 cursor-pointer">
                           ${i18n.bi('البارامترات', 'Parameters')}
                         </button>
-                        ${canEdit ? `<button data-edit="${t.id}" class="tst-edit-btn text-sky-700 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.edit}</button>` : ''}
-                        ${canDelete ? `<button data-del="${t.id}" class="tst-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>` : ''}
+                        <button data-edit="${t.id}" class="tst-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                          ${i18n.dict.actions.edit}
+                        </button>
+                        <button data-del="${t.id}" class="tst-del-btn rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                          ${i18n.dict.actions.delete}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -213,10 +303,15 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
       </div>
     `;
 
-    bindTablePagination(container, pagState, (page) => {
-      currentPage = page;
-      renderTable();
-    }, 'tst-pag');
+    bindTablePagination(
+      container,
+      pagState,
+      (page) => {
+        currentPage = page;
+        renderTable();
+      },
+      'tst-pag'
+    );
 
     bindSearchInputWithFocus('tst-search', searchQuery, (val) => {
       searchQuery = val;
@@ -224,7 +319,10 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
       renderTable();
     });
 
+    document.getElementById('tst-depts-btn')?.addEventListener('click', () => router.navigate('scientificDepartments'));
+    document.getElementById('tst-tubes-btn')?.addEventListener('click', () => router.navigate('sampleTubes'));
     document.getElementById('tst-add-btn')?.addEventListener('click', () => openTestForm());
+
     document.getElementById('tst-print-btn')?.addEventListener('click', () => {
       const visible = getFiltered();
       const html = `

@@ -29,14 +29,23 @@ import type {
   User,
 } from '../types';
 
+import {
+  DEFAULT_DOCTOR_SPECIALTIES,
+  DEFAULT_SAMPLE_TUBES,
+  DEFAULT_SCIENTIFIC_DEPARTMENTS,
+} from '../repositories/lookups.repository';
+
 export const ALL_RESOURCES: ResourceScreen[] = [
   'dashboard',
   'patients',
   'doctors',
+  'doctorSpecialties',
   'employees',
   'users',
   'permissions',
   'tests',
+  'scientificDepartments',
+  'sampleTubes',
   'testParameters',
   'requests',
   'samples',
@@ -90,7 +99,11 @@ function buildRolePermissions(): RolePermission[] {
           const allowedScreens: ResourceScreen[] = [
             'dashboard',
             'patients',
+            'doctors',
+            'doctorSpecialties',
             'tests',
+            'scientificDepartments',
+            'sampleTubes',
             'testParameters',
             'requests',
             'results',
@@ -100,11 +113,13 @@ function buildRolePermissions(): RolePermission[] {
           ];
           actions[act] =
             allowedScreens.includes(resource) &&
-            ['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(act);
+            ['view', 'add', 'edit', 'delete', 'print', 'approve', 'reopenResult'].includes(act);
         } else if (role === 'Chemist') {
           const allowedScreens: ResourceScreen[] = [
             'dashboard',
             'tests',
+            'scientificDepartments',
+            'sampleTubes',
             'testParameters',
             'requests',
             'samples',
@@ -115,12 +130,13 @@ function buildRolePermissions(): RolePermission[] {
           ];
           actions[act] =
             allowedScreens.includes(resource) &&
-            ['view', 'add', 'edit', 'print', 'approve'].includes(act);
+            ['view', 'add', 'edit', 'delete', 'print', 'approve'].includes(act);
         } else if (role === 'Technician') {
           const allowedScreens: ResourceScreen[] = [
             'dashboard',
             'requests',
             'samples',
+            'sampleTubes',
             'results',
             'printing',
             'inventory',
@@ -133,7 +149,10 @@ function buildRolePermissions(): RolePermission[] {
             'dashboard',
             'patients',
             'doctors',
+            'doctorSpecialties',
             'tests',
+            'scientificDepartments',
+            'sampleTubes',
             'requests',
             'samples',
             'invoices',
@@ -142,11 +161,12 @@ function buildRolePermissions(): RolePermission[] {
           ];
           actions[act] =
             allowedScreens.includes(resource) &&
-            ['view', 'add', 'edit', 'print', 'discount', 'addPayment'].includes(act);
+            ['view', 'add', 'edit', 'delete', 'print', 'discount', 'addPayment'].includes(act);
         } else if (role === 'Accountant') {
           const allowedScreens: ResourceScreen[] = [
             'dashboard',
             'doctors',
+            'doctorSpecialties',
             'invoices',
             'payments',
             'accounts',
@@ -166,6 +186,7 @@ function buildRolePermissions(): RolePermission[] {
               'view',
               'add',
               'edit',
+              'delete',
               'print',
               'export',
               'approve',
@@ -223,6 +244,9 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
     ]);
   }
   await db.permissions.bulkPut(buildRolePermissions());
+  await db.doctorSpecialties.bulkPut(DEFAULT_DOCTOR_SPECIALTIES);
+  await db.scientificDepartments.bulkPut(DEFAULT_SCIENTIFIC_DEPARTMENTS);
+  await db.sampleTubes.bulkPut(DEFAULT_SAMPLE_TUBES);
   if (existingSettings.length === 0) {
     await db.settings.put({
       id: 'default',
@@ -937,6 +961,9 @@ export async function seedDatabase(forceReset = false): Promise<void> {
     await db.permissions.bulkPut(permissions);
     await db.employees.bulkPut(employees);
     await db.users.bulkPut(users);
+    await db.doctorSpecialties.bulkPut(DEFAULT_DOCTOR_SPECIALTIES);
+    await db.scientificDepartments.bulkPut(DEFAULT_SCIENTIFIC_DEPARTMENTS);
+    await db.sampleTubes.bulkPut(DEFAULT_SAMPLE_TUBES);
     await db.doctors.bulkPut(doctors);
     await db.patients.bulkPut(patients);
     await db.tests.bulkPut(tests);
