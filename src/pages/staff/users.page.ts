@@ -40,7 +40,7 @@ export async function renderUsersPage(container: HTMLElement): Promise<void> {
           <div>
             <label class="block font-semibold mb-1">${i18n.bi('الدور والصلاحية', 'Role')}</label>
             <select name="role" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              ${(['Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as RoleName[])
+              ${(['Developer', 'Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as RoleName[])
                 .map((r) => `<option value="${r}" ${existing?.role === r ? 'selected' : ''}>${i18n.dict.roles[r]}</option>`)
                 .join('')}
             </select>
@@ -138,7 +138,7 @@ export async function renderUsersPage(container: HTMLElement): Promise<void> {
                     <td class="py-2.5 px-3">
                       <div class="flex items-center gap-2">
                         ${canEdit ? `<button data-edit="${u.id}" class="usr-edit-btn text-sky-700 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.edit}</button>` : ''}
-                        ${canDelete && u.username !== 'owner' ? `<button data-del="${u.id}" class="usr-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>` : ''}
+                        ${canDelete && u.username !== 'owner' && u.username !== 'developer' ? `<button data-del="${u.id}" class="usr-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>` : ''}
                       </div>
                     </td>
                   </tr>

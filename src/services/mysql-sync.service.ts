@@ -927,6 +927,25 @@ class MySQLSyncService {
   }
 
   public openMySQLModal(): void {
+    const rawUser = localStorage.getItem('medlab_current_user');
+    if (rawUser) {
+      try {
+        const parsed = JSON.parse(rawUser) as { role?: string };
+        if (parsed.role !== 'Developer') {
+          showToast(
+            i18n.bi(
+              'عذراً، إدارة قاعدة بيانات MySQL متاحة فقط لدور (المبرمج / Developer)',
+              'Access Denied: MySQL Database Manager is restricted to the Developer role only.'
+            ),
+            'unauthorized'
+          );
+          return;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     openModal(
       i18n.bi(
         '🗄️ إدارة قاعدة بيانات MySQL (5.5 / 8.0.28) وتنزيل ملف SQL',

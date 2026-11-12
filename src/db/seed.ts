@@ -96,15 +96,17 @@ export const ALL_ACTIONS: PermissionAction[] = [
 ];
 
 export function buildRolePermissions(): RolePermission[] {
-  const roles: RoleName[] = ['Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'];
+  const roles: RoleName[] = ['Developer', 'Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'];
   const list: RolePermission[] = [];
 
   for (const role of roles) {
     for (const resource of ALL_RESOURCES) {
       const actions = {} as Record<PermissionAction, boolean>;
       for (const act of ALL_ACTIONS) {
-        if (role === 'Owner') {
+        if (role === 'Developer') {
           actions[act] = true;
+        } else if (role === 'Owner') {
+          actions[act] = resource !== 'settings';
         } else if (role === 'Doctor') {
           const allowedScreens: ResourceScreen[] = [
             'dashboard',
@@ -263,6 +265,7 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
 
   if (existingUsers.length === 0) {
     await db.users.bulkPut([
+      { id: 'usr_dev', username: 'developer', passwordHash: 'dev123', fullNameAr: 'م. مبرمج النظام (المبرمج)', fullNameEn: 'System Developer', role: 'Developer', active: true, createdAt: '2022-01-01' },
       { id: 'usr_1', username: 'owner', passwordHash: 'owner123', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
       { id: 'usr_2', username: 'doctor', passwordHash: 'doctor123', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
       { id: 'usr_3', username: 'chemist', passwordHash: 'chemist123', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
@@ -273,7 +276,8 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
   }
   if (existingRoles.length === 0) {
     await db.roles.bulkPut([
-      { id: 'role_owner', name: 'Owner', titleAr: 'مالك المعمل', titleEn: 'Lab Owner', descriptionAr: 'صلاحيات كاملة لإدارة النظام والمالية والصلاحيات', descriptionEn: 'Full system, financial, and permission control' },
+      { id: 'role_developer', name: 'Developer', titleAr: 'المبرمج', titleEn: 'System Developer', descriptionAr: 'صلاحيات هندسية كاملة لإدارة قاعدة بيانات MySQL والإعدادات وسجل العمليات وخطة الاختبار', descriptionEn: 'Full developer access to MySQL DB, settings, audit logs, and QA test plan' },
+      { id: 'role_owner', name: 'Owner', titleAr: 'مالك المعمل', titleEn: 'Lab Owner', descriptionAr: 'صلاحيات كاملة لإدارة المعمل والمالية والصلاحيات', descriptionEn: 'Full laboratory, financial, and permission control' },
       { id: 'role_doctor', name: 'Doctor', titleAr: 'طبيب مختبر', titleEn: 'Lab Doctor', descriptionAr: 'مراجعة واعتماد النتائج الطبية والتقارير', descriptionEn: 'Medical review and final approval of lab results' },
       { id: 'role_chemist', name: 'Chemist', titleAr: 'كيميائي', titleEn: 'Biochemist', descriptionAr: 'إجراء التحاليل وإدخال ومراجعة النتائج', descriptionEn: 'Perform analyses and enter/verify test parameters' },
       { id: 'role_tech', name: 'Technician', titleAr: 'فني مختبر', titleEn: 'Lab Technician', descriptionAr: 'استقبال وسحب العينات وإدخال النتائج الأولية', descriptionEn: 'Sample collection, reception, and initial entry' },
@@ -357,7 +361,8 @@ export async function seedDatabase(forceReset = false): Promise<void> {
   }
 
   const roles: Role[] = [
-    { id: 'role_owner', name: 'Owner', titleAr: 'مالك المعمل', titleEn: 'Lab Owner', descriptionAr: 'صلاحيات كاملة لإدارة النظام والمالية والصلاحيات', descriptionEn: 'Full system, financial, and permission control' },
+    { id: 'role_developer', name: 'Developer', titleAr: 'المبرمج', titleEn: 'System Developer', descriptionAr: 'صلاحيات هندسية كاملة لإدارة قاعدة بيانات MySQL والإعدادات وسجل العمليات وخطة الاختبار', descriptionEn: 'Full developer access to MySQL DB, settings, audit logs, and QA test plan' },
+    { id: 'role_owner', name: 'Owner', titleAr: 'مالك المعمل', titleEn: 'Lab Owner', descriptionAr: 'صلاحيات كاملة لإدارة المعمل والمالية والصلاحيات', descriptionEn: 'Full laboratory, financial, and permission control' },
     { id: 'role_doctor', name: 'Doctor', titleAr: 'طبيب مختبر', titleEn: 'Lab Doctor', descriptionAr: 'مراجعة واعتماد النتائج الطبية والتقارير', descriptionEn: 'Medical review and final approval of lab results' },
     { id: 'role_chemist', name: 'Chemist', titleAr: 'كيميائي', titleEn: 'Biochemist', descriptionAr: 'إجراء التحاليل وإدخال ومراجعة النتائج', descriptionEn: 'Perform analyses and enter/verify test parameters' },
     { id: 'role_tech', name: 'Technician', titleAr: 'فني مختبر', titleEn: 'Lab Technician', descriptionAr: 'استقبال وسحب العينات وإدخال النتائج الأولية', descriptionEn: 'Sample collection, reception, and initial entry' },
@@ -377,6 +382,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
   ];
 
   const users: User[] = [
+    { id: 'usr_dev', username: 'developer', passwordHash: 'dev123', fullNameAr: 'م. مبرمج النظام (المبرمج)', fullNameEn: 'System Developer', role: 'Developer', active: true, createdAt: '2022-01-01' },
     { id: 'usr_1', username: 'owner', passwordHash: 'owner123', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
     { id: 'usr_2', username: 'doctor', passwordHash: 'doctor123', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
     { id: 'usr_3', username: 'chemist', passwordHash: 'chemist123', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },

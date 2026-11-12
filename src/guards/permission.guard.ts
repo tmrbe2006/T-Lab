@@ -11,6 +11,11 @@ export function can(
   resource: ResourceScreen
 ): boolean {
   if (!user || !user.active) return false;
+  // System Settings & Backup is strictly reserved for the Developer role
+  if (resource === 'settings') {
+    return user.role === 'Developer';
+  }
+  if (user.role === 'Developer') return true;
   if (user.role === 'Owner') return true;
 
   const actionsMap = authService.getPermissionsFor(user.role, resource);

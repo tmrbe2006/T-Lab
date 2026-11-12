@@ -9,7 +9,8 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
   const d = i18n.dict;
 
   const demoAccounts = [
-    { user: 'owner', pass: 'owner123', labelAr: 'مالك المعمل (Owner)', labelEn: 'Lab Owner (Full Access)' },
+    { user: 'developer', pass: 'dev123', labelAr: '💻 المبرمج (Developer - قاعدة البيانات والإعدادات)', labelEn: 'System Developer (MySQL DB, Settings & Audit)' },
+    { user: 'owner', pass: 'owner123', labelAr: 'مالك المعمل (Owner)', labelEn: 'Lab Owner (Lab Management)' },
     { user: 'doctor', pass: 'doctor123', labelAr: 'طبيب مختبر (Doctor)', labelEn: 'Lab Doctor (Review & Approve)' },
     { user: 'chemist', pass: 'chemist123', labelAr: 'كيميائي (Chemist)', labelEn: 'Biochemist (Results & Catalog)' },
     { user: 'technician', pass: 'tech123', labelAr: 'فني مختبر (Technician)', labelEn: 'Technician (Samples & Entry)' },

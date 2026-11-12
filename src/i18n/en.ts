@@ -14,6 +14,7 @@ export const en = {
     welcome: 'Welcome back, signed in successfully.',
   },
   roles: {
+    Developer: 'System Developer',
     Owner: 'Lab Owner',
     Doctor: 'Lab Doctor',
     Chemist: 'Biochemist',

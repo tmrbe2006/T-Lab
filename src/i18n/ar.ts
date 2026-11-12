@@ -14,6 +14,7 @@ export const ar = {
     welcome: 'مرحبًا بك، تم تسجيل الدخول بنجاح.',
   },
   roles: {
+    Developer: 'المبرمج',
     Owner: 'مالك المعمل',
     Doctor: 'طبيب مختبر',
     Chemist: 'كيميائي',

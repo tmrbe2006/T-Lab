@@ -146,6 +146,14 @@ const SIDEBAR_ITEMS: NavItem[] = [
   ...DEFAULT_SIDEBAR_GROUPS.flatMap((g) => g.items),
 ];
 
+/**
+ * Screens and tools strictly restricted to the 'Developer' (المبرمج) role only:
+ * - الإعدادات والنسخ الاحتياطي (settings)
+ * - سجل العمليات (Audit Log) (auditLogs)
+ * - دليل وخطة الاختبار الشاملة (testPlan)
+ */
+export const DEVELOPER_ONLY_ROUTES: RouteId[] = ['settings', 'auditLogs', 'testPlan'];
+
 function loadMenuPreferences(): UserMenuPreferences {
   const defaultPrefs: UserMenuPreferences = {
     layoutMode: 'grouped_expanded',
@@ -365,6 +373,8 @@ export class MedicalLabApp {
   public openMenuSettingsModal(): void {
     const prefs = loadMenuPreferences();
     const d = i18n.dict;
+    const currentUser = authService.getCurrentUser();
+    const isDeveloper = currentUser?.role === 'Developer';
 
     const orderedGroups = [...DEFAULT_SIDEBAR_GROUPS].sort((a, b) => {
       const ia = prefs.groupOrder.indexOf(a.id);
@@ -431,6 +441,7 @@ export class MedicalLabApp {
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
                       ${grp.items
+                        .filter((item) => isDeveloper || !DEVELOPER_ONLY_ROUTES.includes(item.route))
                         .map((item) => {
                           const isItemVis = !prefs.hiddenRoutes.includes(item.route);
                           return `
@@ -497,6 +508,9 @@ export class MedicalLabApp {
             orderPairs.push({ id: grp.id, ord });
 
             for (const item of grp.items) {
+              if (!isDeveloper && DEVELOPER_ONLY_ROUTES.includes(item.route)) {
+                continue;
+              }
               if (!fd.get(`route_vis_${item.route}`)) {
                 hiddenRoutes.push(item.route);
               }
@@ -561,12 +575,17 @@ export class MedicalLabApp {
     });
 
     const canViewDashboard = prefs.showAllScreensRegardlessOfRole || can(user, 'view', 'dashboard');
+    const isDeveloper = user.role === 'Developer';
     const visibleGroups = orderedGroups
       .filter((grp) => !prefs.hiddenGroups.includes(grp.id))
       .map((grp) => ({
         ...grp,
         titleAr: prefs.customGroupTitlesAr[grp.id] || grp.titleAr,
         items: grp.items.filter((item) => {
+          // Developer-only screens (settings, auditLogs, testPlan) are strictly hidden from all other roles
+          if (DEVELOPER_ONLY_ROUTES.includes(item.route) && !isDeveloper) {
+            return false;
+          }
           if (prefs.hiddenRoutes.includes(item.route)) return false;
           if (prefs.showAllScreensRegardlessOfRole) return true;
           return !item.resource || can(user, 'view', item.resource);
@@ -603,14 +622,18 @@ export class MedicalLabApp {
             >
               🛠️ ${i18n.bi('إعدادات القوائم', 'Menu Settings')}
             </button>
-            <button
-              id="top-mysql-btn"
-              type="button"
-              class="rounded-lg border border-emerald-400/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/35 whitespace-nowrap cursor-pointer"
-              title="MySQL 5.5 / 8.0.28 Database & .SQL Download"
-            >
-              🗄️ ${i18n.bi('قاعدة بيانات MySQL (.SQL)', 'MySQL DB (.SQL)')}
-            </button>
+            ${
+              isDeveloper
+                ? `<button
+                    id="top-mysql-btn"
+                    type="button"
+                    class="rounded-lg border border-emerald-400/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/35 whitespace-nowrap cursor-pointer"
+                    title="MySQL 5.5 / 8.0.28 Database & .SQL Download"
+                  >
+                    🗄️ ${i18n.bi('قاعدة بيانات MySQL (.SQL)', 'MySQL DB (.SQL)')}
+                  </button>`
+                : ''
+            }
             <button
               id="top-global-search-btn"
               type="button"
@@ -862,7 +885,26 @@ export class MedicalLabApp {
     const viewport = document.getElementById('screen-viewport');
     if (!viewport) return;
 
-    // Route Guard Check
+    // Route Guard Check: Developer-only screens (settings, auditLogs, testPlan)
+    if (DEVELOPER_ONLY_ROUTES.includes(currentRoute) && !isDeveloper) {
+      await authService.logAudit(
+        `محاولة فتح شاشة خاصة بالمبرمج فقط (403): ${currentRoute}`,
+        'settings',
+        'DEV-GUARD-403',
+        `User ${user.username} (${user.role}) tried to open developer-only route #/${currentRoute}`
+      );
+      showToast(
+        i18n.bi(
+          'عذرًا، هذه الشاشة مخصصة فقط لدور (المبرمج / Developer).',
+          'Access Denied: This screen is restricted to the Developer role only.'
+        ),
+        'unauthorized'
+      );
+      const { renderForbiddenPage } = await import('./pages/forbidden.page');
+      renderForbiddenPage(viewport, currentRoute);
+      return;
+    }
+
     const matchedNav = SIDEBAR_ITEMS.find((i) => i.route === currentRoute);
     if (!prefs.showAllScreensRegardlessOfRole && matchedNav?.resource && !can(user, 'view', matchedNav.resource)) {
       await authService.logAudit(

@@ -42,7 +42,7 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            ${canManage && selectedRole !== 'Owner' ? `<button id="perm-enable-all-btn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer">✅ ${i18n.bi('تفعيل جميع القوائم والشاشات لهذا الدور', 'Enable All Menus for Role')}</button>` : ''}
+            ${canManage && selectedRole !== 'Owner' && selectedRole !== 'Developer' ? `<button id="perm-enable-all-btn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer">✅ ${i18n.bi('تفعيل جميع القوائم والشاشات لهذا الدور', 'Enable All Menus for Role')}</button>` : ''}
             ${canPrint ? `<button id="perm-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
             ${canManage ? `<button id="perm-save-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">${i18n.dict.actions.save}</button>` : ''}
           </div>
@@ -50,7 +50,7 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
 
         <!-- Role Switcher Tabs -->
         <div class="flex flex-wrap items-center gap-1.5 bg-slate-200/70 p-1.5 rounded-xl">
-          ${(['Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as RoleName[])
+          ${(['Developer', 'Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as RoleName[])
             .map(
               (r) => `
               <button
@@ -88,8 +88,12 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
                     <td class="py-2.5 px-3 font-bold text-slate-900">${navTitle} <span class="text-slate-400 font-mono text-[10px]">(${res})</span></td>
                     ${keyActions
                       .map((act) => {
-                        const checked = rp?.actions?.[act] ? 'checked' : '';
-                        const disabled = !canManage || selectedRole === 'Owner' ? 'disabled' : '';
+                        const isSettingsLocked = res === 'settings' && selectedRole !== 'Developer';
+                        const checked = !isSettingsLocked && (selectedRole === 'Developer' || rp?.actions?.[act]) ? 'checked' : '';
+                        const disabled =
+                          !canManage || selectedRole === 'Developer' || selectedRole === 'Owner' || isSettingsLocked
+                            ? 'disabled'
+                            : '';
                         return `
                           <td class="py-2.5 px-2 text-center">
                             <input

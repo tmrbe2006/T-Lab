@@ -31,7 +31,7 @@ export async function renderEmployeesPage(container: HTMLElement): Promise<void>
           <div>
             <label class="block font-semibold mb-1">${i18n.bi('الدور الوظيفي', 'Role')}</label>
             <select name="role" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              ${(['Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as RoleName[])
+              ${(['Developer', 'Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as RoleName[])
                 .map((r) => `<option value="${r}" ${existing?.role === r ? 'selected' : ''}>${i18n.dict.roles[r]}</option>`)
                 .join('')}
             </select>

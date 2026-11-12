@@ -1,3 +1,4 @@
+import { db } from '../db/database';
 import { buildRolePermissions } from '../db/seed';
 import { permissionsRepository, usersRepository } from '../repositories';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
@@ -28,6 +29,36 @@ class AuthService {
   }
 
   async reloadPermissionsCache(): Promise<void> {
+    // Ensure the Developer role and default 'developer' user exist in previously seeded databases
+    try {
+      const devUser = await usersRepository.getByUsername('developer');
+      if (!devUser) {
+        await usersRepository.saveUser({
+          id: 'usr_dev',
+          username: 'developer',
+          passwordHash: 'dev123',
+          fullNameAr: 'م. مبرمج النظام (المبرمج)',
+          fullNameEn: 'System Developer',
+          role: 'Developer',
+          active: true,
+          createdAt: '2022-01-01',
+        });
+      }
+      const devRole = await db.roles.get('role_developer');
+      if (!devRole) {
+        await db.roles.put({
+          id: 'role_developer',
+          name: 'Developer',
+          titleAr: 'المبرمج',
+          titleEn: 'System Developer',
+          descriptionAr: 'صلاحيات هندسية كاملة لإدارة قاعدة بيانات MySQL والإعدادات وسجل العمليات وخطة الاختبار',
+          descriptionEn: 'Full developer access to MySQL DB, settings, audit logs, and QA test plan',
+        });
+      }
+    } catch {
+      // ignore if DB is initializing
+    }
+
     const perms: RolePermission[] = await permissionsRepository.getAllPermissions();
     const defaults = buildRolePermissions();
     this.permissionsCache.clear();
