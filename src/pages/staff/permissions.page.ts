@@ -41,7 +41,8 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
               )}
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            ${canManage && selectedRole !== 'Owner' ? `<button id="perm-enable-all-btn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer">✅ ${i18n.bi('تفعيل جميع القوائم والشاشات لهذا الدور', 'Enable All Menus for Role')}</button>` : ''}
             ${canPrint ? `<button id="perm-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
             ${canManage ? `<button id="perm-save-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">${i18n.dict.actions.save}</button>` : ''}
           </div>
@@ -70,7 +71,7 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
           <table class="w-full text-xs text-start">
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-700">
-                <th class="py-3 px-3 text-start">${i18n.bi('الشاشة / المورد', 'Screen / Resource')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('الشاشة / القائمة الفرعية', 'Screen / Menu Item')}</th>
                 ${keyActions
                   .map(
                     (act) => `<th class="py-3 px-2 text-center">${i18n.dict.actions[act] || act}</th>`
@@ -120,6 +121,16 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
       });
     });
 
+    document.getElementById('perm-enable-all-btn')?.addEventListener('click', () => {
+      document.querySelectorAll<HTMLInputElement>('.perm-chk').forEach((chk) => {
+        chk.checked = true;
+      });
+      showToast(
+        i18n.bi('تم تحديد جميع القوائم والصلاحيات — اضغط (حفظ البيانات) للتأكيد', 'All permissions checked — click Save to confirm'),
+        'info'
+      );
+    });
+
     document.getElementById('perm-save-btn')?.addEventListener('click', async () => {
       if (!(await enforcePermission('managePermissions', 'permissions'))) {
         showToast(i18n.dict.common.forbiddenMessage, 'unauthorized');
@@ -129,12 +140,19 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
       const mapByRes = new Map(rolePerms.map((p) => [p.resource, p]));
 
       checkboxes.forEach((chk) => {
-        const res = chk.getAttribute('data-res') || '';
+        const res = (chk.getAttribute('data-res') || '') as typeof ALL_RESOURCES[number];
         const act = (chk.getAttribute('data-act') || 'view') as PermissionAction;
-        const entry = mapByRes.get(res as typeof ALL_RESOURCES[number]);
-        if (entry) {
-          entry.actions[act] = chk.checked;
+        let entry = mapByRes.get(res);
+        if (!entry) {
+          entry = {
+            id: `${selectedRole}_${res}`,
+            role: selectedRole,
+            resource: res,
+            actions: {} as Record<PermissionAction, boolean>,
+          };
+          mapByRes.set(res, entry);
         }
+        entry.actions[act] = chk.checked;
       });
 
       await permissionsRepository.saveBulkPermissions(Array.from(mapByRes.values()));

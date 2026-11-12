@@ -11,6 +11,7 @@ import { enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
 import { patientsRepository, requestsRepository } from '../../repositories';
+import { router } from '../../router';
 import {
   buildQrVerificationFooterHtml,
   ensureEnterpriseSeedData,
@@ -123,6 +124,21 @@ const ORGANISM_PRESETS: OrganismPreset[] = [
       { antibioticCode: 'AMC', antibioticNameEn: 'Amoxicillin-Clavulanate', antibioticClass: 'Penicillins', sensitivity: 'R', micValue: '>= 32 µg/mL', clsiBreakpoint: 'Intrinsic R' },
     ],
   },
+  {
+    code: 'SALM',
+    nameEn: 'Salmonella enterica (H2S+)',
+    nameAr: 'سالمونيلا معوية (Salmonella enterica)',
+    gramStainAr: 'عصيات سالبة الجرام غير مخمرة للاكتوز (Gram-Negative Bacilli)',
+    gramStainEn: 'Gram-Negative Bacilli (NLF, H2S+)',
+    defaultResistance: ['None'],
+    antibiotics: [
+      { antibioticCode: 'CRO', antibioticNameEn: 'Ceftriaxone', antibioticClass: 'Cephalosporins 3rd Gen', sensitivity: 'S', micValue: '<= 0.25 µg/mL', clsiBreakpoint: 'S <= 1, R >= 4' },
+      { antibioticCode: 'AZM', antibioticNameEn: 'Azithromycin', antibioticClass: 'Macrolides', sensitivity: 'S', micValue: '4.0 µg/mL', clsiBreakpoint: 'S <= 16, R >= 32' },
+      { antibioticCode: 'CIP', antibioticNameEn: 'Ciprofloxacin', antibioticClass: 'Fluoroquinolones', sensitivity: 'S', micValue: '<= 0.06 µg/mL', clsiBreakpoint: 'S <= 0.06, R >= 1' },
+      { antibioticCode: 'SXT', antibioticNameEn: 'Trimethoprim-Sulfamethoxazole', antibioticClass: 'Folate Antagonists', sensitivity: 'S', micValue: '<= 0.5/9.5 µg/mL', clsiBreakpoint: 'S <= 2/38' },
+      { antibioticCode: 'MEM', antibioticNameEn: 'Meropenem', antibioticClass: 'Carbapenems', sensitivity: 'S', micValue: '<= 0.12 µg/mL', clsiBreakpoint: 'S <= 1, R >= 4' },
+    ],
+  },
 ];
 
 export async function renderMicrobiologyPage(container: HTMLElement): Promise<void> {
@@ -189,6 +205,9 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                 : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
             }">
               📊 ${i18n.bi('خريطة مقاومة المضادات بالمعمل (Antibiogram)', 'Cumulative Lab Antibiogram')}
+            </button>
+            <button id="micro-ai-plate-btn" class="rounded-lg bg-violet-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-violet-500 cursor-pointer shadow-xs">
+              🤖 ${i18n.bi('فحص طبق المزرعة بالذكاء الاصطناعي', 'AI Culture Plate Recognition')}
             </button>
             <button id="micro-new-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
               + ${i18n.bi('تسجيل مزرعة جديدة (C&S)', 'New Culture Report')}
@@ -421,6 +440,10 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
     document.getElementById('micro-search-input')?.addEventListener('input', (e) => {
       searchQuery = (e.target as HTMLInputElement).value;
       render();
+    });
+
+    document.getElementById('micro-ai-plate-btn')?.addEventListener('click', () => {
+      router.navigate('culturePlateAi');
     });
 
     document.getElementById('micro-new-btn')?.addEventListener('click', async () => {

@@ -1,3 +1,4 @@
+import { buildRolePermissions } from '../db/seed';
 import { permissionsRepository, usersRepository } from '../repositories';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
 
@@ -28,9 +29,30 @@ class AuthService {
 
   async reloadPermissionsCache(): Promise<void> {
     const perms: RolePermission[] = await permissionsRepository.getAllPermissions();
+    const defaults = buildRolePermissions();
     this.permissionsCache.clear();
+
+    const existingKeys = new Set(perms.map((p) => `${p.role}_${p.resource}`));
+    const missingPerms: RolePermission[] = [];
+
+    for (const def of defaults) {
+      const key = `${def.role}_${def.resource}`;
+      if (!existingKeys.has(key)) {
+        missingPerms.push(def);
+        this.permissionsCache.set(key, def.actions);
+      }
+    }
+
     for (const p of perms) {
       this.permissionsCache.set(`${p.role}_${p.resource}`, p.actions);
+    }
+
+    if (missingPerms.length > 0) {
+      try {
+        await permissionsRepository.saveBulkPermissions(missingPerms);
+      } catch {
+        // ignore if DB is initializing
+      }
     }
   }
 

@@ -461,7 +461,7 @@ async function startServer() {
       clinicalNotes = '',
       morphometricHints = '',
     } = (req.body || {}) as {
-      modality: 'blood_film' | 'urine_sediment' | 'stool_parasitology';
+      modality: 'blood_film' | 'urine_sediment' | 'stool_parasitology' | 'culture_plate';
       engineMode?: string;
       imageBase64: string;
       mimeType?: string;
@@ -504,6 +504,14 @@ Classify every detected element into one of these exact groupKey values:
 - "cells": Cellular Elements (Fecal RBCs, Fecal WBCs/Pus Cells, Intestinal Epithelial Cells).
 - "crystals": Fecal Crystals (Charcot-Leyden hexagonal bipyramidal compass-needle crystals, Hematoxylin/Fatty acid/Calcium oxalate crystals).
 - "others": Digestion & Other Elements (Undigested striated muscle fibers [creatorrhea], Undigested starch granules [blue-black in iodine], Neutral fat globules [steatorrhea], Plant fibers/spirals/vegetable cells, Mucus strands, Food debris, Budding yeast/fungi, Enteric bacteria, Pollen/Spore artifacts).`,
+      culture_plate: `You are an expert Clinical Microbiologist analyzing a Bacterial/Fungal Culture Petri Dish Plate or Kirby-Bauer AST Plate (فحص أطباق المزارع البكتيرية واختبارات الحساسية).
+Identify the isolated bacterial or fungal species from colony morphology, pigmentation, hemolysis, lactose/mannitol/xylose/sucrose fermentation, and antibiotic inhibition zones across Urine Cultures, Stool Cultures, and Blood/Pus/Sputum Cultures.
+Classify every detected element into one of these exact groupKey values:
+- "uropathogens": Urinary Tract Culture Pathogens (Escherichia coli [CULT-URO-ECOLI: flat pink lactose-fermenting colonies on MacConkey, yellow opaque on CLED, metallic green sheen on EMB], Klebsiella pneumoniae [CULT-URO-KLEB: large dome-shaped mucoid pink colonies on MacConkey], Proteus mirabilis [CULT-URO-PROTEUS: concentric swarming on Blood Agar, pale NLF on MacConkey, blue-green translucent on CLED], Enterococcus faecalis [CULT-URO-ENTEROCOCCUS: pinpoint colonies, bile-esculin blackening], Staphylococcus saprophyticus [CULT-URO-SAPRO: Novobiocin resistant]).
+- "enteric_pathogens": Stool & Enteric Culture Pathogens (Salmonella enterica/Typhi [CULT-ENT-SALMONELLA: red colonies with jet-black H2S centers on XLD, colorless with black center on SS agar], Shigella dysenteriae/sonnei [CULT-ENT-SHIGELLA: translucent red/pink colonies without black centers on XLD, green on Hektoen], Vibrio cholerae [CULT-ENT-VIBRIO: flat yellow sucrose-fermenting colonies on TCBS], Campylobacter jejuni [CULT-ENT-CAMPY: grey droplet/fried-egg colonies on Campy agar at 42C], E. coli O157:H7 [CULT-ENT-EHEC: colorless sorbitol-negative on SMAC]).
+- "blood_pus_cocci": Blood, Pus & Wound Gram-Positive Cocci & Fastidious Isolates (Staphylococcus aureus & MRSA [CULT-COCCI-SAUREUS: golden-yellow colonies with clear Beta-hemolysis on Blood Agar, yellow halo on Mannitol Salt Agar MSA], Streptococcus pyogenes Group A [CULT-COCCI-SPYOGENES: pinpoint colonies with wide Beta-hemolysis, Bacitracin S], Streptococcus pneumoniae [CULT-COCCI-SPNEUMO: umbilicated draughtsman colonies with green Alpha-hemolysis, Optochin S], Streptococcus agalactiae Group B [CULT-COCCI-SAGALACTIAE: narrow Beta-hemolysis, arrowhead CAMP positive], Neisseria meningitidis / Haemophilus influenzae [CULT-COCCI-NEISSERIA: moist grey colonies on Chocolate Agar]).
+- "non_fermenters_fungi": Non-Fermenters, Yeasts & Molds (Pseudomonas aeruginosa [CULT-NF-PSEUDOMONAS: flat spreading colonies with metallic sheen, grape odor, and blue-green pyocyanin pigment on Mueller-Hinton/Cetrimide], Acinetobacter baumannii [CULT-NF-ACINETO: smooth pale lavender NLF colonies on MacConkey, Oxidase negative], Candida albicans [CULT-FUNG-CANDIDA: creamy white pasty colonies on Sabouraud SDA, emerald-green on CHROMagar Candida], Aspergillus fumigatus [CULT-FUNG-ASPERGILLUS: smoky blue-green velvety mold with white margin]).
+- "ast_resistance": Kirby-Bauer Disk Diffusion & Resistance Phenotypes (Susceptible Inhibition Zone [CULT-AST-SUSCEPTIBLE], ESBL Keyhole Double-Disk Synergy [CULT-AST-ESBL], MRSA Cefoxitin <=21mm Resistance [CULT-AST-MRSA], CRE Carbapenem Resistance [CULT-AST-CRE], Inducible Clindamycin D-Test [CULT-AST-DTEST]).`,
     };
 
     const systemPrompt = `${modalityInstructions[modality] || modalityInstructions.blood_film}

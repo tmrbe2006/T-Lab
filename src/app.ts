@@ -1,5 +1,5 @@
 import { authService } from './auth/auth.service';
-import { showToast } from './components/common';
+import { openCustomModal, showToast } from './components/common';
 import { pwaManager } from './components/pwa-install';
 import { can } from './guards/permission.guard';
 import { i18n } from './i18n';
@@ -9,52 +9,179 @@ import { mysqlSyncService } from './services/mysql-sync.service';
 import { themeService } from './services/theme.service';
 import type { ResourceScreen } from './types';
 
-interface NavItem {
+export interface NavItem {
   route: RouteId;
   resource?: ResourceScreen;
   labelKey: keyof typeof i18n.dict.nav;
 }
 
+export interface NavGroup {
+  id: string;
+  icon: string;
+  titleAr: string;
+  titleEn: string;
+  items: NavItem[];
+}
+
+export type MenuLayoutMode = 'grouped_expanded' | 'grouped_accordion' | 'flat_classic';
+
+export interface UserMenuPreferences {
+  layoutMode: MenuLayoutMode;
+  showAllScreensRegardlessOfRole: boolean;
+  hiddenGroups: string[];
+  hiddenRoutes: string[];
+  groupOrder: string[];
+  customGroupTitlesAr: Record<string, string>;
+}
+
+const MENU_PREFS_STORAGE_KEY = 'tlab_menu_preferences_v2';
+
+export const DEFAULT_SIDEBAR_GROUPS: NavGroup[] = [
+  {
+    id: 'grp_patients',
+    icon: '👥',
+    titleAr: '1. قائمة المرضى والعينات',
+    titleEn: '1. Patients & Samples',
+    items: [
+      { route: 'patients', resource: 'patients', labelKey: 'patients' },
+      { route: 'requests', resource: 'requests', labelKey: 'requests' },
+      { route: 'samples', resource: 'samples', labelKey: 'samples' },
+      { route: 'homeVisits', resource: 'homeVisits', labelKey: 'homeVisits' },
+    ],
+  },
+  {
+    id: 'grp_tests',
+    icon: '🧪',
+    titleAr: '2. قائمة التحاليل الطبية',
+    titleEn: '2. Medical Lab Tests',
+    items: [
+      { route: 'tests', resource: 'tests', labelKey: 'tests' },
+      { route: 'testParameters', resource: 'testParameters', labelKey: 'testParameters' },
+      { route: 'microbiology', resource: 'microbiology', labelKey: 'microbiology' },
+      { route: 'scientificDepartments', resource: 'scientificDepartments', labelKey: 'scientificDepartments' },
+      { route: 'sampleTubes', resource: 'sampleTubes', labelKey: 'sampleTubes' },
+    ],
+  },
+  {
+    id: 'grp_microscopy',
+    icon: '🔬',
+    titleAr: '3. قائمة التشخيص المجهري',
+    titleEn: '3. Microscopic Diagnostics',
+    items: [
+      { route: 'bloodFilmAi', resource: 'bloodFilmAi', labelKey: 'bloodFilmAi' },
+      { route: 'urineMicroscopyAi', resource: 'urineMicroscopyAi', labelKey: 'urineMicroscopyAi' },
+      { route: 'stoolMicroscopyAi', resource: 'stoolMicroscopyAi', labelKey: 'stoolMicroscopyAi' },
+      { route: 'culturePlateAi', resource: 'culturePlateAi', labelKey: 'culturePlateAi' },
+      { route: 'aiHub', resource: 'aiHub', labelKey: 'aiHub' },
+    ],
+  },
+  {
+    id: 'grp_results',
+    icon: '📋',
+    titleAr: '4. قائمة النتائج والجودة',
+    titleEn: '4. Results & Quality Control',
+    items: [
+      { route: 'results', resource: 'results', labelKey: 'results' },
+      { route: 'resultReview', resource: 'resultReview', labelKey: 'resultReview' },
+      { route: 'qualityControl', resource: 'qualityControl', labelKey: 'qualityControl' },
+    ],
+  },
+  {
+    id: 'grp_invoices',
+    icon: '🧾',
+    titleAr: '5. قائمة الفواتير والمشتريات',
+    titleEn: '5. Invoices & Purchases',
+    items: [
+      { route: 'invoices', resource: 'invoices', labelKey: 'invoices' },
+      { route: 'purchases', resource: 'purchases', labelKey: 'purchases' },
+      { route: 'payments', resource: 'payments', labelKey: 'payments' },
+      { route: 'expenses', resource: 'expenses', labelKey: 'expenses' },
+      { route: 'corporateContracts', resource: 'corporateContracts', labelKey: 'corporateContracts' },
+      { route: 'inventory', resource: 'inventory', labelKey: 'inventory' },
+    ],
+  },
+  {
+    id: 'grp_accounting',
+    icon: '📊',
+    titleAr: '6. قائمة المحاسبة والمالية',
+    titleEn: '6. Accounting & Finance',
+    items: [
+      { route: 'erpAccounting', resource: 'erpAccounting', labelKey: 'erpAccounting' },
+      { route: 'accounts', resource: 'accounts', labelKey: 'accounts' },
+      { route: 'journalEntries', resource: 'journalEntries', labelKey: 'journalEntries' },
+      { route: 'cashbox', resource: 'cashbox', labelKey: 'cashbox' },
+      { route: 'reports', resource: 'reports', labelKey: 'reports' },
+    ],
+  },
+  {
+    id: 'grp_doctors',
+    icon: '🩺',
+    titleAr: '7. قائمة الأطباء والعمولات',
+    titleEn: '7. Doctors & Commissions',
+    items: [
+      { route: 'doctors', resource: 'doctors', labelKey: 'doctors' },
+      { route: 'doctorSpecialties', resource: 'doctorSpecialties', labelKey: 'doctorSpecialties' },
+      { route: 'commissions', resource: 'commissions', labelKey: 'commissions' },
+    ],
+  },
+  {
+    id: 'grp_admin',
+    icon: '⚙️',
+    titleAr: '8. قائمة الإدارة والإعدادات',
+    titleEn: '8. Administration & Settings',
+    items: [
+      { route: 'employees', resource: 'employees', labelKey: 'employees' },
+      { route: 'users', resource: 'users', labelKey: 'users' },
+      { route: 'permissions', resource: 'permissions', labelKey: 'permissions' },
+      { route: 'printing', resource: 'printing', labelKey: 'printing' },
+      { route: 'settings', resource: 'settings', labelKey: 'settings' },
+      { route: 'auditLogs', resource: 'permissions', labelKey: 'auditLogs' },
+      { route: 'testPlan', labelKey: 'testPlan' },
+    ],
+  },
+];
+
 const SIDEBAR_ITEMS: NavItem[] = [
   { route: 'dashboard', resource: 'dashboard', labelKey: 'dashboard' },
-  { route: 'patients', resource: 'patients', labelKey: 'patients' },
-  { route: 'doctors', resource: 'doctors', labelKey: 'doctors' },
-  { route: 'doctorSpecialties', resource: 'doctorSpecialties', labelKey: 'doctorSpecialties' },
-  { route: 'requests', resource: 'requests', labelKey: 'requests' },
-  { route: 'homeVisits', resource: 'homeVisits', labelKey: 'homeVisits' },
-  { route: 'samples', resource: 'samples', labelKey: 'samples' },
-  { route: 'results', resource: 'results', labelKey: 'results' },
-  { route: 'microbiology', resource: 'microbiology', labelKey: 'microbiology' },
-  { route: 'qualityControl', resource: 'qualityControl', labelKey: 'qualityControl' },
-  { route: 'aiHub', resource: 'aiHub', labelKey: 'aiHub' },
-  { route: 'bloodFilmAi', resource: 'bloodFilmAi', labelKey: 'bloodFilmAi' },
-  { route: 'urineMicroscopyAi', resource: 'urineMicroscopyAi', labelKey: 'urineMicroscopyAi' },
-  { route: 'stoolMicroscopyAi', resource: 'stoolMicroscopyAi', labelKey: 'stoolMicroscopyAi' },
-  { route: 'resultReview', resource: 'resultReview', labelKey: 'resultReview' },
-  { route: 'corporateContracts', resource: 'corporateContracts', labelKey: 'corporateContracts' },
-  { route: 'tests', resource: 'tests', labelKey: 'tests' },
-  { route: 'scientificDepartments', resource: 'scientificDepartments', labelKey: 'scientificDepartments' },
-  { route: 'sampleTubes', resource: 'sampleTubes', labelKey: 'sampleTubes' },
-  { route: 'testParameters', resource: 'testParameters', labelKey: 'testParameters' },
-  { route: 'inventory', resource: 'inventory', labelKey: 'inventory' },
-  { route: 'purchases', resource: 'purchases', labelKey: 'purchases' },
-  { route: 'erpAccounting', resource: 'erpAccounting', labelKey: 'erpAccounting' },
-  { route: 'invoices', resource: 'invoices', labelKey: 'invoices' },
-  { route: 'payments', resource: 'payments', labelKey: 'payments' },
-  { route: 'commissions', resource: 'commissions', labelKey: 'commissions' },
-  { route: 'accounts', resource: 'accounts', labelKey: 'accounts' },
-  { route: 'journalEntries', resource: 'journalEntries', labelKey: 'journalEntries' },
-  { route: 'cashbox', resource: 'cashbox', labelKey: 'cashbox' },
-  { route: 'expenses', resource: 'expenses', labelKey: 'expenses' },
-  { route: 'reports', resource: 'reports', labelKey: 'reports' },
-  { route: 'employees', resource: 'employees', labelKey: 'employees' },
-  { route: 'users', resource: 'users', labelKey: 'users' },
-  { route: 'permissions', resource: 'permissions', labelKey: 'permissions' },
-  { route: 'printing', resource: 'printing', labelKey: 'printing' },
-  { route: 'settings', resource: 'settings', labelKey: 'settings' },
-  { route: 'auditLogs', resource: 'permissions', labelKey: 'auditLogs' },
-  { route: 'testPlan', labelKey: 'testPlan' },
+  ...DEFAULT_SIDEBAR_GROUPS.flatMap((g) => g.items),
 ];
+
+function loadMenuPreferences(): UserMenuPreferences {
+  const defaultPrefs: UserMenuPreferences = {
+    layoutMode: 'grouped_expanded',
+    showAllScreensRegardlessOfRole: true,
+    hiddenGroups: [],
+    hiddenRoutes: [],
+    groupOrder: DEFAULT_SIDEBAR_GROUPS.map((g) => g.id),
+    customGroupTitlesAr: {},
+  };
+  try {
+    const raw = localStorage.getItem(MENU_PREFS_STORAGE_KEY);
+    if (!raw) return defaultPrefs;
+    const parsed = JSON.parse(raw) as Partial<UserMenuPreferences>;
+    return {
+      layoutMode: parsed.layoutMode || defaultPrefs.layoutMode,
+      showAllScreensRegardlessOfRole: parsed.showAllScreensRegardlessOfRole ?? true,
+      hiddenGroups: Array.isArray(parsed.hiddenGroups) ? parsed.hiddenGroups : [],
+      hiddenRoutes: Array.isArray(parsed.hiddenRoutes) ? parsed.hiddenRoutes : [],
+      groupOrder:
+        Array.isArray(parsed.groupOrder) && parsed.groupOrder.length > 0
+          ? parsed.groupOrder
+          : defaultPrefs.groupOrder,
+      customGroupTitlesAr: parsed.customGroupTitlesAr || {},
+    };
+  } catch {
+    return defaultPrefs;
+  }
+}
+
+function saveMenuPreferences(prefs: UserMenuPreferences): void {
+  try {
+    localStorage.setItem(MENU_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+  } catch {
+    // ignore storage quota errors
+  }
+}
 
 /**
  * Lazy-loads screen modules on demand using Dynamic Imports.
@@ -159,6 +286,10 @@ export const loadPage = async (
       const { renderStoolMicroscopyAiPage } = await import('./pages/operations/microscopy-vision.page');
       return renderStoolMicroscopyAiPage;
     }
+    case 'culturePlateAi': {
+      const { renderCulturePlateAiPage } = await import('./pages/operations/microscopy-vision.page');
+      return renderCulturePlateAiPage;
+    }
     case 'resultReview': {
       const { renderResultReviewPage } = await import('./pages/operations/results-review.page');
       return renderResultReviewPage;
@@ -212,6 +343,8 @@ export const loadPage = async (
 
 export class MedicalLabApp {
   private rootEl: HTMLElement;
+  // All 8 groups expanded by default so no menu item is ever hidden!
+  private expandedGroups = new Set<string>(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
 
   constructor(rootEl: HTMLElement) {
     this.rootEl = rootEl;
@@ -229,6 +362,175 @@ export class MedicalLabApp {
     });
   }
 
+  public openMenuSettingsModal(): void {
+    const prefs = loadMenuPreferences();
+    const d = i18n.dict;
+
+    const orderedGroups = [...DEFAULT_SIDEBAR_GROUPS].sort((a, b) => {
+      const ia = prefs.groupOrder.indexOf(a.id);
+      const ib = prefs.groupOrder.indexOf(b.id);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+
+    openCustomModal(
+      i18n.bi('⚙️ إعدادات وتنسيق القوائم الجانبية (Menu Settings & Customization)', 'Sidebar Menu Settings & Customization'),
+      `
+        <form id="menu-prefs-form" class="space-y-4 text-xs">
+          <div class="rounded-xl border border-sky-200 bg-sky-50/70 p-3.5 space-y-3">
+            <div class="font-bold text-sky-950 text-sm">${i18n.bi('1. نظام عرض وتنسيق القوائم', '1. Menu Display Style')}</div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label class="flex items-center gap-2 rounded-lg border border-sky-300 bg-white p-2.5 font-bold text-slate-800 cursor-pointer">
+                <input type="radio" name="layoutMode" value="grouped_expanded" ${prefs.layoutMode === 'grouped_expanded' ? 'checked' : ''} />
+                <span>📂 ${i18n.bi('قوائم رئيسية مفتوحة بالكامل (افتراضي)', 'Grouped & All Expanded')}</span>
+              </label>
+              <label class="flex items-center gap-2 rounded-lg border border-sky-300 bg-white p-2.5 font-bold text-slate-800 cursor-pointer">
+                <input type="radio" name="layoutMode" value="grouped_accordion" ${prefs.layoutMode === 'grouped_accordion' ? 'checked' : ''} />
+                <span>📑 ${i18n.bi('قوائم مطوية تفتح عند الضغط (Accordion)', 'Accordion Mode')}</span>
+              </label>
+              <label class="flex items-center gap-2 rounded-lg border border-sky-300 bg-white p-2.5 font-bold text-slate-800 cursor-pointer">
+                <input type="radio" name="layoutMode" value="flat_classic" ${prefs.layoutMode === 'flat_classic' ? 'checked' : ''} />
+                <span>📋 ${i18n.bi('قائمة كلاسيكية مسطحة (بدون مجموعات)', 'Classic Flat List')}</span>
+              </label>
+            </div>
+            <label class="flex items-center gap-2 pt-1 font-bold text-emerald-900 cursor-pointer">
+              <input type="checkbox" name="showAllScreensRegardlessOfRole" value="1" ${prefs.showAllScreensRegardlessOfRole ? 'checked' : ''} class="w-4 h-4 accent-emerald-600 rounded" />
+              <span>✅ ${i18n.bi('إظهار جميع القوائم والشاشات الـ 37 كاملة في القائمة الجانبية بدون إخفاء', 'Show all 37 screens in sidebar without hiding')}</span>
+            </label>
+          </div>
+
+          <div class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+            <div class="font-bold text-slate-900 text-sm">${i18n.bi('2. تخصيص القوائم الرئيسية والشاشات الفرعية (تعديل الاسم / إظهار أو إخفاء)', '2. Customize Menu Groups & Sub-Screens')}</div>
+            ${orderedGroups
+              .map((grp, gIdx) => {
+                const isGrpVisible = !prefs.hiddenGroups.includes(grp.id);
+                const customTitle = prefs.customGroupTitlesAr[grp.id] || grp.titleAr;
+                return `
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                      <label class="flex items-center gap-2 font-bold text-slate-900 cursor-pointer">
+                        <input type="checkbox" name="grp_vis_${grp.id}" value="1" ${isGrpVisible ? 'checked' : ''} class="w-4 h-4 accent-sky-600 rounded" />
+                        <span>${grp.icon}</span>
+                        <input
+                          type="text"
+                          name="grp_title_${grp.id}"
+                          value="${customTitle}"
+                          class="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-bold text-slate-900 w-56"
+                        />
+                      </label>
+                      <div class="flex items-center gap-1">
+                        <span class="text-[11px] text-slate-500 font-semibold">${i18n.bi('الترتيب:', 'Order:')}</span>
+                        <input
+                          type="number"
+                          name="grp_order_${grp.id}"
+                          min="1"
+                          max="10"
+                          value="${gIdx + 1}"
+                          class="w-14 rounded border border-slate-300 bg-white px-2 py-1 text-center font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+                      ${grp.items
+                        .map((item) => {
+                          const isItemVis = !prefs.hiddenRoutes.includes(item.route);
+                          return `
+                            <label class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 cursor-pointer hover:bg-slate-50">
+                              <input type="checkbox" name="route_vis_${item.route}" value="1" ${isItemVis ? 'checked' : ''} class="accent-sky-600 rounded" />
+                              <span>${d.nav[item.labelKey]}</span>
+                            </label>
+                          `;
+                        })
+                        .join('')}
+                    </div>
+                  </div>
+                `;
+              })
+              .join('')}
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
+            <button
+              type="button"
+              id="menu-prefs-reset-btn"
+              class="rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 cursor-pointer"
+            >
+              🔄 ${i18n.bi('استعادة الإعدادات القياسية وإظهار جميع القوائم', 'Reset to Default & Show All Menus')}
+            </button>
+            <button
+              type="submit"
+              class="rounded-lg bg-sky-600 px-5 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer"
+            >
+              💾 ${i18n.bi('حفظ وتطبيق إعدادات القوائم', 'Save & Apply Menu Settings')}
+            </button>
+          </div>
+        </form>
+      `,
+      (close) => {
+        const form = document.getElementById('menu-prefs-form') as HTMLFormElement | null;
+        document.getElementById('menu-prefs-reset-btn')?.addEventListener('click', () => {
+          localStorage.removeItem(MENU_PREFS_STORAGE_KEY);
+          this.expandedGroups = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
+          close();
+          this.render();
+          showToast(i18n.bi('تمت استعادة جميع القوائم والشاشات بنجاح', 'Default menus restored'), 'success');
+        });
+
+        form?.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const fd = new FormData(form);
+          const layoutMode = (fd.get('layoutMode') as MenuLayoutMode) || 'grouped_expanded';
+          const showAllScreensRegardlessOfRole = Boolean(fd.get('showAllScreensRegardlessOfRole'));
+          const hiddenGroups: string[] = [];
+          const hiddenRoutes: string[] = [];
+          const customGroupTitlesAr: Record<string, string> = {};
+          const orderPairs: Array<{ id: string; ord: number }> = [];
+
+          for (const grp of DEFAULT_SIDEBAR_GROUPS) {
+            if (!fd.get(`grp_vis_${grp.id}`)) {
+              hiddenGroups.push(grp.id);
+            }
+            const tAr = String(fd.get(`grp_title_${grp.id}`) || '').trim();
+            if (tAr) {
+              customGroupTitlesAr[grp.id] = tAr;
+            }
+            const ord = Number(fd.get(`grp_order_${grp.id}`)) || 99;
+            orderPairs.push({ id: grp.id, ord });
+
+            for (const item of grp.items) {
+              if (!fd.get(`route_vis_${item.route}`)) {
+                hiddenRoutes.push(item.route);
+              }
+            }
+          }
+
+          orderPairs.sort((a, b) => a.ord - b.ord);
+          const groupOrder = orderPairs.map((p) => p.id);
+
+          saveMenuPreferences({
+            layoutMode,
+            showAllScreensRegardlessOfRole,
+            hiddenGroups,
+            hiddenRoutes,
+            groupOrder,
+            customGroupTitlesAr,
+          });
+
+          if (layoutMode === 'grouped_expanded') {
+            this.expandedGroups = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
+          } else if (layoutMode === 'grouped_accordion') {
+            const currentRoute = router.getRoute();
+            const activeGrp = DEFAULT_SIDEBAR_GROUPS.find((g) => g.items.some((i) => i.route === currentRoute));
+            this.expandedGroups = new Set(activeGrp ? [activeGrp.id] : [DEFAULT_SIDEBAR_GROUPS[0].id]);
+          }
+
+          close();
+          this.render();
+          showToast(i18n.bi('تم حفظ وتحديث إعدادات القوائم بنجاح', 'Menu settings saved'), 'success');
+        });
+      }
+    );
+  }
+
   public async render(): Promise<void> {
     const user = authService.getCurrentUser();
     const currentRoute = router.getRoute();
@@ -244,13 +546,36 @@ export class MedicalLabApp {
       return;
     }
 
-    // Filter sidebar links strictly by 'view' permission
-    const allowedNavItems = SIDEBAR_ITEMS.filter((item) => {
-      if (!item.resource) return true;
-      return can(user, 'view', item.resource);
+    const prefs = loadMenuPreferences();
+
+    // Ensure the group containing the active route is expanded automatically
+    const activeGroup = DEFAULT_SIDEBAR_GROUPS.find((g) => g.items.some((i) => i.route === currentRoute));
+    if (activeGroup) {
+      this.expandedGroups.add(activeGroup.id);
+    }
+
+    const orderedGroups = [...DEFAULT_SIDEBAR_GROUPS].sort((a, b) => {
+      const ia = prefs.groupOrder.indexOf(a.id);
+      const ib = prefs.groupOrder.indexOf(b.id);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
     });
 
+    const canViewDashboard = prefs.showAllScreensRegardlessOfRole || can(user, 'view', 'dashboard');
+    const visibleGroups = orderedGroups
+      .filter((grp) => !prefs.hiddenGroups.includes(grp.id))
+      .map((grp) => ({
+        ...grp,
+        titleAr: prefs.customGroupTitlesAr[grp.id] || grp.titleAr,
+        items: grp.items.filter((item) => {
+          if (prefs.hiddenRoutes.includes(item.route)) return false;
+          if (prefs.showAllScreensRegardlessOfRole) return true;
+          return !item.resource || can(user, 'view', item.resource);
+        }),
+      }))
+      .filter((grp) => grp.items.length > 0);
+
     const d = i18n.dict;
+    const totalVisibleItems = visibleGroups.reduce((acc, g) => acc + g.items.length, 0) + (canViewDashboard ? 1 : 0);
 
     this.rootEl.innerHTML = `
       <div class="min-h-screen flex flex-col bg-slate-50 text-slate-900">
@@ -270,6 +595,14 @@ export class MedicalLabApp {
           </div>
 
           <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              id="top-menu-settings-btn"
+              type="button"
+              class="rounded-lg border border-amber-400/40 bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-100 hover:bg-amber-500/35 whitespace-nowrap cursor-pointer"
+              title="Menu Settings & Customization"
+            >
+              🛠️ ${i18n.bi('إعدادات القوائم', 'Menu Settings')}
+            </button>
             <button
               id="top-mysql-btn"
               type="button"
@@ -314,25 +647,139 @@ export class MedicalLabApp {
         <!-- Main Workspace Layout -->
         <div class="flex-1 flex flex-col lg:flex-row">
           <!-- Sidebar Navigation -->
-          <aside class="w-full lg:w-64 shrink-0 bg-white border-b lg:border-b-0 lg:border-e border-slate-200 p-3">
-            <nav class="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0">
-              ${allowedNavItems
-                .map((item) => {
-                  const isActive = currentRoute === item.route;
-                  return `
+          <aside class="w-full lg:w-76 shrink-0 bg-white border-b lg:border-b-0 lg:border-e border-slate-200 p-3">
+            <nav class="flex flex-col gap-2">
+              <div class="flex items-center justify-between gap-2 rounded-xl bg-slate-100/90 border border-slate-200 px-3 py-2">
+                <div class="text-[11px] font-bold text-slate-700">
+                  📑 ${i18n.bi(`القوائم (${visibleGroups.length} قوائم · ${totalVisibleItems} شاشة)`, `Menus (${visibleGroups.length} Groups · ${totalVisibleItems} Screens)`)}
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    id="sidebar-menu-config-btn"
+                    type="button"
+                    class="rounded-md bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-900 hover:bg-amber-200 cursor-pointer"
+                  >
+                    ⚙️ ${i18n.bi('إعدادات القوائم', 'Configure')}
+                  </button>
+                  ${
+                    prefs.layoutMode !== 'flat_classic'
+                      ? `<button
+                          id="sidebar-toggle-all-btn"
+                          type="button"
+                          class="rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] font-bold text-sky-700 hover:bg-slate-50 cursor-pointer"
+                        >
+                          ${
+                            this.expandedGroups.size >= visibleGroups.length
+                              ? i18n.bi('طي الكل −', 'Collapse −')
+                              : i18n.bi('فتح الكل +', 'Expand +')
+                          }
+                        </button>`
+                      : ''
+                  }
+                </div>
+              </div>
+
+              ${
+                canViewDashboard
+                  ? `
                     <a
-                      href="#/${item.route}"
-                      class="px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                        isActive
+                      href="#/dashboard"
+                      class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                        currentRoute === 'dashboard'
                           ? 'skin-nav-active text-white shadow-xs'
-                          : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                          : 'bg-slate-100/80 text-slate-800 hover:bg-slate-200/70'
                       }"
                     >
-                      ${d.nav[item.labelKey]}
+                      <span class="flex items-center gap-2">
+                        <span>🏠</span>
+                        <span>${d.nav.dashboard}</span>
+                      </span>
                     </a>
-                  `;
-                })
-                .join('')}
+                  `
+                  : ''
+              }
+
+              ${
+                prefs.layoutMode === 'flat_classic'
+                  ? `
+                    <div class="space-y-1">
+                      ${visibleGroups
+                        .flatMap((g) => g.items)
+                        .map((item) => {
+                          const isActive = currentRoute === item.route;
+                          return `
+                            <a
+                              href="#/${item.route}"
+                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                                isActive
+                                  ? 'skin-nav-active text-white shadow-xs'
+                                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                              }"
+                            >
+                              <span class="text-[10px] ${isActive ? 'text-white' : 'text-slate-400'}">●</span>
+                              <span>${d.nav[item.labelKey]}</span>
+                            </a>
+                          `;
+                        })
+                        .join('')}
+                    </div>
+                  `
+                  : `
+                    <div class="space-y-2">
+                      ${visibleGroups
+                        .map((grp) => {
+                          const isExpanded = this.expandedGroups.has(grp.id);
+                          const hasActiveChild = grp.items.some((i) => i.route === currentRoute);
+                          return `
+                            <div class="rounded-xl border ${hasActiveChild ? 'border-sky-300 bg-sky-50/30 shadow-2xs' : 'border-slate-200 bg-slate-50/50'} overflow-hidden">
+                              <button
+                                type="button"
+                                data-nav-group="${grp.id}"
+                                class="w-full flex items-center justify-between gap-2 px-3 py-2 text-start text-xs font-bold transition-colors cursor-pointer ${
+                                  hasActiveChild
+                                    ? 'text-sky-950 bg-sky-100/70'
+                                    : 'text-slate-800 hover:bg-slate-100'
+                                }"
+                              >
+                                <span class="flex items-center gap-2">
+                                  <span>${grp.icon}</span>
+                                  <span>${i18n.bi(grp.titleAr, grp.titleEn)}</span>
+                                </span>
+                                <span class="flex items-center gap-1.5 shrink-0">
+                                  <span class="rounded-full bg-white border border-slate-200 px-1.5 py-0.2 text-[10px] font-mono text-slate-600">${grp.items.length}</span>
+                                  <span class="nav-grp-arrow text-[10px] text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}">▼</span>
+                                </span>
+                              </button>
+                              <div
+                                id="nav-grp-body-${grp.id}"
+                                class="${isExpanded ? 'block' : 'hidden'} px-2 py-1.5 space-y-0.5 bg-white border-t border-slate-100"
+                              >
+                                ${grp.items
+                                  .map((item) => {
+                                    const isActive = currentRoute === item.route;
+                                    return `
+                                      <a
+                                        href="#/${item.route}"
+                                        class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold leading-snug transition-colors ${
+                                          isActive
+                                            ? 'skin-nav-active text-white shadow-xs'
+                                            : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                                        }"
+                                      >
+                                        <span class="text-[10px] shrink-0 ${isActive ? 'text-white' : 'text-sky-500'}">●</span>
+                                        <span>${d.nav[item.labelKey]}</span>
+                                      </a>
+                                    `;
+                                  })
+                                  .join('')}
+                              </div>
+                            </div>
+                          `;
+                        })
+                        .join('')}
+                    </div>
+                  `
+              }
             </nav>
           </aside>
 
@@ -343,6 +790,53 @@ export class MedicalLabApp {
     `;
 
     themeService.bindToolbarEvents();
+
+    document.getElementById('top-menu-settings-btn')?.addEventListener('click', () => {
+      this.openMenuSettingsModal();
+    });
+    document.getElementById('sidebar-menu-config-btn')?.addEventListener('click', () => {
+      this.openMenuSettingsModal();
+    });
+
+    // Bind collapsible group headers
+    document.querySelectorAll<HTMLButtonElement>('button[data-nav-group]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const grpId = btn.getAttribute('data-nav-group');
+        if (!grpId) return;
+        const bodyEl = document.getElementById(`nav-grp-body-${grpId}`);
+        const arrowEl = btn.querySelector('.nav-grp-arrow');
+        if (this.expandedGroups.has(grpId)) {
+          this.expandedGroups.delete(grpId);
+          bodyEl?.classList.add('hidden');
+          bodyEl?.classList.remove('block');
+          arrowEl?.classList.remove('rotate-180');
+        } else {
+          if (prefs.layoutMode === 'grouped_accordion') {
+            this.expandedGroups.clear();
+            document.querySelectorAll('[id^="nav-grp-body-"]').forEach((el) => {
+              el.classList.add('hidden');
+              el.classList.remove('block');
+            });
+            document.querySelectorAll('.nav-grp-arrow').forEach((el) => {
+              el.classList.remove('rotate-180');
+            });
+          }
+          this.expandedGroups.add(grpId);
+          bodyEl?.classList.remove('hidden');
+          bodyEl?.classList.add('block');
+          arrowEl?.classList.add('rotate-180');
+        }
+      });
+    });
+
+    document.getElementById('sidebar-toggle-all-btn')?.addEventListener('click', () => {
+      if (this.expandedGroups.size >= visibleGroups.length) {
+        this.expandedGroups.clear();
+      } else {
+        visibleGroups.forEach((g) => this.expandedGroups.add(g.id));
+      }
+      this.render();
+    });
 
     document.getElementById('top-mysql-btn')?.addEventListener('click', () => {
       mysqlSyncService.openMySQLModal();
@@ -370,7 +864,7 @@ export class MedicalLabApp {
 
     // Route Guard Check
     const matchedNav = SIDEBAR_ITEMS.find((i) => i.route === currentRoute);
-    if (matchedNav?.resource && !can(user, 'view', matchedNav.resource)) {
+    if (!prefs.showAllScreensRegardlessOfRole && matchedNav?.resource && !can(user, 'view', matchedNav.resource)) {
       await authService.logAudit(
         `محاولة فتح شاشة غير مصرح بها (403): ${currentRoute}`,
         matchedNav.resource,

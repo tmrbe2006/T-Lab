@@ -36,7 +36,7 @@ import type {
 interface ModalityPageSpec {
   modality: MicroscopyModality;
   resource: ResourceScreen;
-  route: 'bloodFilmAi' | 'urineMicroscopyAi' | 'stoolMicroscopyAi';
+  route: 'bloodFilmAi' | 'urineMicroscopyAi' | 'stoolMicroscopyAi' | 'culturePlateAi';
   titleAr: string;
   titleEn: string;
   subtitleAr: string;
@@ -111,6 +111,32 @@ const MODALITY_SPECS: Record<MicroscopyModality, ModalityPageSpec> = {
     ],
     magnificationOptions: ['40x High Power Field (HPF)', '10x Low Power Field (LPF)', '100x Oil Immersion'],
   },
+  culture_plate: {
+    modality: 'culture_plate',
+    resource: 'culturePlateAi',
+    route: 'culturePlateAi',
+    titleAr: 'تحليل أطباق المزارع البكتيرية والحساسية بالذكاء الاصطناعي (بول · براز · دم وصديد)',
+    titleEn: 'Intelligent Culture Plate & Antibiotic Susceptibility Recognition (Urine, Stool, Blood & Pus)',
+    subtitleAr:
+      'التعرف الآلي فائق الدقة على مستعمرات البكتيريا والفطريات في أطباق مزارع البول والبراز والدم والصديد (MacConkey, CLED, XLD, SS, Blood, MSA, Chocolate, Mueller-Hinton) وقياس هالات الحساسية ورصد ESBL و MRSA و CRE',
+    subtitleEn:
+      'Precision identification of bacterial & fungal colonies across Urine, Stool, and Blood/Pus culture plates (MacConkey, CLED, XLD, Blood, MSA, Mueller-Hinton) with ESBL/MRSA/CRE detection',
+    icon: '🧫',
+    defaultStain: 'MacConkey Agar + CLED Agar (Urine Culture)',
+    stainOptions: [
+      'MacConkey Agar + CLED Agar (Urine Culture)',
+      'XLD Agar + Salmonella-Shigella (SS) Agar (Stool Culture)',
+      '5% Sheep Blood Agar + Mannitol Salt Agar (Blood/Pus Culture)',
+      'Chocolate Agar + CO2 Incubation (Blood/CSF/Sputum)',
+      'Cetrimide + Mueller-Hinton AST Disk Diffusion Plate',
+      'Sabouraud Dextrose Agar (SDA) + CHROMagar Candida',
+    ],
+    magnificationOptions: [
+      'Macroscopic Colony & Halo Inspection (1x–10x)',
+      'Stereomicroscope Colony Zoom (20x)',
+      '100x Oil Immersion (Gram Stain Smear)',
+    ],
+  },
 };
 
 function renderSemanticBadge(color: AiSemanticColor, severity: string): string {
@@ -142,6 +168,7 @@ export async function renderAiHubPage(container: HTMLElement): Promise<void> {
     const bloodCount = allAnalyses.filter((a) => a.modality === 'blood_film').length;
     const urineCount = allAnalyses.filter((a) => a.modality === 'urine_sediment').length;
     const stoolCount = allAnalyses.filter((a) => a.modality === 'stool_parasitology').length;
+    const cultureCount = allAnalyses.filter((a) => a.modality === 'culture_plate').length;
     const criticalCount = allAnalyses.filter((a) => a.hasCriticalAlert).length;
     const avgConfidence =
       allAnalyses.length > 0
@@ -156,12 +183,12 @@ export async function renderAiHubPage(container: HTMLElement): Promise<void> {
       <div>
         ${pageHeader(
           i18n.bi(
-            'مركز التشخيص المجهري الذكي (AI Microscopy Hub)',
-            'Intelligent Microscopy Diagnostic Hub (AI Hub)'
+            'مركز التشخيص المجهري والميكروبيولوجي الذكي (AI Diagnostic Hub)',
+            'Intelligent Microscopy & Culture Plate Diagnostic Hub (AI Hub)'
           ),
           i18n.bi(
-            'منظومة التعرف الآلي المتقدم على خلايا فيلم الدم، رواسب البول، وطفيليات البراز مع التحقق السريري المتعدد والتعلم المستمر',
-            'Advanced automated recognition for Blood Film, Urine Sediment, and Stool Parasitology with multi-stage clinical validation'
+            'منظومة التعرف الآلي المتقدم على خلايا فيلم الدم، رواسب البول، طفيليات البراز، وأطباق المزارع البكتيرية (بول · براز · دم وصديد) مع التحقق السريري المتعدد',
+            'Advanced automated recognition for Blood Film, Urine Sediment, Stool Parasitology, and Bacterial Culture Plates with multi-stage clinical validation'
           ),
           `
             <button id="hub-go-blood" type="button" class="rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-rose-500 cursor-pointer">
@@ -173,11 +200,14 @@ export async function renderAiHubPage(container: HTMLElement): Promise<void> {
             <button id="hub-go-stool" type="button" class="rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
               🔬 ${i18n.bi('تحليل البراز المجهري', 'Stool Microscopy')}
             </button>
+            <button id="hub-go-culture" type="button" class="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-500 cursor-pointer">
+              🧫 ${i18n.bi('تحليل أطباق المزارع البكتيرية', 'Culture Plate AI')}
+            </button>
           `
         )}
 
-        <!-- 3 Main Specialized Modality Cards -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+        <!-- 4 Main Specialized Modality Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
           <!-- Card 1: Blood Film Analysis -->
           <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs flex flex-col justify-between hover:border-rose-400 transition-colors">
             <div>
@@ -262,6 +292,35 @@ export async function renderAiHubPage(container: HTMLElement): Promise<void> {
               class="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-600 transition-colors cursor-pointer"
             >
               ${i18n.bi('فتح شاشة تحليل البراز المجهري ←', 'Open Stool Microscopy Analysis →')}
+            </button>
+          </div>
+
+          <!-- Card 4: Culture Plate AI Analysis -->
+          <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs flex flex-col justify-between hover:border-indigo-400 transition-colors">
+            <div>
+              <div class="flex items-center justify-between gap-3 mb-3">
+                <span class="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-2xl">🧫</span>
+                <span class="text-xs font-mono tabular-nums text-slate-500">${cultureCount} ${i18n.bi('تحليل مسجل', 'Analyses')}</span>
+              </div>
+              <h2 class="text-base font-bold text-slate-900 mb-1.5">
+                ${i18n.bi('4. تحليل أطباق المزارع البكتيرية', '4. Culture Plate AI Analysis')}
+              </h2>
+              <p class="text-xs text-slate-600 leading-relaxed mb-3">
+                ${i18n.bi(
+                  'تحديد أنواع البكتيريا والفطريات من صور أطباق مزارع البول والبراز والدم والصديد (E. coli, Klebsiella, Proteus, Salmonella, Shigella, S. aureus MRSA, Pseudomonas, Candida) وقياس هالات الحساسية ورصد ESBL و CRE.',
+                  'Identify bacteria & fungi from Urine, Stool, and Blood/Pus culture plates (E. coli, Klebsiella, Salmonella, Shigella, MRSA, Pseudomonas, Candida) & AST zones.'
+                )}
+              </p>
+              <div class="text-[11px] text-slate-500 border-t border-slate-100 pt-2.5 mb-4">
+                ${i18n.bi('الأقسام: مزارع البول · مزارع البراز · مزارع الدم والصديد · الفطريات · أقراص الحساسية', 'Sections: Urine · Stool · Blood/Pus · Fungi · AST Resistance')}
+              </div>
+            </div>
+            <button
+              type="button"
+              data-nav-route="culturePlateAi"
+              class="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-600 transition-colors cursor-pointer"
+            >
+              ${i18n.bi('فتح شاشة تحليل أطباق المزارع ←', 'Open Culture Plate AI →')}
             </button>
           </div>
         </div>
@@ -353,6 +412,8 @@ export async function renderAiHubPage(container: HTMLElement): Promise<void> {
                               ? i18n.bi('فيلم صورة الدم', 'Blood Film')
                               : a.modality === 'urine_sediment'
                               ? i18n.bi('تحليل البول المجهري', 'Urine Microscopy')
+                              : a.modality === 'culture_plate'
+                              ? i18n.bi('أطباق المزارع البكتيرية', 'Culture Plate AI')
                               : i18n.bi('تحليل البراز المجهري', 'Stool Microscopy');
                           return `
                             <tr class="hover:bg-slate-50">
@@ -567,10 +628,15 @@ export async function renderAiHubPage(container: HTMLElement): Promise<void> {
     document.getElementById('hub-go-blood')?.addEventListener('click', () => router.navigate('bloodFilmAi'));
     document.getElementById('hub-go-urine')?.addEventListener('click', () => router.navigate('urineMicroscopyAi'));
     document.getElementById('hub-go-stool')?.addEventListener('click', () => router.navigate('stoolMicroscopyAi'));
+    document.getElementById('hub-go-culture')?.addEventListener('click', () => router.navigate('culturePlateAi'));
 
     container.querySelectorAll<HTMLButtonElement>('[data-nav-route]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const target = btn.getAttribute('data-nav-route') as 'bloodFilmAi' | 'urineMicroscopyAi' | 'stoolMicroscopyAi';
+        const target = btn.getAttribute('data-nav-route') as
+          | 'bloodFilmAi'
+          | 'urineMicroscopyAi'
+          | 'stoolMicroscopyAi'
+          | 'culturePlateAi';
         if (target) router.navigate(target);
       });
     });
@@ -1700,6 +1766,17 @@ async function renderMicroscopyWorkspace(
                   >
                     ✏️ ${i18n.bi('تصحيح النتائج', 'Correct Findings')}
                   </button>
+                  ${
+                    modality === 'culture_plate'
+                      ? `<button
+                          id="btn-transfer-to-microbiology"
+                          type="button"
+                          class="rounded-lg bg-indigo-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-600 cursor-pointer shadow-2xs"
+                        >
+                          🧫 ${i18n.bi('تحويل البكتيريا المعزولة إلى تقرير مزرعة وحساسية (C&S + MIC) ←', 'Transfer Isolate to Culture & Sensitivity Report →')}
+                        </button>`
+                      : ''
+                  }
                 </div>
               </div>
             </div>
@@ -2376,6 +2453,146 @@ async function renderMicroscopyWorkspace(
         });
       });
     });
+
+    // Transfer AI Culture Plate Isolate directly to Microbiology Culture & Sensitivity Report
+    document.getElementById('btn-transfer-to-microbiology')?.addEventListener('click', async () => {
+      syncTextInputs();
+      const pat = patients.find((p: Patient) => p.id === selectedPatientId) || patients[0];
+      const req = requests.find((r: LabRequest) => r.id === selectedRequestId) || requests[0];
+      const codesText = detectedItems.map((d) => `${d.code} ${d.nameEn} ${d.nameAr}`).join(' ').toLowerCase();
+
+      let specimenType: 'urine' | 'blood' | 'pus_wound' | 'stool' | 'sputum' | 'csf' | 'swab' = 'urine';
+      let specimenSourceAr = 'بول وسط المجرى (Mid-Stream Urine)';
+      let specimenSourceEn = 'Mid-Stream Urine (MSU)';
+      let organismCode = 'ECOLI';
+      let organismNameEn = 'Escherichia coli';
+      let organismNameAr = 'إيشيريشيا كولاي (Escherichia coli)';
+      let gramStainAr = 'عصيات سالبة الجرام (Gram-Negative Bacilli)';
+      let gramStainEn = 'Gram-Negative Bacilli (GNR)';
+      let colonyCount = '> 100,000 CFU/mL';
+      const resistanceMechanisms: Array<'ESBL' | 'MRSA' | 'CRE' | 'VRE' | 'AmpC' | 'None'> = [];
+
+      if (codesText.includes('salmonella') || codesText.includes('سالمونيلا')) {
+        specimenType = 'stool';
+        specimenSourceAr = 'مزرعة براز (Stool Culture on XLD/SS)';
+        specimenSourceEn = 'Stool Specimen (XLD & SS Agar)';
+        organismCode = 'SALM';
+        organismNameEn = 'Salmonella enterica (H2S+)';
+        organismNameAr = 'سالمونيلا معوية (Salmonella enterica)';
+        colonyCount = 'Positive Pathogenic Growth (H2S+ Black Center)';
+      } else if (codesText.includes('shigella') || codesText.includes('شيجيلا')) {
+        specimenType = 'stool';
+        specimenSourceAr = 'مزرعة براز (Stool Culture)';
+        specimenSourceEn = 'Stool Specimen';
+        organismCode = 'SHIG';
+        organismNameEn = 'Shigella spp.';
+        organismNameAr = 'شيجيلا (Shigella dysenteriae/sonnei)';
+        colonyCount = 'Positive Pathogenic Growth';
+      } else if (codesText.includes('aureus') || codesText.includes('mrsa') || codesText.includes('عنقودية')) {
+        specimenType = currentStain.toLowerCase().includes('blood') ? 'blood' : 'pus_wound';
+        specimenSourceAr = specimenType === 'blood' ? 'مزرعة دم هوائية/لاهوائية (Blood Culture)' : 'مسحة صديد / جرح (Pus / Wound Swab)';
+        specimenSourceEn = specimenType === 'blood' ? 'Blood Culture Bottle' : 'Wound / Abscess Pus Swab';
+        organismCode = 'SAUR';
+        organismNameEn = 'Staphylococcus aureus';
+        organismNameAr = 'المكورات العنقودية الذهبية (Staphylococcus aureus)';
+        gramStainAr = 'مكورات إيجابية الجرام في تجمعات عنقودية (GPC in Clusters)';
+        gramStainEn = 'Gram-Positive Cocci in Clusters';
+        colonyCount = 'Heavy Pure Growth (Beta-Hemolytic)';
+      } else if (codesText.includes('pseudomonas') || codesText.includes('سودوموناس')) {
+        specimenType = 'pus_wound';
+        specimenSourceAr = 'مزرعة جرح / حروق (Wound / Burn Culture)';
+        specimenSourceEn = 'Wound / Burn Exudate';
+        organismCode = 'PAER';
+        organismNameEn = 'Pseudomonas aeruginosa';
+        organismNameAr = 'سودوموناس أيروجينوزا (Pseudomonas aeruginosa)';
+        colonyCount = 'Heavy Growth (Pyocyanin+ / Oxidase++)';
+      } else if (codesText.includes('klebsiella') || codesText.includes('كليبسيلا')) {
+        organismCode = 'KLEB';
+        organismNameEn = 'Klebsiella pneumoniae';
+        organismNameAr = 'كليبسيلا نيموني المخاطية (Klebsiella pneumoniae)';
+      } else if (codesText.includes('proteus') || codesText.includes('بروتيوس')) {
+        organismCode = 'PROT';
+        organismNameEn = 'Proteus mirabilis';
+        organismNameAr = 'بروتيوس ميرابيليس (Proteus mirabilis)';
+      } else if (codesText.includes('candida') || codesText.includes('كانديدا')) {
+        organismCode = 'CAND';
+        organismNameEn = 'Candida albicans';
+        organismNameAr = 'خميرة كانديدا ألبيكانس (Candida albicans)';
+        gramStainAr = 'خلايا خميرة متبرعمة وخيوط كاذبة (Budding Yeast & Pseudohyphae)';
+        gramStainEn = 'Budding Yeast Cells & Pseudohyphae';
+      }
+
+      if (codesText.includes('esbl')) resistanceMechanisms.push('ESBL');
+      if (codesText.includes('mrsa')) resistanceMechanisms.push('MRSA');
+      if (codesText.includes('cre')) resistanceMechanisms.push('CRE');
+      if (resistanceMechanisms.length === 0) resistanceMechanisms.push('None');
+
+      const isGramPos = organismCode === 'SAUR';
+      const isEsbl = resistanceMechanisms.includes('ESBL');
+      const isMrsa = resistanceMechanisms.includes('MRSA');
+
+      const antibiotics = isGramPos
+        ? [
+            { antibioticCode: 'FOX', antibioticNameEn: 'Cefoxitin (MRSA Screen)', antibioticClass: 'Cephamycins', sensitivity: (isMrsa ? 'R' : 'S') as 'S' | 'I' | 'R', micValue: isMrsa ? '>= 8' : '<= 4', clsiBreakpoint: 'S <= 4 / R >= 8' },
+            { antibioticCode: 'VAN', antibioticNameEn: 'Vancomycin', antibioticClass: 'Glycopeptides', sensitivity: 'S' as const, micValue: '1.0', clsiBreakpoint: 'S <= 2 / R >= 16' },
+            { antibioticCode: 'LZD', antibioticNameEn: 'Linezolid', antibioticClass: 'Oxazolidinones', sensitivity: 'S' as const, micValue: '2.0', clsiBreakpoint: 'S <= 4 / R >= 8' },
+            { antibioticCode: 'DAP', antibioticNameEn: 'Daptomycin', antibioticClass: 'Lipopeptides', sensitivity: 'S' as const, micValue: '0.5', clsiBreakpoint: 'S <= 1' },
+            { antibioticCode: 'CLI', antibioticNameEn: 'Clindamycin', antibioticClass: 'Lincosamides', sensitivity: (codesText.includes('d-test') ? 'R' : 'S') as 'S' | 'I' | 'R', micValue: codesText.includes('d-test') ? '>= 4 (D-Test+)' : '0.25', clsiBreakpoint: 'S <= 0.5 / R >= 4' },
+            { antibioticCode: 'SXT', antibioticNameEn: 'Trimethoprim/Sulfamethoxazole', antibioticClass: 'Folate Antagonists', sensitivity: 'S' as const, micValue: '<= 0.5/9.5', clsiBreakpoint: 'S <= 2/38' },
+          ]
+        : [
+            { antibioticCode: 'AMC', antibioticNameEn: 'Amoxicillin/Clavulanic Acid', antibioticClass: 'Beta-Lactam/Inhibitor', sensitivity: (isEsbl ? 'R' : 'S') as 'S' | 'I' | 'R', micValue: isEsbl ? '>= 32/16' : '8/4', clsiBreakpoint: 'S <= 8/4 / R >= 32/16' },
+            { antibioticCode: 'TZP', antibioticNameEn: 'Piperacillin/Tazobactam', antibioticClass: 'Antipseudomonal Penicillin', sensitivity: 'S' as const, micValue: '<= 8/4', clsiBreakpoint: 'S <= 16/4' },
+            { antibioticCode: 'CRO', antibioticNameEn: 'Ceftriaxone', antibioticClass: '3rd Gen Cephalosporin', sensitivity: (isEsbl ? 'R' : 'S') as 'S' | 'I' | 'R', micValue: isEsbl ? '>= 64 (ESBL)' : '<= 1', clsiBreakpoint: 'S <= 1 / R >= 4' },
+            { antibioticCode: 'FEP', antibioticNameEn: 'Cefepime', antibioticClass: '4th Gen Cephalosporin', sensitivity: (isEsbl ? 'R' : 'S') as 'S' | 'I' | 'R', micValue: isEsbl ? '>= 32' : '<= 1', clsiBreakpoint: 'S <= 2 / R >= 16' },
+            { antibioticCode: 'MEM', antibioticNameEn: 'Meropenem', antibioticClass: 'Carbapenems', sensitivity: 'S' as const, micValue: '<= 0.25', clsiBreakpoint: 'S <= 1 / R >= 4' },
+            { antibioticCode: 'AMK', antibioticNameEn: 'Amikacin', antibioticClass: 'Aminoglycosides', sensitivity: 'S' as const, micValue: '2.0', clsiBreakpoint: 'S <= 16 / R >= 64' },
+            { antibioticCode: 'CIP', antibioticNameEn: 'Ciprofloxacin', antibioticClass: 'Fluoroquinolones', sensitivity: (isEsbl ? 'I' : 'S') as 'S' | 'I' | 'R', micValue: isEsbl ? '0.5' : '<= 0.12', clsiBreakpoint: 'S <= 0.25 / R >= 1' },
+            { antibioticCode: 'NIT', antibioticNameEn: 'Nitrofurantoin', antibioticClass: 'Nitrofurans (Urine)', sensitivity: 'S' as const, micValue: '<= 16', clsiBreakpoint: 'S <= 32 / R >= 128' },
+          ];
+
+      const count = await db.cultureResults.count();
+      const newCultureRecord = {
+        id: `cs_ai_${Date.now()}`,
+        reportNumber: `CS-AI-${2001 + count}`,
+        requestId: req?.id || 'req_ai',
+        requestNumber: req?.requestNumber || 'REQ-AI',
+        patientId: pat?.id || 'pat_ai',
+        patientName: pat?.name || i18n.bi('فحص طبق مزرعة ذكي', 'AI Culture Plate Patient'),
+        specimenType,
+        specimenSourceAr,
+        specimenSourceEn,
+        growthStatus: 'positive_growth' as const,
+        colonyCount,
+        incubationHours: 24,
+        gramStainAr,
+        gramStainEn,
+        pusCellsCount: '25-30 / HPF',
+        epithelialCellsCount: '2-4 / HPF',
+        organismCode,
+        organismNameEn,
+        organismNameAr,
+        resistanceMechanisms,
+        standardGuideline: 'CLSI_2025' as const,
+        antibiotics,
+        clinicalNotesAr: overallDiagnosisAr,
+        clinicalNotesEn: overallDiagnosisEn,
+        status: 'approved' as const,
+        enteredBy: user?.fullNameAr || 'AI Microbiology Engine',
+        approvedBy: user?.fullNameAr || 'Clinical Microbiologist',
+        createdAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      };
+
+      await db.cultureResults.put(newCultureRecord);
+      showToast(
+        i18n.bi(
+          `تم إنشاء تقرير المزرعة والحساسية (${newCultureRecord.reportNumber} - ${organismNameEn}) بنجاح! جاري فتح شاشة المزارع...`,
+          `Created Culture & Sensitivity report (${newCultureRecord.reportNumber} - ${organismNameEn})`
+        ),
+        'success'
+      );
+      router.navigate('microbiology');
+    });
   };
 
   await renderWorkspace();
@@ -2391,4 +2608,8 @@ export async function renderUrineMicroscopyAiPage(container: HTMLElement): Promi
 
 export async function renderStoolMicroscopyAiPage(container: HTMLElement): Promise<void> {
   await renderMicroscopyWorkspace(container, 'stool_parasitology');
+}
+
+export async function renderCulturePlateAiPage(container: HTMLElement): Promise<void> {
+  await renderMicroscopyWorkspace(container, 'culture_plate');
 }

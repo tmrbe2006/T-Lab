@@ -60,12 +60,17 @@ export type ResourceScreen =
   | 'bloodFilmAi'
   | 'urineMicroscopyAi'
   | 'stoolMicroscopyAi'
+  | 'culturePlateAi'
   | 'microbiology'
   | 'qualityControl'
   | 'homeVisits'
   | 'corporateContracts';
 
-export type MicroscopyModality = 'blood_film' | 'urine_sediment' | 'stool_parasitology';
+export type MicroscopyModality =
+  | 'blood_film'
+  | 'urine_sediment'
+  | 'stool_parasitology'
+  | 'culture_plate';
 
 export type VisionEngineMode =
   | 'tlab_ensemble_v4'
@@ -91,7 +96,13 @@ export type AiFindingGroupKey =
   // Stool Microscopy Groups
   | 'protozoa'
   | 'helminths'
-  | 'larvae';
+  | 'larvae'
+  // Culture Plate AI Groups
+  | 'uropathogens'
+  | 'enteric_pathogens'
+  | 'blood_pus_cocci'
+  | 'non_fermenters_fungi'
+  | 'ast_resistance';
 
 export interface MicroscopyDetectedItem {
   id?: string;

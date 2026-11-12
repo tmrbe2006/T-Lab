@@ -55,6 +55,7 @@ export const ALL_RESOURCES: ResourceScreen[] = [
   'bloodFilmAi',
   'urineMicroscopyAi',
   'stoolMicroscopyAi',
+  'culturePlateAi',
   'microbiology',
   'qualityControl',
   'homeVisits',
@@ -94,7 +95,7 @@ export const ALL_ACTIONS: PermissionAction[] = [
   'addJournalEntry',
 ];
 
-function buildRolePermissions(): RolePermission[] {
+export function buildRolePermissions(): RolePermission[] {
   const roles: RoleName[] = ['Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'];
   const list: RolePermission[] = [];
 
@@ -120,6 +121,7 @@ function buildRolePermissions(): RolePermission[] {
             'bloodFilmAi',
             'urineMicroscopyAi',
             'stoolMicroscopyAi',
+            'culturePlateAi',
             'microbiology',
             'qualityControl',
             'homeVisits',
@@ -145,6 +147,7 @@ function buildRolePermissions(): RolePermission[] {
             'bloodFilmAi',
             'urineMicroscopyAi',
             'stoolMicroscopyAi',
+            'culturePlateAi',
             'microbiology',
             'qualityControl',
             'homeVisits',
@@ -166,6 +169,7 @@ function buildRolePermissions(): RolePermission[] {
             'bloodFilmAi',
             'urineMicroscopyAi',
             'stoolMicroscopyAi',
+            'culturePlateAi',
             'microbiology',
             'qualityControl',
             'homeVisits',

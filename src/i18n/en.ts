@@ -40,6 +40,7 @@ export const en = {
     bloodFilmAi: 'Blood Film Analysis',
     urineMicroscopyAi: 'Urine Microscopy Analysis',
     stoolMicroscopyAi: 'Stool Microscopy Analysis',
+    culturePlateAi: 'Culture Plate AI Recognition',
     microbiology: 'Microbiology Cultures & Antibiogram (C&S)',
     qualityControl: 'Internal QC & Westgard Rules (L-J)',
     homeVisits: 'Home Visits & Phlebotomist Dispatch',

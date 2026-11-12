@@ -19,6 +19,7 @@ export type RouteId =
   | 'bloodFilmAi'
   | 'urineMicroscopyAi'
   | 'stoolMicroscopyAi'
+  | 'culturePlateAi'
   | 'microbiology'
   | 'qualityControl'
   | 'homeVisits'

@@ -12,10 +12,17 @@ import type {
   VisionEngineMode,
 } from '../types';
 import { type AtlasReferenceItem, BLOOD_FILM_ATLAS } from './microscopy-atlas-blood';
+import { CULTURE_PLATE_ATLAS } from './microscopy-atlas-culture';
 import { STOOL_PARASITOLOGY_ATLAS } from './microscopy-atlas-stool';
 import { URINE_SEDIMENT_ATLAS } from './microscopy-atlas-urine';
 
-export { type AtlasReferenceItem, BLOOD_FILM_ATLAS, URINE_SEDIMENT_ATLAS, STOOL_PARASITOLOGY_ATLAS };
+export {
+  type AtlasReferenceItem,
+  BLOOD_FILM_ATLAS,
+  URINE_SEDIMENT_ATLAS,
+  STOOL_PARASITOLOGY_ATLAS,
+  CULTURE_PLATE_ATLAS,
+};
 
 export interface ModalityGroupSpec {
   key: AiFindingGroupKey;
@@ -161,6 +168,48 @@ export const MODALITY_GROUPS: Record<MicroscopyModality, ModalityGroupSpec[]> = 
       icon: '🌾',
     },
   ],
+  culture_plate: [
+    {
+      key: 'uropathogens',
+      titleAr: 'بكتيريا مزارع البول والمسالك (Uropathogens)',
+      titleEn: 'Urinary Tract Pathogens (Uropathogens)',
+      subtitleAr: 'إيشيريشيا كولاي، كليبسيلا نيموني المخاطية، بروتيوس ميرابيليس المتزاحمة، المكورات المعوية، و S. saprophyticus على أجار MacConkey و CLED و EMB',
+      subtitleEn: 'E. coli, Klebsiella pneumoniae, Proteus mirabilis, Enterococcus faecalis & S. saprophyticus on MacConkey, CLED & EMB',
+      icon: '🧫',
+    },
+    {
+      key: 'enteric_pathogens',
+      titleAr: 'بكتيريا مزارع البراز والجهاز الهضمي (Enteric Pathogens)',
+      titleEn: 'Enteric & Stool Culture Pathogens',
+      subtitleAr: 'السالمونيلا ذات المركز الأسود (H2S+)، الشيجيلا، ضمات الكوليرا الصفراء على TCBS، كامبيلوباكتر، و E. coli O157:H7 على أجار XLD و SS و Hektoen',
+      subtitleEn: 'Salmonella (Black H2S Center), Shigella, Vibrio cholerae (TCBS), Campylobacter jejuni & E. coli O157:H7 on XLD/SS/SMAC',
+      icon: '🦠',
+    },
+    {
+      key: 'blood_pus_cocci',
+      titleAr: 'بكتيريا مزارع الدم والصديد والمكورات (Blood & Pus Cocci)',
+      titleEn: 'Blood, Pus & Wound Cocci & Fastidious Isolates',
+      subtitleAr: 'المكورات العنقودية الذهبية (S. aureus / MRSA)، السبحيات المقيحة (Group A)، المكورات الرئوية، سبحيات Group B، والنيسيريا/الهيموفيلس على أجار الدم والشوكولاتة و MSA',
+      subtitleEn: 'S. aureus / MRSA, S. pyogenes (GAS), S. pneumoniae, S. agalactiae (GBS) & Neisseria/Haemophilus on Blood, MSA & Chocolate Agar',
+      icon: '🩸',
+    },
+    {
+      key: 'non_fermenters_fungi',
+      titleAr: 'البكتيريا غير المخمرة والفطريات والخمائر (Non-Fermenters & Fungi)',
+      titleEn: 'Non-Fermenting Bacilli, Yeasts & Molds',
+      subtitleAr: 'سودوموناس أيروجينوزا بالصبغة الخضراء المزرقة، أسينيتوباكتر بوماني المقاومة، خميرة كانديدا ألبيكانس على سابورو و CHROMagar، وفطر أسبرجيلس',
+      subtitleEn: 'Pseudomonas aeruginosa (Pyocyanin), Acinetobacter baumannii (CRAB), Candida albicans & Aspergillus fumigatus',
+      icon: '🍄',
+    },
+    {
+      key: 'ast_resistance',
+      titleAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+      titleEn: 'Kirby-Bauer Disk Diffusion & Resistance Phenotypes',
+      subtitleAr: 'قياس هالات التثبيط على أجار Mueller-Hinton، ورصد إنزيمات ESBL (ثقب المفتاح)، ومقاومة الميثيسيلين MRSA (Cefoxitin)، ومقاومة الكاربابينيم CRE، واختبار D-Test',
+      subtitleEn: 'Susceptible Zones, ESBL Double-Disk Synergy, MRSA Cefoxitin Screen, CRE Carbapenem Resistance & Inducible Clindamycin D-Test',
+      icon: '💊',
+    },
+  ],
 };
 
 /**
@@ -266,6 +315,7 @@ export function getConfidenceTierInfo(confidence: number): {
 export function getAtlasByModality(modality: MicroscopyModality): AtlasReferenceItem[] {
   if (modality === 'blood_film') return BLOOD_FILM_ATLAS;
   if (modality === 'urine_sediment') return URINE_SEDIMENT_ATLAS;
+  if (modality === 'culture_plate') return CULTURE_PLATE_ATLAS;
   return STOOL_PARASITOLOGY_ATLAS;
 }
 
@@ -699,10 +749,243 @@ export const CALIBRATED_SCENARIOS: CalibratedMicroscopyScenario[] = [
       },
     ],
   },
+  // ============================================================================
+  // سيناريوهات أطباق المزارع البكتيرية (Culture Plate AI Scenarios: Urine, Stool, Blood/Pus)
+  // ============================================================================
+  {
+    id: 'cult_urine_ecoli_esbl',
+    modality: 'culture_plate',
+    titleAr: 'طبق مزرعة بول (MacConkey & CLED): إيشيريشيا كولاي منتجة لإنزيم ESBL (> 10^5 CFU/mL)',
+    titleEn: 'Urine Culture Plate (MacConkey & CLED): E. coli ESBL Producer (> 100,000 CFU/mL)',
+    stainOrPrep: 'MacConkey Agar + CLED Agar + Mueller-Hinton AST',
+    magnification: 'Macroscopic Colony & Halo Inspection (1x–10x)',
+    sampleQualityAr: 'تخطيط رباعي قياسي لمزرعة بول بحلقة معايرة (0.001 mL) بعد حضانة 24 ساعة عند 37°C مع وضوح تخمير اللاكتوز وهالات المضادات',
+    overallDiagnosisAr: 'نمو بكتيري نقي كثيف (> 100,000 CFU/mL) لبكتيريا Escherichia coli مخمرة للاكتوز بشدة (مستعمرات وردية جافة على أجار MacConkey وصفراء معتمة على CLED)، مع إيجابية اختبار التآزر المزدوج لإنزيمات البيتالاكتاماز واسعة الطيف (ESBL Positive) وحساسية عالية للميروبينيم والنيتروفورانتوين والفوسفومايسين.',
+    overallDiagnosisEn: 'Significant pure bacteriuria (> 10^5 CFU/mL) of lactose-fermenting Escherichia coli on MacConkey & CLED agar, positive for Extended-Spectrum Beta-Lactamase (ESBL) with full susceptibility to Meropenem, Nitrofurantoin, and Fosfomycin.',
+    clinicalRecommendationsAr: 'يُوصى باعتماد تقرير مزرعة البول (E. coli ESBL+)، وتجنب جميع السيفالوسبورينات والبنسلينات؛ الخيارات العلاجية الفعالة: Nitrofurantoin أو Fosfomycin (لعدوى المثانة غير المعقدة) أو Meropenem / Ertapenem / Amikacin (للحالات المعقدة أو التهاب حوض الكلى).',
+    clinicalRecommendationsEn: 'Report E. coli (>10^5 CFU/mL, ESBL Producer). Avoid cephalosporins and penicillins; consider Nitrofurantoin or Fosfomycin for uncomplicated cystitis, or Carbapenems/Amikacin for pyelonephritis/urosepsis.',
+    detectedItems: [
+      {
+        code: 'CULT-URO-ECOLI',
+        groupKey: 'uropathogens',
+        categoryAr: 'بكتيريا مزارع البول والمسالك (Uropathogens)',
+        categoryEn: 'Urinary Tract Pathogens (Uropathogens)',
+        nameAr: '1. إيشيريشيا كولاي مخمرة للاكتوز (Escherichia coli)',
+        nameEn: 'Escherichia coli (Lactose Fermenter)',
+        scientificName: 'Escherichia coli (GNR - Enterobacterales)',
+        countOrGrade: '> 100,000 CFU/mL (Pure Growth)',
+        confidence: 99.1,
+        severity: 'critical',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'المسبب الأول لعدوى المسالك البولية؛ مستعمرات وردية مسطحة مخمرة للاكتوز على MacConkey وإيجابية الإندول',
+        clinicalSignificanceEn: 'Primary uropathogen; flat pink lactose-fermenting colonies on MacConkey and yellow opaque colonies on CLED',
+        boundingBoxes: [
+          { x: 22, y: 26, w: 22, h: 20, label: 'E. coli Pink LF Colonies (>10^5 CFU/mL)' },
+          { x: 48, y: 52, w: 18, h: 18, label: 'Isolated Lactose-Fermenting Colonies' },
+        ],
+      },
+      {
+        code: 'CULT-AST-ESBL',
+        groupKey: 'ast_resistance',
+        categoryAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+        categoryEn: 'Antibiotic Susceptibility & Resistance Phenotypes',
+        nameAr: '21. إنزيمات البيتالاكتاماز واسعة الطيف (ESBL Keyhole / Champagne-Cork Synergy)',
+        nameEn: 'ESBL Producer (Double-Disk Synergy Keyhole Phenomenon)',
+        scientificName: 'Extended-Spectrum Beta-Lactamase (CTX-M / TEM / SHV)',
+        countOrGrade: 'ESBL Positive (CRO/CTX = R)',
+        confidence: 97.6,
+        severity: 'critical',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'مقاومة لجميع السيفالوسبورينات والبنسلينات؛ حساسة للكاربابينيم والنيتروفورانتوين',
+        clinicalSignificanceEn: 'Confirms ESBL production; resistant to cephalosporins, susceptible to Carbapenems & Nitrofurantoin',
+        boundingBoxes: [{ x: 66, y: 28, w: 18, h: 18, label: 'ESBL Synergy Zone' }],
+      },
+      {
+        code: 'CULT-AST-SUSCEPTIBLE',
+        groupKey: 'ast_resistance',
+        categoryAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+        categoryEn: 'Antibiotic Susceptibility & Resistance Phenotypes',
+        nameAr: '20. هالة تثبيط قياسية حساسة للمضاد الحيوي (Susceptible Inhibition Zone - S)',
+        nameEn: 'Susceptible Kirby-Bauer Inhibition Halo (Meropenem & Nitrofurantoin S)',
+        scientificName: 'Mueller-Hinton Agar Disk Diffusion (S)',
+        countOrGrade: 'MEM 29mm (S) / NIT 24mm (S)',
+        confidence: 98.4,
+        severity: 'normal',
+        semanticColor: 'green',
+        clinicalSignificanceAr: 'حساسية ممتازة للميروبينيم والنيتروفورانتوين والفوسفومايسين والأميكاسين',
+        clinicalSignificanceEn: 'Full susceptibility to Meropenem (29mm), Nitrofurantoin (24mm), Fosfomycin, and Amikacin',
+      },
+    ],
+  },
+  {
+    id: 'cult_stool_salmonella_shigella',
+    modality: 'culture_plate',
+    titleAr: 'طبق مزرعة براز (XLD & SS Agar): سالمونيلا معوية ذات المركز الأسود (H2S+) + شيجيلا',
+    titleEn: 'Stool Culture Plate (XLD & SS Agar): Salmonella enterica (Black H2S Center)',
+    stainOrPrep: 'XLD Agar + Salmonella-Shigella (SS) Agar',
+    magnification: 'Macroscopic Colony Inspection (1x–10x)',
+    sampleQualityAr: 'طبق أجار XLD و SS انتقائي لمزرعة براز بعد الإثراء في مرق السيلينيت (Selenite-F Broth) وحضانة 24 ساعة عند 37°C',
+    overallDiagnosisAr: 'عزل بكتيريا السالمونيلا المعوية (Salmonella enterica) المتميزة بمستعمرات حمراء ملساء ذات مركز أسود واضح (إنتاج غاز كبريتيد الهيدروجين H2S+) على أجار XLD ومستعمرات عديمة اللون بمركز أسود على أجار SS، مما يؤكد الإصابة بالنزلة المعوية البكتيرية / الحمى التيفودية.',
+    overallDiagnosisEn: 'Isolation of Salmonella enterica characterized by smooth red colonies with prominent black H2S centers on XLD agar and colorless colonies with black centers on SS agar.',
+    clinicalRecommendationsAr: 'تأكيد التصنيف المصلي (Serotyping O & H antigens) على المستعمرات المعزولة، وإصدار جدول الحساسية لـ Ceftriaxone و Azithromycin و Ciprofloxacin و Trimethoprim/Sulfamethoxazole مع تعويض السوائل.',
+    clinicalRecommendationsEn: 'Perform slide agglutination serotyping (O/H antisera) and report CLSI susceptibility for Ceftriaxone, Azithromycin, Ciprofloxacin, and Co-trimoxazole.',
+    detectedItems: [
+      {
+        code: 'CULT-ENT-SALMONELLA',
+        groupKey: 'enteric_pathogens',
+        categoryAr: 'بكتيريا مزارع البراز والجهاز الهضمي (Enteric Pathogens)',
+        categoryEn: 'Enteric & Stool Culture Pathogens',
+        nameAr: '6. سالمونيلا معوية وتيفودية ذات المركز الأسود (Salmonella enterica / Typhi)',
+        nameEn: 'Salmonella enterica (H2S-Positive Black-Center Colonies)',
+        scientificName: 'Salmonella enterica serovar Enteritidis / Typhi',
+        countOrGrade: 'Positive Growth (H2S+ Black Center)',
+        confidence: 98.9,
+        severity: 'critical',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'مسبب الحمى التيفودية والنزلات المعوية البكتيرية الحادة؛ مستعمرات حمراء بمركز أسود على أجار XLD',
+        clinicalSignificanceEn: 'Pathogenic enteric bacterium; red colonies with black H2S centers on XLD agar, Urease negative, LDC positive',
+        boundingBoxes: [
+          { x: 28, y: 32, w: 20, h: 18, label: 'Salmonella H2S+ Black-Center Colonies' },
+          { x: 54, y: 48, w: 18, h: 18, label: 'Red Colony + Black Center on XLD' },
+        ],
+      },
+      {
+        code: 'CULT-AST-SUSCEPTIBLE',
+        groupKey: 'ast_resistance',
+        categoryAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+        categoryEn: 'Antibiotic Susceptibility & Resistance Phenotypes',
+        nameAr: '20. هالة تثبيط قياسية حساسة للمضاد الحيوي (Susceptible Inhibition Zone - S)',
+        nameEn: 'Susceptible Kirby-Bauer Inhibition Halo (Ceftriaxone & Azithromycin S)',
+        scientificName: 'Mueller-Hinton Agar Disk Diffusion (S)',
+        countOrGrade: 'CRO 28mm (S) / AZM 22mm (S)',
+        confidence: 97.8,
+        severity: 'normal',
+        semanticColor: 'green',
+        clinicalSignificanceAr: 'العزلة حساسة للسيفترياكسون والأزيثرومايسين والسيبروفلوكساسين',
+        clinicalSignificanceEn: 'Isolate susceptible to Ceftriaxone, Azithromycin, and Ciprofloxacin',
+      },
+    ],
+  },
+  {
+    id: 'cult_blood_mrsa_beta',
+    modality: 'culture_plate',
+    titleAr: 'طبق مزرعة دم وصديد (Blood & MSA Agar): مكورات عنقودية ذهبية مقاومة للميثيسيلين (MRSA)',
+    titleEn: 'Blood & Pus Culture Plate (Blood Agar & MSA): S. aureus MRSA (Beta-Hemolytic)',
+    stainOrPrep: '5% Sheep Blood Agar + Mannitol Salt Agar (MSA) + Cefoxitin Disk',
+    magnification: 'Macroscopic Colony & Hemolysis Inspection (1x–10x)',
+    sampleQualityAr: 'طبق أجار دم الغنم 5% بعد الزرع الفرعي من زجاجة مزرعة دم إيجابية، يظهر مستعمرات ذهبية محاطة بتحلل بيتا كامل الشفافية وتخمير المانيتول على MSA',
+    overallDiagnosisAr: 'عزل مكورات عنقودية ذهبية (Staphylococcus aureus) إيجابية الكتاليز والكوأجيوليز ذات مستعمرات ذهبية صفراء محاطة بهالة تحلل بيتا كاملة (Complete Beta-Hemolysis) على أجار الدم، مع مقاومة قرص السيفوكسيتين (Cefoxitin 30µg <= 21mm) المؤكدة لسلالة MRSA وإيجابية اختبار D-Test.',
+    overallDiagnosisEn: 'Isolation of beta-hemolytic, coagulase-positive Staphylococcus aureus confirmed as Methicillin-Resistant S. aureus (MRSA) via Cefoxitin 30µg screen (zone <= 21mm) and positive inducible Clindamycin D-test.',
+    clinicalRecommendationsAr: 'تنبيه حرج (مزرعة دم / صديد إيجابية لـ MRSA): إبلاغ الطبيب المعالج وفريق مكافحة العدوى فورًا؛ السلالة مقاومة لجميع البيتالاكتام والكليندامايسين، وحساسة للفانكومايسين (Vancomycin MIC 1 µg/mL) واللينيزوليد (Linezolid) والدابتومايسين.',
+    clinicalRecommendationsEn: 'CRITICAL ALERT (MRSA Bacteremia / Abscess): Notify attending physician and Infection Control immediately. Resistant to all beta-lactams and clindamycin; susceptible to Vancomycin, Linezolid, and Daptomycin.',
+    detectedItems: [
+      {
+        code: 'CULT-COCCI-SAUREUS',
+        groupKey: 'blood_pus_cocci',
+        categoryAr: 'بكتيريا مزارع الدم والصديد والمكورات (Blood & Pus Cocci)',
+        categoryEn: 'Blood, Pus & Wound Gram-Positive Cocci',
+        nameAr: '11. المكورات العنقودية الذهبية (Staphylococcus aureus / MRSA)',
+        nameEn: 'Staphylococcus aureus (Golden Beta-Hemolytic Colonies)',
+        scientificName: 'Staphylococcus aureus (GPC in grape-like clusters)',
+        countOrGrade: 'Heavy Pure Growth (Beta-Hemolytic)',
+        confidence: 99.2,
+        severity: 'critical',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'مستعمرات ذهبية محاطة بتحلل بيتا كامل على أجار الدم، إيجابية الكتاليز والكوأجيوليز ومخمرة للمانيتول',
+        clinicalSignificanceEn: 'Golden yellow colonies with clear Beta-hemolysis on Blood Agar, Catalase+, Coagulase+, Mannitol fermenter',
+        boundingBoxes: [
+          { x: 24, y: 28, w: 22, h: 20, label: 'S. aureus Golden Beta-Hemolytic Colonies' },
+          { x: 50, y: 50, w: 18, h: 18, label: 'Clear Beta-Hemolysis Halo' },
+        ],
+      },
+      {
+        code: 'CULT-AST-MRSA',
+        groupKey: 'ast_resistance',
+        categoryAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+        categoryEn: 'Antibiotic Susceptibility & Resistance Phenotypes',
+        nameAr: '22. مقاومة الميثيسيلين والسيفوكسيتين (MRSA Cefoxitin 30µg Zone <= 21 mm)',
+        nameEn: 'Methicillin-Resistant S. aureus (MRSA Cefoxitin Screen Positive)',
+        scientificName: 'mecA-Mediated PBP2a Resistance (MRSA)',
+        countOrGrade: 'MRSA Positive (FOX = 14 mm R)',
+        confidence: 98.5,
+        severity: 'critical',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'مقاومة لجميع البنسلينات والسيفالوسبورينات والكاربابينيمات؛ حساسة للفانكومايسين واللينيزوليد',
+        clinicalSignificanceEn: 'Confirms mecA-mediated MRSA; report resistant to all beta-lactams; susceptible to Vancomycin & Linezolid',
+        boundingBoxes: [{ x: 66, y: 30, w: 16, h: 16, label: 'Cefoxitin 30µg Resistant (MRSA)' }],
+      },
+      {
+        code: 'CULT-AST-DTEST',
+        groupKey: 'ast_resistance',
+        categoryAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+        categoryEn: 'Antibiotic Susceptibility & Resistance Phenotypes',
+        nameAr: '24. المقاومة المستحثة للكليندامايسين (Positive D-Zone Test - erm Gene)',
+        nameEn: 'Inducible Clindamycin Resistance (Positive D-Test)',
+        scientificName: 'erm-Mediated MLSB Inducible Resistance',
+        countOrGrade: 'D-Test Positive (Clindamycin = R)',
+        confidence: 96.4,
+        severity: 'moderate',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'تسطح هالة الكليندامايسين بجوار الإريثرومايسين على شكل حرف D؛ يُبلّغ الكليندامايسين كمقاوم',
+        clinicalSignificanceEn: 'D-shaped flattening of Clindamycin zone adjacent to Erythromycin; report Clindamycin as Resistant',
+      },
+    ],
+  },
+  {
+    id: 'cult_wound_pseudomonas_ast',
+    modality: 'culture_plate',
+    titleAr: 'طبق مزرعة جروح وعناية مركزة (Cetrimide & Mueller-Hinton): سودوموناس أيروجينوزا بالصبغة الخضراء المزرقة',
+    titleEn: 'Wound & ICU Culture Plate (Cetrimide & Mueller-Hinton): Pseudomonas aeruginosa',
+    stainOrPrep: 'Cetrimide / Mueller-Hinton Agar + Antipseudomonal Disks',
+    magnification: 'Macroscopic Colony & Pigment Inspection (1x–10x)',
+    sampleQualityAr: 'طبق أجار Mueller-Hinton و Cetrimide يظهر انتشار صبغة البيوسيانين الخضراء المزرقة واللمعان المعدني مع هالات أقراص المضادات الحيوية',
+    overallDiagnosisAr: 'نمو كثيف لبكتيريا Pseudomonas aeruginosa الهوائية غير المخمرة للاكتوز وإيجابية الأوكسيديز (Oxidase ++)، متميزة بالمستعمرات المسطحة ذات اللمعان المعدني وإفراز صبغة البيوسيانين الخضراء المزرقة المنتشرة في الأجار، مع حساسية ممتازة لـ Piperacillin/Tazobactam و Cefepime و Meropenem و Amikacin.',
+    overallDiagnosisEn: 'Heavy growth of Oxidase-positive Pseudomonas aeruginosa displaying flat spreading colonies with metallic sheen and blue-green pyocyanin pigment on Mueller-Hinton/Cetrimide agar, susceptible to Piperacillin/Tazobactam, Cefepime, Meropenem, and Amikacin.',
+    clinicalRecommendationsAr: 'اعتماد نتيجة Pseudomonas aeruginosa وإرفاق جدول المضادات المضادة للسودوموناس (Piperacillin-Tazobactam, Ceftazidime, Cefepime, Meropenem, Ciprofloxacin, Amikacin) مع التوصية بالتطهير الجراحي للجرح.',
+    clinicalRecommendationsEn: 'Report Pseudomonas aeruginosa with antipseudomonal susceptibility panel (Piperacillin-Tazobactam, Ceftazidime, Cefepime, Meropenem, Ciprofloxacin, Amikacin).',
+    detectedItems: [
+      {
+        code: 'CULT-NF-PSEUDOMONAS',
+        groupKey: 'non_fermenters_fungi',
+        categoryAr: 'البكتيريا غير المخمرة والفطريات (Non-Fermenters & Fungi)',
+        categoryEn: 'Non-Fermenting Bacilli & Fungal Isolates',
+        nameAr: '16. سودوموناس أيروجينوزا بالصبغة الخضراء المزرقة (Pseudomonas aeruginosa)',
+        nameEn: 'Pseudomonas aeruginosa (Blue-Green Pyocyanin & Metallic Sheen)',
+        scientificName: 'Pseudomonas aeruginosa (Oxidase+ Non-Fermenter)',
+        countOrGrade: 'Heavy Growth (Oxidase ++ / Pyocyanin +)',
+        confidence: 99.0,
+        severity: 'critical',
+        semanticColor: 'red',
+        clinicalSignificanceAr: 'عصيات سالبة الجرام إيجابية الأوكسيديز تفرز صبغة خضراء مزرقة؛ تتطلب مضادات خاصة مضادة للسودوموناس',
+        clinicalSignificanceEn: 'Oxidase-positive Gram-negative rod with blue-green pyocyanin pigment and metallic sheen',
+        boundingBoxes: [
+          { x: 24, y: 26, w: 24, h: 20, label: 'P. aeruginosa Blue-Green Colonies' },
+        ],
+      },
+      {
+        code: 'CULT-AST-SUSCEPTIBLE',
+        groupKey: 'ast_resistance',
+        categoryAr: 'أقراص الحساسية وآليات المقاومة (AST & Resistance Phenotypes)',
+        categoryEn: 'Antibiotic Susceptibility & Resistance Phenotypes',
+        nameAr: '20. هالة تثبيط قياسية حساسة للمضاد الحيوي (Susceptible Inhibition Zone - S)',
+        nameEn: 'Susceptible Kirby-Bauer Inhibition Halo (TZP / MEM / AMK Susceptible)',
+        scientificName: 'Mueller-Hinton Agar Disk Diffusion (S)',
+        countOrGrade: 'TZP 26mm (S) / MEM 27mm (S) / AMK 23mm (S)',
+        confidence: 98.2,
+        severity: 'normal',
+        semanticColor: 'green',
+        clinicalSignificanceAr: 'هالات تثبيط قياسية واسعة حول أقراص التازوسين والميروبينيم والأميكاسين والسيفيبيم',
+        clinicalSignificanceEn: 'Clear inhibition zones around Piperacillin-Tazobactam, Meropenem, Cefepime, and Amikacin disks',
+        boundingBoxes: [
+          { x: 58, y: 34, w: 20, h: 20, label: 'Kirby-Bauer Inhibition Zone (27mm S)' },
+        ],
+      },
+    ],
+  },
 ];
 
 /**
- * Generates a realistic, calibrated synthetic microscopy slide on HTML5 Canvas
+ * Generates a realistic, calibrated synthetic microscopy slide or Petri dish culture plate on HTML5 Canvas
  * for calibration, offline testing, and demonstration.
  */
 export function generateCalibratedSlideDataUrl(scenarioId: string): string {
@@ -712,7 +995,167 @@ export function generateCalibratedSlideDataUrl(scenarioId: string): string {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  if (scenarioId.startsWith('bf_')) {
+  if (scenarioId.startsWith('cult_')) {
+    // Draw laboratory dark bench background
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, 720, 460);
+
+    // Draw circular Petri dish rim
+    const cx = 360;
+    const cy = 230;
+    const radius = 202;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 8, 0, Math.PI * 2);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#64748b';
+    ctx.stroke();
+
+    // Agar medium fill based on culture scenario
+    const agarGrad = ctx.createRadialGradient(cx - 30, cy - 30, 20, cx, cy, radius);
+    if (scenarioId === 'cult_urine_ecoli_esbl') {
+      // MacConkey rose-violet agar
+      agarGrad.addColorStop(0, '#f43f5e');
+      agarGrad.addColorStop(0.7, '#be185d');
+      agarGrad.addColorStop(1, '#881337');
+    } else if (scenarioId === 'cult_stool_salmonella_shigella') {
+      // XLD / SS coral-red agar
+      agarGrad.addColorStop(0, '#fb7185');
+      agarGrad.addColorStop(0.7, '#e11d48');
+      agarGrad.addColorStop(1, '#9f1239');
+    } else if (scenarioId === 'cult_blood_mrsa_beta') {
+      // 5% Sheep Blood Agar deep crimson
+      agarGrad.addColorStop(0, '#dc2626');
+      agarGrad.addColorStop(0.7, '#991b1b');
+      agarGrad.addColorStop(1, '#7f1d1d');
+    } else {
+      // Mueller-Hinton / Cetrimide infused with blue-green pyocyanin pigment
+      agarGrad.addColorStop(0, '#2dd4bf');
+      agarGrad.addColorStop(0.65, '#0d9488');
+      agarGrad.addColorStop(1, '#115e59');
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = agarGrad;
+    ctx.fill();
+
+    // Draw 4-quadrant streak lines
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2;
+    for (let s = 0; s < 9; s++) {
+      ctx.beginPath();
+      ctx.moveTo(cx - 140 + s * 12, cy - 120 + (s % 3) * 14);
+      ctx.lineTo(cx - 30 + s * 10, cy - 150 + s * 12);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Draw colonies & antibiotic disks according to scenario
+    const colonyCoords = [
+      [255, 145], [278, 132], [240, 172], [295, 160], [312, 140], [268, 188],
+      [335, 175], [358, 155], [315, 210], [285, 225], [365, 235], [390, 255],
+      [345, 272], [412, 282], [380, 305], [310, 290], [275, 265], [430, 220],
+    ];
+
+    for (let i = 0; i < colonyCoords.length; i++) {
+      const [px, py] = colonyCoords[i];
+      if (scenarioId === 'cult_urine_ecoli_esbl') {
+        // Pink/magenta lactose-fermenting colonies with bile halo
+        ctx.beginPath();
+        ctx.arc(px, py, 9.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(251, 113, 133, 0.35)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#fda4af';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px - 1.5, py - 1.5, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff1f2';
+        ctx.fill();
+      } else if (scenarioId === 'cult_stool_salmonella_shigella') {
+        // Red translucent colony with jet-black H2S center
+        ctx.beginPath();
+        ctx.arc(px, py, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#fda4af';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#09090b';
+        ctx.fill();
+      } else if (scenarioId === 'cult_blood_mrsa_beta') {
+        // Clear golden-amber beta-hemolysis halo + golden S. aureus colony
+        ctx.beginPath();
+        ctx.arc(px, py, 13, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(253, 224, 71, 0.48)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#facc15';
+        ctx.fill();
+        ctx.strokeStyle = '#ca8a04';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        // Spreading blue-green metallic sheen Pseudomonas colonies
+        ctx.beginPath();
+        ctx.ellipse(px, py, 10, 7, (i % 4) * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = '#99f6e4';
+        ctx.fill();
+        ctx.strokeStyle = '#0f766e';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+    }
+
+    // Draw Kirby-Bauer antibiotic disks & inhibition halos on the right side of the plate
+    const disks: Array<{ x: number; y: number; code: string; haloRadius: number }> =
+      scenarioId === 'cult_urine_ecoli_esbl'
+        ? [
+            { x: 465, y: 155, code: 'CRO', haloRadius: 14 },
+            { x: 495, y: 195, code: 'AMC', haloRadius: 24 },
+            { x: 455, y: 275, code: 'MEM', haloRadius: 34 },
+          ]
+        : scenarioId === 'cult_blood_mrsa_beta'
+        ? [
+            { x: 475, y: 165, code: 'FOX', haloRadius: 9 },
+            { x: 465, y: 275, code: 'VAN', haloRadius: 30 },
+          ]
+        : [
+            { x: 465, y: 185, code: 'MEM', haloRadius: 34 },
+            { x: 455, y: 280, code: 'AMK', haloRadius: 28 },
+          ];
+
+    for (const d of disks) {
+      if (d.haloRadius > 10) {
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.haloRadius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+      // White 6mm paper antibiotic disk
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 11, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(d.code, d.x, d.y);
+    }
+
+    return canvas.toDataURL('image/png');
+  } else if (scenarioId.startsWith('bf_')) {
     const grad = ctx.createRadialGradient(360, 230, 50, 360, 230, 400);
     grad.addColorStop(0, '#fdf2f8');
     grad.addColorStop(1, '#f3e8ff');
@@ -1164,6 +1607,18 @@ export async function validateAndEnrichFindingsMedically(
         } else {
           groupKey = 'cells';
         }
+      } else if (modality === 'culture_plate') {
+        if (combined.includes('salmonella') || combined.includes('shigella') || combined.includes('vibrio') || combined.includes('campylobacter') || combined.includes('o157') || combined.includes('سالمونيلا') || combined.includes('شيجيلا') || combined.includes('كوليرا')) {
+          groupKey = 'enteric_pathogens';
+        } else if (combined.includes('staph') || combined.includes('strept') || combined.includes('mrsa') || combined.includes('neisseria') || combined.includes('haemophilus') || combined.includes('عنقودية') || combined.includes('سبحية') || combined.includes('رئوية')) {
+          groupKey = 'blood_pus_cocci';
+        } else if (combined.includes('pseudomonas') || combined.includes('acinetobacter') || combined.includes('candida') || combined.includes('aspergillus') || combined.includes('سودوموناس') || combined.includes('كانديدا') || combined.includes('فطر')) {
+          groupKey = 'non_fermenters_fungi';
+        } else if (combined.includes('esbl') || combined.includes('cre') || combined.includes('zone') || combined.includes('disk') || combined.includes('d-test') || combined.includes('حساسية') || combined.includes('مقاوم') || combined.includes('هالة')) {
+          groupKey = 'ast_resistance';
+        } else {
+          groupKey = 'uropathogens';
+        }
       } else {
         if (combined.includes('larva') || combined.includes('strongyloides') || combined.includes('trichinella') || combined.includes('يرق')) {
           groupKey = 'larvae';
@@ -1476,10 +1931,22 @@ export async function analyzeMicroscopyImage(params: {
     'Stage 4/5: Running Assisted Diagnostic System & medical validator...'
   );
 
-  const fallbackScenario =
+  let fallbackScenario =
     matchedScenario ||
     CALIBRATED_SCENARIOS.find((s) => s.modality === params.modality) ||
     CALIBRATED_SCENARIOS[0];
+
+  // For uploaded Culture Plate images without a preset scenario, select the closest plate scenario based on medium/stain or chromatic signature
+  if (!matchedScenario && params.modality === 'culture_plate') {
+    const notesAndStain = `${params.stainOrPrep} ${params.clinicalNotes || ''}`.toLowerCase();
+    if (notesAndStain.includes('xld') || notesAndStain.includes('ss ') || notesAndStain.includes('stool') || notesAndStain.includes('براز') || notesAndStain.includes('سالمونيلا')) {
+      fallbackScenario = CALIBRATED_SCENARIOS.find((s) => s.id === 'cult_stool_salmonella_shigella') || fallbackScenario;
+    } else if (notesAndStain.includes('blood') || notesAndStain.includes('msa') || notesAndStain.includes('mannitol') || notesAndStain.includes('دم') || notesAndStain.includes('صديد')) {
+      fallbackScenario = CALIBRATED_SCENARIOS.find((s) => s.id === 'cult_blood_mrsa_beta') || fallbackScenario;
+    } else if (notesAndStain.includes('cetrimide') || notesAndStain.includes('mueller') || notesAndStain.includes('pseudomonas') || notesAndStain.includes('سودوموناس')) {
+      fallbackScenario = CALIBRATED_SCENARIOS.find((s) => s.id === 'cult_wound_pseudomonas_ast') || fallbackScenario;
+    }
+  }
 
   const validated = await validateAndEnrichFindingsMedically(
     params.modality,
@@ -1565,6 +2032,8 @@ export const microscopyRepository = {
         ? 'BF-AI'
         : record.modality === 'urine_sediment'
         ? 'UR-AI'
+        : record.modality === 'culture_plate'
+        ? 'CP-AI'
         : 'ST-AI';
     const analysisNumber = `${prefix}-${String(1001 + count)}`;
     const analysisId = `aia_${Date.now()}`;
@@ -1671,6 +2140,8 @@ export const microscopyRepository = {
         ? 'bloodFilmAi'
         : record.modality === 'urine_sediment'
         ? 'urineMicroscopyAi'
+        : record.modality === 'culture_plate'
+        ? 'culturePlateAi'
         : 'stoolMicroscopyAi';
 
     await authService.logAudit(
