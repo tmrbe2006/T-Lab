@@ -389,6 +389,10 @@ export interface TestParameter {
   decimalPlaces: number;
   sortOrder: number;
   active: boolean;
+  isCalculated?: boolean;
+  formula?: string;
+  formulaCondition?: string;
+  formulaNoteAr?: string;
 }
 
 export type RequestType = 'internal' | 'referred';

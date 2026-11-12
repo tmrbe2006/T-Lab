@@ -87,6 +87,22 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
             <label class="block font-semibold mb-1">${i18n.bi('خيارات القائمة (مفصولة بفاصلة للنوع Select)', 'Select Options (Comma-separated)')}</label>
             <input name="optionsText" value="${existing?.options?.join(', ') || ''}" placeholder="Negative (سلبي), Positive (إيجابي), Borderline" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
+          <div class="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 space-y-2.5">
+            <label class="flex items-center gap-2 font-bold text-amber-950 cursor-pointer">
+              <input type="checkbox" name="isCalculated" value="1" ${existing?.isCalculated ? 'checked' : ''} class="rounded border-amber-400 text-amber-600" />
+              <span>ƒx ${i18n.bi('بارامتر يُحسب تلقائياً بمعادلة طبية (Auto-Calculated Parameter)', 'Auto-Calculated Formula Parameter')}</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block font-semibold text-amber-900 mb-1">${i18n.bi('المعادلة الحسابية (Formula Expression)', 'Formula Expression')}</label>
+                <input name="formula" dir="ltr" value="${existing?.formula || ''}" placeholder="e.g. CHOL - HDL - (TG / 5)" class="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900" />
+              </div>
+              <div>
+                <label class="block font-semibold text-amber-900 mb-1">${i18n.bi('شرط صلاحية المعادلة (Condition)', 'Clinical Validity Condition')}</label>
+                <input name="formulaCondition" dir="ltr" value="${existing?.formulaCondition || ''}" placeholder="e.g. TG <= 400" class="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900" />
+              </div>
+            </div>
+          </div>
           <div class="sm:col-span-2 flex justify-end pt-2">
             <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
               ${i18n.dict.actions.save}
@@ -109,6 +125,9 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean);
+          const formulaStr = String(fd.get('formula') || '').trim();
+          const formulaCondStr = String(fd.get('formulaCondition') || '').trim();
+          const isCalc = Boolean(fd.get('isCalculated')) || Boolean(formulaStr);
           const currentTestId = getSelectedTestForParams();
           const rec: TestParameter = {
             id: existing?.id || `prm_${Date.now()}`,
@@ -129,6 +148,10 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
             decimalPlaces: existing?.decimalPlaces ?? 1,
             sortOrder: Number(fd.get('sortOrder')) || 1,
             active: true,
+            isCalculated: isCalc,
+            formula: formulaStr || undefined,
+            formulaCondition: formulaCondStr || undefined,
+            formulaNoteAr: existing?.formulaNoteAr,
           };
           await testsRepository.saveParameter(rec);
           await authService.logAudit(`حفظ بارامتر: ${rec.code}`, 'testParameters', rec.id);
@@ -193,7 +216,7 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
                 <th class="py-3 px-3 text-start">#</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.code}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('اسم البارامتر (عربي / إنجليزي)', 'Parameter Name')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('النوع', 'Type')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('النوع / المعادلة', 'Type / Formula')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('الوحدة', 'Unit')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('المعدل الطبيعي المعتمد (Reference Range)', 'Normal Reference Range')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('الحد الحرج (Critical Limits)', 'Critical Low / High')}</th>
@@ -210,6 +233,10 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
                       : p.resultType === 'select'
                       ? `<span class="rounded bg-purple-50 border border-purple-200 px-1.5 py-0.5 text-[10px] font-bold text-purple-800">اختياري Select</span>`
                       : `<span class="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">نصي Text</span>`;
+                  const formulaBadge =
+                    p.isCalculated && p.formula
+                      ? `<div class="mt-1"><span class="inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-300 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-900" dir="ltr">ƒx = ${p.formula}${p.formulaCondition ? ` [${p.formulaCondition}]` : ''}</span></div>`
+                      : '';
                   return `
                   <tr class="hover:bg-slate-50">
                     <td class="py-2.5 px-3 font-mono tabular-nums">${p.sortOrder}</td>
@@ -217,8 +244,9 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
                     <td class="py-2.5 px-3">
                       <div class="font-bold text-slate-900">${p.nameAr}</div>
                       <div class="text-[11px] text-slate-500" dir="ltr">${p.nameEn}</div>
+                      ${p.formulaNoteAr ? `<div class="text-[10px] text-amber-800 font-semibold mt-0.5">${p.formulaNoteAr}</div>` : ''}
                     </td>
-                    <td class="py-2.5 px-3">${typeBadge}</td>
+                    <td class="py-2.5 px-3">${typeBadge}${formulaBadge}</td>
                     <td class="py-2.5 px-3 font-mono text-slate-600">${p.unit}</td>
                     <td class="py-2.5 px-3 font-mono text-emerald-700 font-semibold tabular-nums">${p.normalRangeText}</td>
                     <td class="py-2.5 px-3 font-mono text-rose-700 tabular-nums">

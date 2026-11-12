@@ -1,5 +1,6 @@
 import { db } from './database';
 import { CacheService } from '../services/cache.service';
+import { getDefaultFormulaMetadata } from '../services/clinical-formula.service';
 import type { LabTest, ParameterResultType, TestParameter } from '../types';
 
 export interface GlobalParamDef {
@@ -2167,6 +2168,7 @@ export function buildGlobalCatalogRecords(): {
     });
 
     def.parameters.forEach((prm, idx) => {
+      const formulaMeta = getDefaultFormulaMetadata(prm.code);
       testParameters.push({
         id: `${def.id}_prm_${idx + 1}`,
         testId: def.id,
@@ -2187,6 +2189,7 @@ export function buildGlobalCatalogRecords(): {
         decimalPlaces: prm.decimals ?? 1,
         sortOrder: idx + 1,
         active: true,
+        ...formulaMeta,
       });
     });
   }
@@ -2213,8 +2216,10 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
     const existingTests = await db.tests.toArray();
     const existingParams = await db.testParameters.toArray();
 
-    // If we already have >= 85 tests and >= 300 parameters and not forceOverwrite, skip heavy write
-    if (!forceOverwrite && existingTests.length >= 85 && existingParams.length >= 300) {
+    const hasFormulasAttached = existingParams.some((p) => Boolean(p.isCalculated && p.formula));
+
+    // If we already have >= 85 tests and >= 300 parameters with formulas and not forceOverwrite, skip heavy write
+    if (!forceOverwrite && existingTests.length >= 85 && existingParams.length >= 300 && hasFormulasAttached) {
       return { testsAdded: 0, parametersSynced: 0 };
     }
 
@@ -2241,11 +2246,16 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
 
       const defParams = globalParams.filter((p) => p.testId === gt.id);
 
+      const missingFormulas =
+        defParams.some((dp) => dp.isCalculated) &&
+        !currentParamsForTest.some((cp) => cp.isCalculated && cp.formula);
+
       if (
         forceOverwrite ||
         currentParamsForTest.length === 0 ||
         hasLegacySinglePlaceholder ||
-        currentParamsForTest.length < defParams.length
+        currentParamsForTest.length < defParams.length ||
+        missingFormulas
       ) {
         testIdsWithUpgradedParams.add(targetTestId);
         defParams.forEach((dp, idx) => {

@@ -8,8 +8,8 @@
 ; =============================================================================
 
 #define MyAppName "T-Lab Medical Laboratory System"
-#define MyAppNameAr "نظام إدارة معمل التحاليل الطبية T-Lab"
-#define MyAppVersion "3.0.0"
+#define MyAppNameAr "نظام إدارة معمل التحاليل الطبية العالمي T-Lab"
+#define MyAppVersion "4.0.0"
 #define MyAppPublisher "T-Lab Medical Systems"
 #define MyAppURL "http://localhost:3000"
 #define MyAppExeName "start-tlab-production.bat"
@@ -41,7 +41,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon} (إنشاء اختصار لنظام المعمل على سطح المكتب)"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "importdb"; Description: "استيراد قاعدة البيانات الفارغة (جدول المستخدمين فقط) تلقائياً إلى MySQL Server"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"
+Name: "importdb_full"; Description: "استيراد قاعدة البيانات المرجعية الكاملة (36 جدول + 106 تحليل عالمي + 414 بارامتر بالمعادلات + الأنابيب والأقسام والتخصصات)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive
+Name: "importdb_clean"; Description: "استيراد قاعدة البيانات التشغيلية بدون حركات تجريبية (مع الاحتفاظ بالتحاليل والبارامترات والأنابيب والمستخدمين)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive unchecked
 
 [Files]
 ; نسخ ملفات المشروع الأساسية بالكامل مع استثناء مجلدات التطوير المؤقتة
@@ -52,6 +53,7 @@ Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubd
 Name: "{group}\{#MyAppName} (تشغيل النظام)"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 13
 Name: "{group}\تغيير بورت التشغيل (Select Port)"; Filename: "{app}\start-windows.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 21
 Name: "{group}\إيقاف السيرفر (Stop T-Lab Server)"; Filename: "{app}\stop-tlab.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 27
+Name: "{group}\سكريبت قاعدة البيانات الكاملة (SQL v7)"; Filename: "{app}\public\tlab_db_complete_v7.sql"; WorkingDir: "{app}\public"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 ; اختصار سطح المكتب (Desktop Shortcut)
@@ -99,17 +101,23 @@ begin
   Result := '';
   if FileExists('C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe') then
     Result := 'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe'
+  else if FileExists('C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe') then
+    Result := 'C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe'
+  else if FileExists('C:\Program Files\MySQL\MySQL Server 5.6\bin\mysql.exe') then
+    Result := 'C:\Program Files\MySQL\MySQL Server 5.6\bin\mysql.exe'
   else if FileExists('C:\Program Files\MySQL\MySQL Server 5.5\bin\mysql.exe') then
     Result := 'C:\Program Files\MySQL\MySQL Server 5.5\bin\mysql.exe'
   else if FileExists('C:\Program Files (x86)\MySQL\MySQL Server 5.5\bin\mysql.exe') then
-    Result := 'C:\Program Files (x86)\MySQL\MySQL Server 5.5\bin\mysql.exe';
+    Result := 'C:\Program Files (x86)\MySQL\MySQL Server 5.5\bin\mysql.exe'
+  else if FileExists('C:\xampp\mysql\bin\mysql.exe') then
+    Result := 'C:\xampp\mysql\bin\mysql.exe';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   AppPort, DbHost, DbPort, DbUser, DbPass, DbName: String;
   EnvContent, PortJsonContent: String;
-  MySQLExe, ImportCmd: String;
+  MySQLExe, SqlFilePath, ImportCmd: String;
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
@@ -153,16 +161,22 @@ begin
     PortJsonContent := '{' + #13#10 + '  "port": ' + AppPort + #13#10 + '}';
     SaveStringToFile(ExpandConstant('{app}\port.config.json'), PortJsonContent, False);
 
-    // 3. استيراد قاعدة البيانات الفارغة (جدول المستخدمين فقط) تلقائياً إلى MySQL إذا تم تحديد الخيار
-    if WizardIsTaskSelected('importdb') then
+    // 3. استيراد قاعدة البيانات المحدثة تلقائياً إلى MySQL
+    SqlFilePath := '';
+    if WizardIsTaskSelected('importdb_full') then
+      SqlFilePath := ExpandConstant('{app}\public\tlab_db_complete_v7.sql')
+    else if WizardIsTaskSelected('importdb_clean') then
+      SqlFilePath := ExpandConstant('{app}\tlab_empty_except_users.sql');
+
+    if SqlFilePath <> '' then
     begin
       MySQLExe := FindMySQLExePath();
       if MySQLExe <> '' then
       begin
         if DbPass <> '' then
-          ImportCmd := '/c ""' + MySQLExe + '" -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' -p' + DbPass + ' < "' + ExpandConstant('{app}\tlab_empty_except_users.sql') + '""'
+          ImportCmd := '/c ""' + MySQLExe + '" --default-character-set=utf8 -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' -p' + DbPass + ' < "' + SqlFilePath + '""'
         else
-          ImportCmd := '/c ""' + MySQLExe + '" -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' < "' + ExpandConstant('{app}\tlab_empty_except_users.sql') + '""';
+          ImportCmd := '/c ""' + MySQLExe + '" --default-character-set=utf8 -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' < "' + SqlFilePath + '""';
 
         Exec('cmd.exe', ImportCmd, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
       end;

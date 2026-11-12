@@ -12,6 +12,10 @@ import {
   evaluateDeltaChecksForResult,
   openCriticalReadBackModal,
 } from '../../services/enterprise-lab.service';
+import {
+  evaluateParameterFormula,
+  getDefaultFormulaMetadata,
+} from '../../services/clinical-formula.service';
 import type { LabResult } from '../../types';
 
 export async function renderResultsEntryPage(container: HTMLElement): Promise<void> {
@@ -59,6 +63,10 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
             ${res.values
               .map((v, idx) => {
                 const prmDef = paramMap.get(v.parameterId);
+                const fallbackFormula = prmDef?.code ? getDefaultFormulaMetadata(prmDef.code) : { isCalculated: false };
+                const isCalcParam = Boolean((prmDef?.isCalculated && prmDef?.formula) || (fallbackFormula.isCalculated && fallbackFormula.formula));
+                const formulaExpr = prmDef?.formula || fallbackFormula.formula || '';
+                const formulaNote = prmDef?.formulaNoteAr || fallbackFormula.formulaNoteAr || '';
                 const isSelect = prmDef?.resultType === 'select' && prmDef.options && prmDef.options.length > 0;
                 const isText = prmDef?.resultType === 'text' || prmDef?.resultType === 'boolean';
 
@@ -86,21 +94,40 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                 } else {
                   inputHtml = `
                     <input
+                      id="res_input_${idx}"
                       name="val_${idx}"
+                      data-param-code="${escapeHtml(prmDef?.code || '')}"
+                      data-is-calc="${isCalcParam ? '1' : '0'}"
                       type="number"
                       step="0.001"
                       value="${v.value}"
-                      class="w-full rounded border border-slate-300 px-2.5 py-1.5 font-mono font-bold text-slate-900"
+                      class="w-full rounded border ${isCalcParam ? 'border-amber-300 bg-amber-50/60 text-amber-950' : 'border-slate-300 bg-white text-slate-900'} px-2.5 py-1.5 font-mono font-bold"
                     />
                   `;
                 }
 
                 return `
-                <div class="grid grid-cols-12 items-center gap-2 border-b border-slate-100 pb-2">
-                  <div class="col-span-5 font-semibold text-slate-800">${v.parameterNameAr} / <span class="text-slate-500">${v.parameterNameEn}</span></div>
-                  <div class="col-span-3">${inputHtml}</div>
-                  <div class="col-span-2 font-mono text-slate-500">${v.unit}</div>
-                  <div class="col-span-2 font-mono text-emerald-700 text-[11px]">${v.normalRange}</div>
+                <div class="border-b border-slate-100 pb-2 space-y-1">
+                  <div class="grid grid-cols-12 items-center gap-2">
+                    <div class="col-span-5">
+                      <div class="font-semibold text-slate-800">${v.parameterNameAr} / <span class="text-slate-500">${v.parameterNameEn}</span></div>
+                      ${
+                        isCalcParam
+                          ? `<div class="flex flex-wrap items-center gap-2 mt-0.5">
+                              <span class="rounded bg-amber-100 border border-amber-300 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-900" title="${escapeHtml(formulaNote)}" dir="ltr">ƒx ${escapeHtml(formulaExpr)}</span>
+                              <label class="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 cursor-pointer">
+                                <input type="checkbox" data-manual-override="${idx}" class="rounded border-slate-300" />
+                                <span>🔓 ${i18n.bi('تعديل يدوي', 'Manual Override')}</span>
+                              </label>
+                            </div>`
+                          : ''
+                      }
+                    </div>
+                    <div class="col-span-3">${inputHtml}</div>
+                    <div class="col-span-2 font-mono text-slate-500">${v.unit}</div>
+                    <div class="col-span-2 font-mono text-emerald-700 text-[11px]">${v.normalRange}</div>
+                  </div>
+                  <div id="formula_warn_${idx}" class="hidden rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-800"></div>
                 </div>
               `;
               })
@@ -129,6 +156,81 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
         });
 
         const form = document.getElementById('res-entry-form') as HTMLFormElement | null;
+
+        // Real-time Clinical Formula Recalculation Engine
+        const recalculateFormulas = (changedInput?: HTMLElement) => {
+          if (!form) return;
+          const rawValuesByCode: Record<string, number> = {};
+          res.values.forEach((v, idx) => {
+            const prmDef = paramMap.get(v.parameterId);
+            const code = prmDef?.code;
+            const inp = document.getElementById(`res_input_${idx}`) as HTMLInputElement | null;
+            if (code && inp) {
+              const numVal = Number(inp.value);
+              if (Number.isFinite(numVal)) {
+                rawValuesByCode[code] = numVal;
+              }
+            }
+          });
+
+          // Two passes so dependent formulas (e.g. LDL -> LDL/HDL Ratio, or GLOB -> A/G Ratio) resolve cleanly
+          for (let pass = 0; pass < 2; pass++) {
+            res.values.forEach((v, idx) => {
+              const prmDef = paramMap.get(v.parameterId);
+              if (!prmDef) return;
+              const fallback = getDefaultFormulaMetadata(prmDef.code);
+              const isCalc = Boolean((prmDef.isCalculated && prmDef.formula) || (fallback.isCalculated && fallback.formula));
+              if (!isCalc) return;
+
+              const inp = document.getElementById(`res_input_${idx}`) as HTMLInputElement | null;
+              const warnEl = document.getElementById(`formula_warn_${idx}`);
+              const overrideChk = form.querySelector<HTMLInputElement>(`input[data-manual-override="${idx}"]`);
+
+              // If the user is directly typing into this calculated field, auto-check manual override
+              if (changedInput && changedInput === inp && overrideChk && !overrideChk.checked) {
+                overrideChk.checked = true;
+              }
+
+              if (overrideChk?.checked) {
+                if (inp && prmDef.code) {
+                  rawValuesByCode[prmDef.code] = Number(inp.value) || 0;
+                }
+                return;
+              }
+
+              const evalRes = evaluateParameterFormula(
+                {
+                  code: prmDef.code,
+                  formula: prmDef.formula || fallback.formula,
+                  formulaCondition: prmDef.formulaCondition || fallback.formulaCondition,
+                  decimalPlaces: prmDef.decimalPlaces,
+                },
+                rawValuesByCode,
+                { age: pat?.age, gender: pat?.gender }
+              );
+
+              if (warnEl) {
+                if (evalRes.conditionViolated && evalRes.warningMessageAr) {
+                  warnEl.textContent = i18n.bi(evalRes.warningMessageAr, evalRes.warningMessageEn || evalRes.warningMessageAr);
+                  warnEl.classList.remove('hidden');
+                } else {
+                  warnEl.textContent = '';
+                  warnEl.classList.add('hidden');
+                }
+              }
+
+              if (inp && evalRes.computedValue !== null) {
+                inp.value = String(evalRes.computedValue);
+                rawValuesByCode[prmDef.code] = evalRes.computedValue;
+              }
+            });
+          }
+        };
+
+        form?.addEventListener('input', (ev) => {
+          recalculateFormulas(ev.target as HTMLElement);
+        });
+        recalculateFormulas();
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!(await enforcePermission('edit', 'results'))) return;
