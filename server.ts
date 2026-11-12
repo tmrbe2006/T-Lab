@@ -119,6 +119,31 @@ async function ensureDatabaseAndSchema(cfg: MySQLConnectionConfig): Promise<{
     for (const mapping of MYSQL_TABLES_CONFIG) {
       const ddl = buildCreateTableSQL(mapping);
       await rootConn.query(ddl);
+
+      // Ensure any newly added columns exist on pre-existing tables
+      try {
+        const [colRows] = await rootConn.query<mysql.RowDataPacket[]>(
+          `SHOW COLUMNS FROM \`${mapping.mysqlTable}\``
+        );
+        const existingCols = new Set(
+          (colRows || []).map((r) => String(r.Field || '').toLowerCase())
+        );
+        for (const col of mapping.columns) {
+          if (!existingCols.has(col.name.toLowerCase())) {
+            const cleanType = col.sqlType.replace(/PRIMARY KEY/gi, '').trim();
+            await rootConn.query(
+              `ALTER TABLE \`${mapping.mysqlTable}\` ADD COLUMN \`${col.name}\` ${cleanType}`
+            );
+          }
+        }
+        if (!existingCols.has('raw_json')) {
+          await rootConn.query(
+            `ALTER TABLE \`${mapping.mysqlTable}\` ADD COLUMN \`raw_json\` LONGTEXT`
+          );
+        }
+      } catch {
+        // ignore column check errors
+      }
     }
 
     return { version, tablesCreated: MYSQL_TABLES_CONFIG.length };

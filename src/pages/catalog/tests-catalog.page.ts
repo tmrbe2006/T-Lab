@@ -15,6 +15,7 @@ import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
 import { lookupsRepository, testsRepository } from '../../repositories';
 import { router } from '../../router';
+import { mysqlSyncService } from '../../services/mysql-sync.service';
 import type { LabTest } from '../../types';
 
 let selectedTestForParams = 'tst_1';
@@ -250,6 +251,9 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
             <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('موسوعة التحاليل الطبية العالمية الشاملة، بارامترات التقارير المعتمدة (WHO / CLSI / IFCC / CAP)، الأقسام العلمية، وأنواع أنابيب السحب', 'Global Medical Tests Encyclopedia, International Reporting Parameters (WHO / CLSI / IFCC / CAP), Scientific Departments & Sample Tubes')}</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <button id="tst-download-sql-btn" type="button" class="rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer">
+              🗄️ ${i18n.bi('تنزيل سكريبت قاعدة البيانات الجديدة (.SQL)', 'Download New DB Script (.SQL)')}
+            </button>
             <button id="tst-sync-global-btn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer">
               🌍 ${i18n.bi('تحديث الموسوعة العالمية للتحاليل والبارامترات', 'Sync Global Medical Tests & Parameters')}
             </button>
@@ -398,6 +402,10 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
         currentPage = 1;
         renderTable();
       });
+    });
+
+    document.getElementById('tst-download-sql-btn')?.addEventListener('click', async () => {
+      await mysqlSyncService.downloadSQLDump(true);
     });
 
     document.getElementById('tst-sync-global-btn')?.addEventListener('click', async () => {

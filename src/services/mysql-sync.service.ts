@@ -1,5 +1,6 @@
 import { closeModal, openModal, showToast } from '../components/common';
 import { db } from '../db/database';
+import { buildGlobalCatalogRecords, syncGlobalMedicalCatalog } from '../db/global-medical-tests';
 import {
   buildEmptyExceptUsersMySQLDump,
   buildFullMySQLDump,
@@ -7,6 +8,12 @@ import {
 } from '../db/mysql-schema';
 import { resetToEmptyExceptUsers } from '../db/seed';
 import { i18n } from '../i18n';
+import {
+  DEFAULT_DOCTOR_SPECIALTIES,
+  DEFAULT_SAMPLE_TUBES,
+  DEFAULT_SCIENTIFIC_DEPARTMENTS,
+  lookupsRepository,
+} from '../repositories/lookups.repository';
 import { CacheService } from './cache.service';
 
 export interface MySQLClientConfig {
@@ -56,9 +63,21 @@ class MySQLSyncService {
   }
 
   /**
-   * Collects all records from all Dexie tables mapped to MySQL
+   * Collects all records from all 36 Dexie tables mapped to MySQL,
+   * guaranteeing that Scientific Departments, Sample Tubes, Doctor Specialties,
+   * all 106 Global Medical Tests, and all 415+ Parameters are populated.
    */
   public async collectAllTablesData(): Promise<Record<string, Record<string, unknown>[]>> {
+    try {
+      await Promise.all([
+        syncGlobalMedicalCatalog(false),
+        lookupsRepository.getScientificDepartments(),
+        lookupsRepository.getSampleTubes(),
+        lookupsRepository.getDoctorSpecialties(),
+      ]);
+    } catch {
+      // proceed with fallback defaults if needed
+    }
     const data: Record<string, Record<string, unknown>[]> = {};
     for (const mapping of MYSQL_TABLES_CONFIG) {
       const table = db.table(mapping.dexieTable);
@@ -66,6 +85,25 @@ class MySQLSyncService {
         data[mapping.dexieTable] = await table.toArray();
       }
     }
+
+    // Fallback guarantee so master catalog tables are never empty in SQL dump
+    const { tests: globalTests, testParameters: globalParams } = buildGlobalCatalogRecords();
+    if (!data.scientificDepartments || data.scientificDepartments.length === 0) {
+      data.scientificDepartments = DEFAULT_SCIENTIFIC_DEPARTMENTS as unknown as Record<string, unknown>[];
+    }
+    if (!data.sampleTubes || data.sampleTubes.length === 0) {
+      data.sampleTubes = DEFAULT_SAMPLE_TUBES as unknown as Record<string, unknown>[];
+    }
+    if (!data.doctorSpecialties || data.doctorSpecialties.length === 0) {
+      data.doctorSpecialties = DEFAULT_DOCTOR_SPECIALTIES as unknown as Record<string, unknown>[];
+    }
+    if (!data.tests || data.tests.length < globalTests.length) {
+      data.tests = globalTests as unknown as Record<string, unknown>[];
+    }
+    if (!data.testParameters || data.testParameters.length < globalParams.length) {
+      data.testParameters = globalParams as unknown as Record<string, unknown>[];
+    }
+
     return data;
   }
 
@@ -91,7 +129,7 @@ class MySQLSyncService {
     showToast(
       includeData
         ? i18n.bi(
-            'تم تنزيل ملف قاعدة بيانات MySQL الكامل (الهيكل + كافة البيانات) بنجاح',
+            'تم تنزيل ملف قاعدة بيانات MySQL الكامل (36 جدولاً + التحاليل والبارامترات والأنابيب والأقسام) بنجاح',
             'Full MySQL 5.5 / 8.0.28 SQL Dump downloaded successfully'
           )
         : i18n.bi(
@@ -103,27 +141,32 @@ class MySQLSyncService {
   }
 
   /**
-   * Generates and downloads a MySQL 5.5 / 8.0.28 .sql script where all 26 tables
-   * are created and emptied (TRUNCATED), EXCEPT the `users` table.
+   * Generates and downloads a MySQL 5.5 / 8.0.28 .sql script where operational tables
+   * are emptied, while preserving Users + Scientific Departments + Sample Tubes + 106 Tests + 415+ Parameters.
    */
   public async downloadEmptyExceptUsersSQLDump(): Promise<void> {
     const cfg = this.getConfig();
-    const usersRows = (await db.users.toArray()) as unknown as Record<string, unknown>[];
-    const sqlContent = buildEmptyExceptUsersMySQLDump(cfg.database || 'tlab_db', usersRows);
+    const allData = await this.collectAllTablesData();
+    const usersRows = (allData.users || []) as Record<string, unknown>[];
+    const sqlContent = buildEmptyExceptUsersMySQLDump(
+      cfg.database || 'tlab_db',
+      usersRows,
+      allData
+    );
 
     const blob = new Blob([sqlContent], { type: 'application/sql;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     const datePart = new Date().toISOString().slice(0, 10);
-    a.download = `tlab_empty_except_users_${datePart}.sql`;
+    a.download = `tlab_clean_with_catalog_${datePart}.sql`;
     a.click();
     URL.revokeObjectURL(url);
 
     showToast(
       i18n.bi(
-        'تم تنزيل اسكريبت قاعدة البيانات الفارغة (ماعدا جدول المستخدمين) بنجاح',
-        'Empty Database (Except Users) SQL Script downloaded successfully'
+        'تم تنزيل اسكريبت قاعدة البيانات الجاهزة (المستخدمين + الأقسام العلمية + أنابيب السحب + التحاليل + البارامترات) بنجاح',
+        'Clean Database with Full Medical Catalog SQL Script downloaded successfully'
       ),
       'success'
     );
@@ -404,8 +447,8 @@ class MySQLSyncService {
               </div>
               <p class="text-slate-300 text-[11px] leading-relaxed">
                 ${i18n.bi(
-                  'متوافق 100% مع MySQL 5.5 ومع mysql-installer-community-8.0.28.0 (InnoDB + UTF-8 بدون تعارض طول المفاتيح 767-byte). يضم 26 جدولاً لكافة أقسام المعمل والمخزون والمشتريات والحسابات.',
-                  '100% compatible with both MySQL 5.5 and mysql-installer-community-8.0.28.0 (InnoDB + UTF-8). Includes all 26 relational tables and current records.'
+                  'متوافق 100% مع MySQL 5.5 ومع mysql-installer-community-8.0.28.0 (InnoDB + UTF-8 بدون تعارض طول المفاتيح 767-byte). يضم 36 جدولاً لكافة أقسام المعمل والمايكروبيولوجي ورقابة الجودة والمخزون والحسابات وموسوعة التحاليل العالمية.',
+                  '100% compatible with both MySQL 5.5 and mysql-installer-community-8.0.28.0 (InnoDB + UTF-8). Includes all 36 relational tables and current records.'
                 )}
               </p>
             </div>

@@ -139,7 +139,7 @@ export const MYSQL_TABLES_CONFIG: MySQLTableMapping[] = [
   {
     dexieTable: 'testParameters',
     mysqlTable: 'test_parameters',
-    titleAr: 'بارامترات التحاليل والمعدلات الطبيعية (Test Parameters)',
+    titleAr: 'بارامترات التحاليل والمعدلات الطبيعية والحدود الحرجة (Test Parameters)',
     columns: [
       { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
       { name: 'test_id', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.testId, 64) },
@@ -147,11 +147,19 @@ export const MYSQL_TABLES_CONFIG: MySQLTableMapping[] = [
       { name: 'name_ar', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameAr, 191) },
       { name: 'name_en', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameEn, 191) },
       { name: 'unit', sqlType: 'VARCHAR(64)', extract: (r) => str(r.unit, 64) },
-      { name: 'normal_min', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalMin) },
-      { name: 'normal_max', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalMax) },
+      { name: 'normal_male_min', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalMaleMin ?? r.normalMin) },
+      { name: 'normal_male_max', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalMaleMax ?? r.normalMax) },
+      { name: 'normal_female_min', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalFemaleMin ?? r.normalMaleMin) },
+      { name: 'normal_female_max', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalFemaleMax ?? r.normalMaleMax) },
+      { name: 'normal_range_text', sqlType: 'VARCHAR(255)', extract: (r) => str(r.normalRangeText, 255) },
+      { name: 'critical_low', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.criticalLow) },
+      { name: 'critical_high', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.criticalHigh) },
+      { name: 'result_type', sqlType: 'VARCHAR(32)', extract: (r) => str(r.resultType || 'numeric', 32) },
+      { name: 'decimal_places', sqlType: 'INT DEFAULT 1', extract: (r) => num(r.decimalPlaces ?? 1) },
       { name: 'sort_order', sqlType: 'INT DEFAULT 1', extract: (r) => num(r.sortOrder) },
+      { name: 'active', sqlType: 'TINYINT(1) DEFAULT 1', extract: (r) => boolInt(r.active ?? true) },
     ],
-    indexes: ['INDEX idx_test_params_test (test_id)'],
+    indexes: ['INDEX idx_test_params_test (test_id)', 'INDEX idx_test_params_code (code)'],
   },
   {
     dexieTable: 'requests',
@@ -685,6 +693,120 @@ export const MYSQL_TABLES_CONFIG: MySQLTableMapping[] = [
       'INDEX idx_aic_orig (original_code)',
     ],
   },
+  {
+    dexieTable: 'criticalValueLogs',
+    mysqlTable: 'critical_value_logs',
+    titleAr: 'سجل إبلاغ القيم الحرجة الموثق (ISO 15189 Critical Value Read-Back Logs)',
+    columns: [
+      { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
+      { name: 'log_number', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.logNumber, 64) },
+      { name: 'result_id', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.resultId, 64) },
+      { name: 'request_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.requestId, 64) },
+      { name: 'patient_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.patientId, 64) },
+      { name: 'patient_name', sqlType: 'VARCHAR(191)', extract: (r) => str(r.patientName, 191) },
+      { name: 'test_name_en', sqlType: 'VARCHAR(191)', extract: (r) => str(r.testNameEn, 191) },
+      { name: 'parameter_summary', sqlType: 'VARCHAR(255)', extract: (r) => str(r.parameterSummary, 255) },
+      { name: 'recipient_type', sqlType: 'VARCHAR(32)', extract: (r) => str(r.recipientType, 32) },
+      { name: 'recipient_name', sqlType: 'VARCHAR(191)', extract: (r) => str(r.recipientName, 191) },
+      { name: 'recipient_phone', sqlType: 'VARCHAR(64)', extract: (r) => str(r.recipientPhone, 64) },
+      { name: 'read_back_confirmed', sqlType: 'TINYINT(1) DEFAULT 1', extract: (r) => boolInt(r.readBackConfirmed) },
+      { name: 'notified_by', sqlType: 'VARCHAR(64)', extract: (r) => str(r.notifiedBy, 64) },
+      { name: 'notified_at', sqlType: 'VARCHAR(32)', extract: (r) => str(r.notifiedAt, 32) },
+      { name: 'status', sqlType: 'VARCHAR(32)', extract: (r) => str(r.status, 32) },
+    ],
+    indexes: ['INDEX idx_crit_res (result_id)', 'INDEX idx_crit_pat (patient_id)'],
+  },
+  {
+    dexieTable: 'cultureResults',
+    mysqlTable: 'culture_results',
+    titleAr: 'نتائج المزارع البكتيرية وحساسية المضادات الحيوية (Microbiology Culture & Sensitivity)',
+    columns: [
+      { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
+      { name: 'report_number', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.reportNumber, 64) },
+      { name: 'request_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.requestId, 64) },
+      { name: 'patient_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.patientId, 64) },
+      { name: 'patient_name', sqlType: 'VARCHAR(191)', extract: (r) => str(r.patientName, 191) },
+      { name: 'specimen_type', sqlType: 'VARCHAR(64)', extract: (r) => str(r.specimenType, 64) },
+      { name: 'growth_status', sqlType: 'VARCHAR(64)', extract: (r) => str(r.growthStatus, 64) },
+      { name: 'colony_count', sqlType: 'VARCHAR(64)', extract: (r) => str(r.colonyCount, 64) },
+      { name: 'organism_code', sqlType: 'VARCHAR(64)', extract: (r) => str(r.organismCode, 64) },
+      { name: 'organism_name_en', sqlType: 'VARCHAR(191)', extract: (r) => str(r.organismNameEn, 191) },
+      { name: 'status', sqlType: 'VARCHAR(32)', extract: (r) => str(r.status, 32) },
+      { name: 'created_at', sqlType: 'VARCHAR(32)', extract: (r) => str(r.createdAt, 32) },
+    ],
+    indexes: ['INDEX idx_cult_org (organism_code)', 'INDEX idx_cult_spec (specimen_type)'],
+  },
+  {
+    dexieTable: 'qcControlLots',
+    mysqlTable: 'qc_control_lots',
+    titleAr: 'تشغيلات محاليل الكنترول القياسية (Internal QC Control Lots)',
+    columns: [
+      { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
+      { name: 'lot_number', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.lotNumber, 64) },
+      { name: 'analyzer_name', sqlType: 'VARCHAR(191)', extract: (r) => str(r.analyzerName, 191) },
+      { name: 'test_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.testId, 64) },
+      { name: 'test_code', sqlType: 'VARCHAR(64)', extract: (r) => str(r.testCode, 64) },
+      { name: 'level', sqlType: 'VARCHAR(64)', extract: (r) => str(r.level, 64) },
+      { name: 'target_mean', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.targetMean) },
+      { name: 'target_sd', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.targetSd) },
+      { name: 'qc_locked', sqlType: 'TINYINT(1) DEFAULT 0', extract: (r) => boolInt(r.qcLocked) },
+      { name: 'active', sqlType: 'TINYINT(1) DEFAULT 1', extract: (r) => boolInt(r.active) },
+    ],
+    indexes: ['INDEX idx_qclot_test (test_id)'],
+  },
+  {
+    dexieTable: 'qcRuns',
+    mysqlTable: 'qc_runs',
+    titleAr: 'قراءات رقابة الجودة اليومية وقواعد ويستجارد (Levey-Jennings & Westgard QC Runs)',
+    columns: [
+      { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
+      { name: 'lot_id', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.lotId, 64) },
+      { name: 'test_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.testId, 64) },
+      { name: 'level', sqlType: 'VARCHAR(64)', extract: (r) => str(r.level, 64) },
+      { name: 'run_date', sqlType: 'VARCHAR(32)', extract: (r) => str(r.runDate, 32) },
+      { name: 'measured_value', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.measuredValue) },
+      { name: 'z_score', sqlType: 'DECIMAL(8,2) DEFAULT 0', extract: (r) => num(r.zScore) },
+      { name: 'westgard_rule', sqlType: 'VARCHAR(32)', extract: (r) => str(r.westgardRule, 32) },
+      { name: 'status', sqlType: 'VARCHAR(32)', extract: (r) => str(r.status, 32) },
+    ],
+    indexes: ['INDEX idx_qcrun_lot (lot_id)', 'INDEX idx_qcrun_date (run_date)'],
+  },
+  {
+    dexieTable: 'homeVisits',
+    mysqlTable: 'home_visits',
+    titleAr: 'الزيارات المنزلية وتتبع مندوبي السحب (Home Visits & Phlebotomist Dispatch)',
+    columns: [
+      { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
+      { name: 'visit_number', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.visitNumber, 64) },
+      { name: 'patient_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.patientId, 64) },
+      { name: 'patient_name', sqlType: 'VARCHAR(191)', extract: (r) => str(r.patientName, 191) },
+      { name: 'patient_phone', sqlType: 'VARCHAR(64)', extract: (r) => str(r.patientPhone, 64) },
+      { name: 'address', sqlType: 'VARCHAR(255)', extract: (r) => str(r.address, 255) },
+      { name: 'scheduled_date', sqlType: 'VARCHAR(32)', extract: (r) => str(r.scheduledDate, 32) },
+      { name: 'phlebotomist_name', sqlType: 'VARCHAR(191)', extract: (r) => str(r.phlebotomistName, 191) },
+      { name: 'visit_fee', sqlType: 'DECIMAL(12,2) DEFAULT 0', extract: (r) => num(r.visitFee) },
+      { name: 'status', sqlType: 'VARCHAR(32)', extract: (r) => str(r.status, 32) },
+    ],
+    indexes: ['INDEX idx_hv_date (scheduled_date)', 'INDEX idx_hv_status (status)'],
+  },
+  {
+    dexieTable: 'corporateContracts',
+    mysqlTable: 'corporate_contracts',
+    titleAr: 'تعاقدات الشركات والنقابات والتأمين الطبي (Corporate, Union & Insurance Contracts)',
+    columns: [
+      { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
+      { name: 'code', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.code, 64) },
+      { name: 'name_ar', sqlType: 'VARCHAR(191) NOT NULL', extract: (r) => str(r.nameAr, 191) },
+      { name: 'name_en', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameEn, 191) },
+      { name: 'category', sqlType: 'VARCHAR(64)', extract: (r) => str(r.category, 64) },
+      { name: 'discount_percent', sqlType: 'DECIMAL(8,2) DEFAULT 0', extract: (r) => num(r.discountPercent) },
+      { name: 'patient_copay_percent', sqlType: 'DECIMAL(8,2) DEFAULT 0', extract: (r) => num(r.patientCoPayPercent) },
+      { name: 'company_coverage_percent', sqlType: 'DECIMAL(8,2) DEFAULT 100', extract: (r) => num(r.companyCoveragePercent) },
+      { name: 'credit_limit', sqlType: 'DECIMAL(14,2) DEFAULT 0', extract: (r) => num(r.creditLimit) },
+      { name: 'active', sqlType: 'TINYINT(1) DEFAULT 1', extract: (r) => boolInt(r.active) },
+    ],
+    indexes: ['INDEX idx_contract_code (code)'],
+  },
 ];
 
 export function escapeSqlValue(val: unknown): string {
@@ -738,6 +860,9 @@ export function buildFullMySQLDump(
     lines.push(`-- --------------------------------------------------------`);
     lines.push(`-- Table structure for table \`${mapping.mysqlTable}\` (${mapping.titleAr})`);
     lines.push(`-- --------------------------------------------------------`);
+    if (includeData) {
+      lines.push(`DROP TABLE IF EXISTS \`${mapping.mysqlTable}\`;`);
+    }
     lines.push(buildCreateTableSQL(mapping));
     lines.push('');
 
@@ -773,12 +898,13 @@ export function buildFullMySQLDump(
 }
 
 /**
- * Generates a MySQL 5.5 & 8.0.28 script with ALL 26 tables created and emptied (TRUNCATED),
- * EXCEPT the `users` table which is populated with the user accounts.
+ * Generates a MySQL 5.5 & 8.0.28 script with ALL 36 tables created and operational tables emptied (TRUNCATED),
+ * while preserving `users`, `roles`, `scientific_departments`, `sample_tubes`, `doctor_specialties`, `lab_tests`, and `test_parameters`.
  */
 export function buildEmptyExceptUsersMySQLDump(
   databaseName: string,
-  usersRows: Record<string, unknown>[]
+  usersRows: Record<string, unknown>[],
+  catalogTablesData?: Record<string, Record<string, unknown>[]>
 ): string {
   const safeDb = databaseName.replace(/[^a-zA-Z0-9_]/g, '') || 'tlab_db';
   const defaultUsers: Record<string, unknown>[] =
@@ -793,10 +919,21 @@ export function buildEmptyExceptUsersMySQLDump(
           { id: 'usr_6', username: 'accountant', passwordHash: 'accountant123', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
         ];
 
+  const preservedTables = new Set([
+    'users',
+    'roles',
+    'settings',
+    'doctorSpecialties',
+    'scientificDepartments',
+    'sampleTubes',
+    'tests',
+    'testParameters',
+  ]);
+
   const lines: string[] = [
     '-- ============================================================================',
-    '-- T-Lab Medical Laboratory & ERP System - EMPTY DATABASE (EXCEPT USERS TABLE)',
-    '-- اسكريبت قاعدة بيانات فارغة الجداول بالكامل ماعدا جدول المستخدمين (users)',
+    '-- T-Lab Medical Laboratory & ERP System - CLEAN DATABASE + FULL MEDICAL CATALOG',
+    '-- اسكريبت قاعدة بيانات جاهزة للتشغيل (تضم المستخدمين + الأقسام العلمية + أنابيب السحب + التحاليل + البارامترات)',
     '-- Compatible with: MySQL 5.5, 5.6, 5.7, and MySQL 8.0.28+ (Community Server)',
     `-- Generated At: ${new Date().toISOString()}`,
     `-- Target Database: ${safeDb}`,
@@ -816,29 +953,41 @@ export function buildEmptyExceptUsersMySQLDump(
     lines.push(`-- --------------------------------------------------------`);
     lines.push(`-- Table structure for table \`${mapping.mysqlTable}\` (${mapping.titleAr})`);
     lines.push(`-- --------------------------------------------------------`);
+    lines.push(`DROP TABLE IF EXISTS \`${mapping.mysqlTable}\`;`);
     lines.push(buildCreateTableSQL(mapping));
     lines.push(`TRUNCATE TABLE \`${mapping.mysqlTable}\`;`);
     lines.push('');
 
-    if (mapping.dexieTable === 'users') {
+    const rowsToInsert =
+      mapping.dexieTable === 'users'
+        ? defaultUsers
+        : preservedTables.has(mapping.dexieTable) && catalogTablesData?.[mapping.dexieTable]
+          ? catalogTablesData[mapping.dexieTable]
+          : [];
+
+    if (rowsToInsert.length > 0) {
       const colNames = [...mapping.columns.map((c) => `\`${c.name}\``), '`raw_json`'].join(', ');
-      lines.push(`-- Dumping data ONLY for table \`users\` (${defaultUsers.length} user accounts)`);
-      const valuesList = defaultUsers.map((row) => {
-        const vals = [
-          ...mapping.columns.map((c) => escapeSqlValue(c.extract(row))),
-          escapeSqlValue(JSON.stringify(row)),
-        ];
-        return `(${vals.join(', ')})`;
-      });
-      lines.push(
-        `REPLACE INTO \`${mapping.mysqlTable}\` (${colNames}) VALUES\n${valuesList.join(',\n')};`
-      );
+      lines.push(`-- Dumping data for table \`${mapping.mysqlTable}\` (${rowsToInsert.length} rows)`);
+      const chunkSize = 100;
+      for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
+        const chunk = rowsToInsert.slice(i, i + chunkSize);
+        const valuesList = chunk.map((row) => {
+          const vals = [
+            ...mapping.columns.map((c) => escapeSqlValue(c.extract(row))),
+            escapeSqlValue(JSON.stringify(row)),
+          ];
+          return `(${vals.join(', ')})`;
+        });
+        lines.push(
+          `REPLACE INTO \`${mapping.mysqlTable}\` (${colNames}) VALUES\n${valuesList.join(',\n')};`
+        );
+      }
       lines.push('');
     }
   }
 
   lines.push('SET foreign_key_checks = 1;');
-  lines.push('-- End of T-Lab Empty Database (Users Only) SQL Script');
+  lines.push('-- End of T-Lab Clean Database + Full Medical Catalog SQL Script');
   return lines.join('\n');
 }
 
