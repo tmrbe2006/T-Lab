@@ -3,6 +3,7 @@ import { closeModal, escapeHtml, openModal, showToast } from '../components/comm
 import { db } from '../db/database';
 import { i18n } from '../i18n';
 import type {
+  AntibioticCatalogItem,
   CorporateContract,
   CriticalValueLog,
   CultureSensitivityRecord,
@@ -1960,6 +1961,47 @@ export async function ensureEnterpriseSeedData(): Promise<void> {
         },
       ];
       await db.homeVisits.bulkPut(visits);
+    }
+
+    // 5. Master Antibiotics Catalog (CLSI / EUCAST 2025)
+    const abCount = await db.antibioticsCatalog.count();
+    if (abCount === 0) {
+      const nowIso = new Date().toISOString();
+      const seededAntibiotics: AntibioticCatalogItem[] = [
+        { id: 'AB-MEM', code: 'MEM', nameEn: 'Meropenem', nameAr: 'ميروبينيم (Meropenem)', antibioticClass: 'Carbapenems', defaultMicValue: '<= 0.25 µg/mL', clsiBreakpoint: 'S <= 1, R >= 4', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-IPM', code: 'IPM', nameEn: 'Imipenem', nameAr: 'إيميبينيم (Imipenem)', antibioticClass: 'Carbapenems', defaultMicValue: '<= 0.5 µg/mL', clsiBreakpoint: 'S <= 1, R >= 4', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-ETP', code: 'ETP', nameEn: 'Ertapenem', nameAr: 'إرتابينيم (Ertapenem)', antibioticClass: 'Carbapenems', defaultMicValue: '<= 0.25 µg/mL', clsiBreakpoint: 'S <= 0.5, R >= 2', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-AK', code: 'AK', nameEn: 'Amikacin', nameAr: 'أميكاسين (Amikacin)', antibioticClass: 'Aminoglycosides', defaultMicValue: '2.0 µg/mL', clsiBreakpoint: 'S <= 16, R >= 64', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-CN', code: 'CN', nameEn: 'Gentamicin', nameAr: 'جنتاميسين (Gentamicin)', antibioticClass: 'Aminoglycosides', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 4, R >= 16', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-TOB', code: 'TOB', nameEn: 'Tobramycin', nameAr: 'توبراميسين (Tobramycin)', antibioticClass: 'Aminoglycosides', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 4, R >= 16', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-TZP', code: 'TZP', nameEn: 'Piperacillin-Tazobactam', nameAr: 'بيبيراسيلين - تازوباكتام (Tazocin)', antibioticClass: 'Beta-Lactam/Inhibitor', defaultMicValue: '4.0 µg/mL', clsiBreakpoint: 'S <= 8, R >= 32', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-CZA', code: 'CZA', nameEn: 'Ceftazidime-Avibactam', nameAr: 'سيفتازيديم - أفيباكتام (Zavicefta)', antibioticClass: 'Cephalosporin/Inhibitor', defaultMicValue: '0.5 µg/mL', clsiBreakpoint: 'S <= 8/4, R >= 16/4', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-CT', code: 'C/T', nameEn: 'Ceftolozane-Tazobactam', nameAr: 'سيفتولوزان - تازوباكتام (Zerbaxa)', antibioticClass: 'Cephalosporin/Inhibitor', defaultMicValue: '0.5 µg/mL', clsiBreakpoint: 'S <= 2/4, R >= 8/4', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-CRO', code: 'CRO', nameEn: 'Ceftriaxone', nameAr: 'سيفترياكسون (Ceftriaxone)', antibioticClass: 'Cephalosporins 3rd Gen', defaultMicValue: '0.5 µg/mL', clsiBreakpoint: 'S <= 1, R >= 4', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-CTX', code: 'CTX', nameEn: 'Cefotaxime', nameAr: 'سيفوتاكسيم (Cefotaxime)', antibioticClass: 'Cephalosporins 3rd Gen', defaultMicValue: '0.5 µg/mL', clsiBreakpoint: 'S <= 1, R >= 4', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-CAZ', code: 'CAZ', nameEn: 'Ceftazidime', nameAr: 'سيفتازيديم (Ceftazidime)', antibioticClass: 'Cephalosporins 3rd Gen', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 4, R >= 16', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-FEP', code: 'FEP', nameEn: 'Cefepime', nameAr: 'سيفيبيم الجيل الرابع (Cefepime)', antibioticClass: 'Cephalosporins 4th Gen', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 2, R >= 16', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-CXM', code: 'CXM', nameEn: 'Cefuroxime', nameAr: 'سيفوروكسيم الجيل الثاني (Cefuroxime)', antibioticClass: 'Cephalosporins 2nd Gen', defaultMicValue: '4.0 µg/mL', clsiBreakpoint: 'S <= 8, R >= 32', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-FOX', code: 'FOX', nameEn: 'Cefoxitin', nameAr: 'سيفوكسيتين (Cefoxitin)', antibioticClass: 'Cephamycins', defaultMicValue: '4.0 µg/mL', clsiBreakpoint: 'S <= 8, R >= 32', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-CIP', code: 'CIP', nameEn: 'Ciprofloxacin', nameAr: 'سيبروفلوكساسين (Ciprofloxacin)', antibioticClass: 'Fluoroquinolones', defaultMicValue: '0.12 µg/mL', clsiBreakpoint: 'S <= 0.25, R >= 1', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-LEV', code: 'LEV', nameEn: 'Levofloxacin', nameAr: 'ليفوفلوكساسين (Levofloxacin)', antibioticClass: 'Fluoroquinolones', defaultMicValue: '0.25 µg/mL', clsiBreakpoint: 'S <= 0.5, R >= 2', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-MXF', code: 'MXF', nameEn: 'Moxifloxacin', nameAr: 'موكسيفلوكساسين (Moxifloxacin)', antibioticClass: 'Fluoroquinolones', defaultMicValue: '0.25 µg/mL', clsiBreakpoint: 'S <= 0.5, R >= 2', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-AMC', code: 'AMC', nameEn: 'Amoxicillin-Clavulanate', nameAr: 'أموكسيسيلين - كلافولانات (Augmentin)', antibioticClass: 'Penicillins', defaultMicValue: '8.0 µg/mL', clsiBreakpoint: 'S <= 8, R >= 32', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-SAM', code: 'SAM', nameEn: 'Ampicillin-Sulbactam', nameAr: 'أمبيسيلين - سولباكتام (Unasyn)', antibioticClass: 'Penicillins', defaultMicValue: '8.0 µg/mL', clsiBreakpoint: 'S <= 8/4, R >= 32/16', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-NIT', code: 'NIT', nameEn: 'Nitrofurantoin', nameAr: 'نيتروفورانتوين (Nitrofurantoin)', antibioticClass: 'Nitrofurans', defaultMicValue: '16 µg/mL', clsiBreakpoint: 'S <= 32, R >= 128', targetGroup: 'Urinary-Specific', active: true, createdAt: nowIso },
+        { id: 'AB-FOS', code: 'FOS', nameEn: 'Fosfomycin', nameAr: 'فوسفوميسين (Fosfomycin)', antibioticClass: 'Fosfomycins', defaultMicValue: '8 µg/mL', clsiBreakpoint: 'S <= 64, R >= 256', targetGroup: 'Urinary-Specific', active: true, createdAt: nowIso },
+        { id: 'AB-SXT', code: 'SXT', nameEn: 'Trimethoprim-Sulfamethoxazole', nameAr: 'تريميثوبريم - سلفاميثوكسازول (Co-trimoxazole)', antibioticClass: 'Folate Antagonists', defaultMicValue: '<= 0.5/9.5 µg/mL', clsiBreakpoint: 'S <= 2/38, R >= 4/76', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-VAN', code: 'VAN', nameEn: 'Vancomycin', nameAr: 'فانكومايسين (Vancomycin)', antibioticClass: 'Glycopeptides', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 2, R >= 16', targetGroup: 'Gram-Positive', active: true, createdAt: nowIso },
+        { id: 'AB-TEC', code: 'TEC', nameEn: 'Teicoplanin', nameAr: 'تيكوبلانين (Teicoplanin)', antibioticClass: 'Glycopeptides', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 8, R >= 32', targetGroup: 'Gram-Positive', active: true, createdAt: nowIso },
+        { id: 'AB-LZD', code: 'LZD', nameEn: 'Linezolid', nameAr: 'لينيزوليد (Linezolid)', antibioticClass: 'Oxazolidinones', defaultMicValue: '2.0 µg/mL', clsiBreakpoint: 'S <= 4, R >= 8', targetGroup: 'Gram-Positive', active: true, createdAt: nowIso },
+        { id: 'AB-DAP', code: 'DAP', nameEn: 'Daptomycin', nameAr: 'دابتومايسين (Daptomycin)', antibioticClass: 'Lipopeptides', defaultMicValue: '0.5 µg/mL', clsiBreakpoint: 'S <= 1', targetGroup: 'Gram-Positive', active: true, createdAt: nowIso },
+        { id: 'AB-TGC', code: 'TGC', nameEn: 'Tigecycline', nameAr: 'تيجيسيكلين (Tigecycline)', antibioticClass: 'Glycylcyclines', defaultMicValue: '0.5 µg/mL', clsiBreakpoint: 'S <= 2, R >= 8', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-COL', code: 'COL', nameEn: 'Colistin (Polymyxin E)', nameAr: 'كوليستين (Colistin)', antibioticClass: 'Polymyxins', defaultMicValue: '<= 0.5 µg/mL', clsiBreakpoint: 'I <= 2, R >= 4', targetGroup: 'Gram-Negative', active: true, createdAt: nowIso },
+        { id: 'AB-AZM', code: 'AZM', nameEn: 'Azithromycin', nameAr: 'أزيثرومايسين (Azithromycin)', antibioticClass: 'Macrolides', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 2, R >= 8', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+        { id: 'AB-CLI', code: 'CLI', nameEn: 'Clindamycin', nameAr: 'كليندامايسين (Clindamycin)', antibioticClass: 'Lincosamides', defaultMicValue: '0.25 µg/mL', clsiBreakpoint: 'S <= 0.5, R >= 4', targetGroup: 'Gram-Positive', active: true, createdAt: nowIso },
+        { id: 'AB-DOX', code: 'DOX', nameEn: 'Doxycycline', nameAr: 'دوكسيسيكلين (Doxycycline)', antibioticClass: 'Tetracyclines', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 4, R >= 16', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
+      ];
+      await db.antibioticsCatalog.bulkPut(seededAntibiotics);
     }
   })();
 

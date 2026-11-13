@@ -9,6 +9,7 @@ import {
   testsRepository,
 } from '../../repositories';
 import {
+  buildConsolidatedPatientReportHtml,
   evaluateDeltaChecksForResult,
   openCriticalReadBackModal,
 } from '../../services/enterprise-lab.service';
@@ -507,9 +508,15 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                                       </a>`
                                     : ''
                                 }
-                                <button type="button" data-draft-prt="${r.id}" class="res-draft-prt-btn text-indigo-700 hover:underline font-semibold cursor-pointer">
-                                  ${i18n.bi('طباعة مسودة', 'Print Draft')}
-                                </button>
+                                ${
+                                  r.status === 'approved'
+                                    ? `<button type="button" data-draft-prt="${r.id}" class="res-draft-prt-btn rounded border border-sky-600 px-2.5 py-1 text-sky-700 hover:bg-sky-50 font-bold cursor-pointer">
+                                        🖨️ ${i18n.bi('طباعة التقرير المعتمد', 'Print Approved Report')}
+                                      </button>`
+                                    : `<span class="text-[11px] font-semibold text-slate-400" title="${i18n.bi('طباعة تقارير النتائج متاحة فقط بعد اعتماد التحليل', 'Printing result reports is only available after approval')}">
+                                        🔒 ${i18n.bi('الطباعة بعد الاعتماد', 'Print after approval')}
+                                      </span>`
+                                }
                               </div>
                             </td>
                           </tr>
@@ -550,15 +557,26 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
     });
 
     document.getElementById('res-print-list')?.addEventListener('click', () => {
+      const approvedOnly = filteredResults.filter((r) => r.status === 'approved');
+      if (approvedOnly.length === 0) {
+        showToast(
+          i18n.bi(
+            '⛔ لا يمكن طباعة تقارير النتائج إلا للتحاليل المعتمدة فقط. يرجى اعتماد النتائج أولاً.',
+            '⛔ Result reports can only be printed for approved tests. Please approve results first.'
+          ),
+          'warning'
+        );
+        return;
+      }
       const html = `
         <table class="print-table" dir="ltr" style="direction:ltr; text-align:left;">
           <thead><tr><th>Patient</th><th>Test</th><th>Values</th><th>Status</th></tr></thead>
           <tbody>
-            ${filteredResults.map((r) => `<tr><td>${patMap.get(r.patientId)?.nameEn || patMap.get(r.patientId)?.name || ''}</td><td>${tstMap.get(r.testId)?.nameEn || tstMap.get(r.testId)?.nameAr || ''}</td><td class="tabular-nums">${r.values.map((v) => `${v.parameterNameEn}: ${v.value} ${v.unit}`).join(', ')}</td><td>${r.status}</td></tr>`).join('')}
+            ${approvedOnly.map((r) => `<tr><td>${patMap.get(r.patientId)?.nameEn || patMap.get(r.patientId)?.name || ''}</td><td>${tstMap.get(r.testId)?.nameEn || tstMap.get(r.testId)?.nameAr || ''}</td><td class="tabular-nums">${r.values.map((v) => `${v.parameterNameEn}: ${v.value} ${v.unit}`).join(', ')}</td><td>${r.status}</td></tr>`).join('')}
           </tbody>
         </table>
       `;
-      void printService.printA4('Laboratory Results Entry Summary', html, '', {
+      void printService.printA4('Approved Laboratory Results Summary', html, '', {
         forceEnglishLtr: true,
       });
     });
@@ -600,25 +618,24 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
       btn.addEventListener('click', () => {
         const target = results.find((x) => x.id === btn.getAttribute('data-draft-prt'));
         if (!target) return;
+        if (target.status !== 'approved') {
+          showToast(
+            i18n.bi(
+              '⛔ لا يمكن طباعة تقرير النتيجة قبل اعتمادها رسمياً.',
+              '⛔ Cannot print result report before official approval.'
+            ),
+            'warning'
+          );
+          return;
+        }
         const pat = patMap.get(target.patientId);
-        const tst = tstMap.get(target.testId);
-        const patNameEn = pat?.nameEn || pat?.name || '';
-        const tstNameEn = tst?.nameEn || tst?.nameAr || '';
-        const html = `
-          <div dir="ltr" style="direction:ltr; text-align:left;">
-            <div style="margin-bottom:10px; padding:8px; border:1px dashed #64748b; border-radius:6px;">
-              <strong>PRELIMINARY DRAFT FOR INTERNAL REVIEW — NOT VALIDATED FOR RELEASE</strong><br/>
-              <strong>Patient:</strong> ${patNameEn} | <strong>Test:</strong> ${tstNameEn} ${tst?.code ? `(${tst.code})` : ''}
-            </div>
-            <table class="print-table" dir="ltr" style="direction:ltr; text-align:left;">
-              <thead><tr><th>Parameter</th><th>Value</th><th>Unit</th><th>Reference Interval</th><th>Flag</th></tr></thead>
-              <tbody>
-                ${target.values.map((v) => `<tr><td><strong>${v.parameterNameEn || v.parameterNameAr}</strong></td><td class="tabular-nums">${v.value}</td><td>${v.unit}</td><td class="tabular-nums">${v.normalRange}</td><td>${v.flag}</td></tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        `;
-        void printService.printA4(`Preliminary Result Draft — ${patNameEn}`, html, tstNameEn, {
+        const { html, subtitle } = buildConsolidatedPatientReportHtml({
+          results: [target],
+          patient: pat,
+          testsMap: tstMap,
+          requestsMap: reqMap,
+        });
+        void printService.printA4('Official Laboratory Results Report', html, subtitle, {
           forceEnglishLtr: true,
         });
       });

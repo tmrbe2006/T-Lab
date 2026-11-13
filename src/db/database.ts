@@ -94,6 +94,9 @@ export class MedicalLabDatabase extends Dexie {
   homeVisits!: Table<import('../types').HomeVisitRecord, string>;
   corporateContracts!: Table<import('../types').CorporateContract, string>;
 
+  // Version 8 Antibiotics Master Catalog for Culture & Sensitivity (CLSI / EUCAST)
+  antibioticsCatalog!: Table<import('../types').AntibioticCatalogItem, string>;
+
   constructor() {
     super('MedicalLabDB_v1');
 
@@ -181,6 +184,11 @@ export class MedicalLabDatabase extends Dexie {
       qcRuns: 'id, lotId, testId, level, runDate, westgardRule, status',
       homeVisits: 'id, visitNumber, patientId, phlebotomistId, scheduledDate, status',
       corporateContracts: 'id, code, category, active',
+    });
+
+    // Version 8: Master Antibiotics Catalog for Culture & Sensitivity Reports
+    this.version(8).stores({
+      antibioticsCatalog: 'id, code, nameEn, antibioticClass, targetGroup, active',
     });
   }
 }

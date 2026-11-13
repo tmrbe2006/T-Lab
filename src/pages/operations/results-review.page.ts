@@ -100,16 +100,20 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
   };
 
   const executeConsolidatedPrint = (targetResults: LabResult[], forcePageBreak?: boolean) => {
-    if (targetResults.length === 0) {
+    const approvedOnly = targetResults.filter((r) => r.status === 'approved');
+    if (approvedOnly.length === 0) {
       showToast(
-        i18n.bi('يرجى اختيار تحليل واحد على الأقل للطباعة', 'Please select at least one test to print'),
+        i18n.bi(
+          '⛔ لا يمكن طباعة تقرير النتائج إلا بعد اعتماده رسمياً. يرجى اعتماد التحليل أولاً.',
+          '⛔ Result reports can only be printed after official approval. Please approve the test first.'
+        ),
         'warning'
       );
       return;
     }
-    const pat = patMap.get(targetResults[0].patientId);
+    const pat = patMap.get(approvedOnly[0].patientId);
     const { html, subtitle } = buildConsolidatedPatientReportHtml({
-      results: targetResults,
+      results: approvedOnly,
       patient: pat,
       testsMap: tstMap,
       requestsMap: reqMap,
@@ -317,14 +321,18 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
                         : ''
                     } ${isOtherPatientLocked ? 'opacity-60' : ''}">
                       <td class="py-2.5 px-3 text-center">
-                        <input
-                          type="checkbox"
-                          data-select-res="${r.id}"
-                          data-pat-id="${r.patientId}"
-                          ${isChecked ? 'checked' : ''}
-                          class="rev-select-chk w-4 h-4 rounded border-slate-300 accent-sky-600 cursor-pointer"
-                          title="${i18n.bi('تحديد هذا التحليل لطباعته ضمن تقرير مجمع للمريض', 'Select this test for consolidated printing')}"
-                        />
+                        ${
+                          r.status === 'approved'
+                            ? `<input
+                                type="checkbox"
+                                data-select-res="${r.id}"
+                                data-pat-id="${r.patientId}"
+                                ${isChecked ? 'checked' : ''}
+                                class="rev-select-chk w-4 h-4 rounded border-slate-300 accent-sky-600 cursor-pointer"
+                                title="${i18n.bi('تحديد هذا التحليل المعتمد لطباعته ضمن تقرير مجمع للمريض', 'Select this approved test for consolidated printing')}"
+                              />`
+                            : `<span class="inline-block text-slate-400 text-xs cursor-not-allowed" title="${i18n.bi('لا يمكن اختيار التحليل للطباعة قبل اعتماده', 'Approve test first to enable printing')}">🔒</span>`
+                        }
                       </td>
                       <td class="py-2.5 px-3">
                         <div class="font-bold text-slate-900">${escapeHtml(pat?.name || r.patientId)}</div>
@@ -332,14 +340,14 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
                           ${escapeHtml(req?.requestNumber || r.requestId)} · ${escapeHtml(pat?.phone || '')}
                         </div>
                         ${
-                          patResults.length > 1
+                          patApprovedResults.length > 0
                             ? `<div class="flex flex-wrap items-center gap-1 mt-1.5">
                                 <button
                                   type="button"
                                   data-select-pat="${r.patientId}"
                                   class="rev-select-pat-btn rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-800 hover:bg-sky-100 cursor-pointer"
                                 >
-                                  ☑ ${i18n.bi(`تحديد تحاليل المريض (${patApprovedResults.length > 0 ? patApprovedResults.length : patResults.length})`, `Select Patient Tests (${patApprovedResults.length > 0 ? patApprovedResults.length : patResults.length})`)}
+                                  ☑ ${i18n.bi(`تحديد المعتمدة للمريض (${patApprovedResults.length})`, `Select Approved (${patApprovedResults.length})`)}
                                 </button>
                                 ${
                                   canPrint
@@ -349,7 +357,7 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
                                         class="rev-print-pat-all-btn rounded bg-sky-700 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-sky-800 cursor-pointer"
                                         title="${i18n.bi('طباعة جميع تحاليل هذا المريض المعتمدة في تقرير واحد مباشرة', 'Print all approved tests for this patient in 1 report')}"
                                       >
-                                        🖨️ ${i18n.bi('طباعة مجمعة', 'Print All')}
+                                        🖨️ ${i18n.bi('طباعة مجمعة', 'Print Approved')}
                                       </button>`
                                     : ''
                                 }
@@ -416,16 +424,22 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
                                 </button>`
                               : ''
                           }
-                          <button type="button" data-smart="${r.id}" class="rev-smart-btn rounded bg-indigo-600 px-2.5 py-1 text-[11px] text-white font-bold hover:bg-indigo-500 cursor-pointer">
-                            📱 ${i18n.bi('تقرير ذكي + QR', 'Smart QR & Trend')}
-                          </button>
-                          <button type="button" data-wa="${r.id}" class="rev-wa-btn rounded bg-emerald-700 px-2.5 py-1 text-[11px] text-white font-bold hover:bg-emerald-600 cursor-pointer">
-                            💬 واتساب
-                          </button>
                           ${
-                            canPrint
-                              ? `<button type="button" data-prt="${r.id}" class="rev-prt-btn rounded border border-sky-600 px-2 py-1 text-[11px] text-sky-700 font-bold hover:bg-sky-50 cursor-pointer">A4</button>`
-                              : ''
+                            r.status === 'approved'
+                              ? `
+                                <button type="button" data-smart="${r.id}" class="rev-smart-btn rounded bg-indigo-600 px-2.5 py-1 text-[11px] text-white font-bold hover:bg-indigo-500 cursor-pointer">
+                                  📱 ${i18n.bi('تقرير ذكي + QR', 'Smart QR & Trend')}
+                                </button>
+                                <button type="button" data-wa="${r.id}" class="rev-wa-btn rounded bg-emerald-700 px-2.5 py-1 text-[11px] text-white font-bold hover:bg-emerald-600 cursor-pointer">
+                                  💬 واتساب
+                                </button>
+                                ${
+                                  canPrint
+                                    ? `<button type="button" data-prt="${r.id}" class="rev-prt-btn rounded border border-sky-600 px-2 py-1 text-[11px] text-sky-700 font-bold hover:bg-sky-50 cursor-pointer">🖨️ A4</button>`
+                                    : ''
+                                }
+                              `
+                              : `<span class="rounded border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-400" title="${i18n.bi('الطباعة متاحة فقط بعد اعتماد النتيجة', 'Printing is available only after approval')}">🔒 ${i18n.bi('الطباعة بعد الاعتماد', 'Approve to Print')}</span>`
                           }
                         </div>
                       </td>
@@ -500,25 +514,34 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
       });
     });
 
-    // Select all approved (or all) tests for a specific patient
+    // Select all approved tests for a specific patient
     document.querySelectorAll<HTMLButtonElement>('.rev-select-pat-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const patId = btn.getAttribute('data-select-pat');
         if (!patId) return;
         const patResults = resultsByPatient.get(patId) || [];
         const approvedOnly = patResults.filter((r) => r.status === 'approved');
-        const targetList = approvedOnly.length > 0 ? approvedOnly : patResults;
+        if (approvedOnly.length === 0) {
+          showToast(
+            i18n.bi(
+              '⛔ لا توجد تحاليل معتمدة لهذا المريض حتى الآن. يرجى اعتماد التحاليل أولاً.',
+              '⛔ No approved tests found for this patient. Please approve tests first.'
+            ),
+            'warning'
+          );
+          return;
+        }
 
         selectedResultIds.clear();
         selectedPatientId = patId;
-        for (const r of targetList) {
+        for (const r of approvedOnly) {
           selectedResultIds.add(r.id);
         }
         const patName = patMap.get(patId)?.name || patId;
         showToast(
           i18n.bi(
-            `✓ تم تحديد (${targetList.length}) تحاليل للمريض (${patName}) للطباعة في تقرير موحد`,
-            `✓ Selected (${targetList.length}) tests for (${patName}) for consolidated printing`
+            `✓ تم تحديد (${approvedOnly.length}) تحاليل معتمدة للمريض (${patName}) للطباعة في تقرير موحد`,
+            `✓ Selected (${approvedOnly.length}) approved tests for (${patName}) for consolidated printing`
           ),
           'success'
         );
@@ -526,22 +549,31 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
       });
     });
 
-    // 1-Click Direct Print All Tests for a Patient
+    // 1-Click Direct Print All Approved Tests for a Patient
     document.querySelectorAll<HTMLButtonElement>('.rev-print-pat-all-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const patId = btn.getAttribute('data-print-pat-all');
         if (!patId) return;
         const patResults = resultsByPatient.get(patId) || [];
         const approvedOnly = patResults.filter((r) => r.status === 'approved');
-        const targetList = approvedOnly.length > 0 ? approvedOnly : patResults;
+        if (approvedOnly.length === 0) {
+          showToast(
+            i18n.bi(
+              '⛔ لا يمكن طباعة التقرير: لا توجد تحاليل معتمدة لهذا المريض حالياً.',
+              '⛔ Cannot print report: No approved tests for this patient.'
+            ),
+            'warning'
+          );
+          return;
+        }
 
         selectedResultIds.clear();
         selectedPatientId = patId;
-        for (const r of targetList) {
+        for (const r of approvedOnly) {
           selectedResultIds.add(r.id);
         }
         renderView();
-        executeConsolidatedPrint(targetList);
+        executeConsolidatedPrint(approvedOnly);
       });
     });
 
@@ -604,15 +636,26 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
     });
 
     document.getElementById('rev-print-list')?.addEventListener('click', () => {
+      const approvedResults = results.filter((r) => r.status === 'approved');
+      if (approvedResults.length === 0) {
+        showToast(
+          i18n.bi(
+            '⛔ لا توجد نتائج معتمدة للطباعة حالياً — طباعة تقارير النتائج متاحة فقط للتحاليل المعتمدة.',
+            '⛔ No approved results available to print — printing is restricted to approved results only.'
+          ),
+          'warning'
+        );
+        return;
+      }
       const html = `
         <table class="print-table" dir="ltr" style="direction:ltr; text-align:left;">
           <thead><tr><th>Patient</th><th>Test</th><th>Status</th><th>Approved By</th><th>Approved At</th></tr></thead>
           <tbody>
-            ${results.map((r) => `<tr><td>${patMap.get(r.patientId)?.nameEn || patMap.get(r.patientId)?.name || ''}</td><td>${tstMap.get(r.testId)?.nameEn || tstMap.get(r.testId)?.nameAr || ''}</td><td>${r.status}</td><td>${r.approvedBy || '-'}</td><td class="tabular-nums">${r.approvedAt || '-'}</td></tr>`).join('')}
+            ${approvedResults.map((r) => `<tr><td>${patMap.get(r.patientId)?.nameEn || patMap.get(r.patientId)?.name || ''}</td><td>${tstMap.get(r.testId)?.nameEn || tstMap.get(r.testId)?.nameAr || ''}</td><td>${r.status}</td><td>${r.approvedBy || '-'}</td><td class="tabular-nums">${r.approvedAt || '-'}</td></tr>`).join('')}
           </tbody>
         </table>
       `;
-      void printService.printA4('Laboratory Results Summary Report', html, '', {
+      void printService.printA4('Approved Laboratory Results Summary Report', html, '', {
         forceEnglishLtr: true,
       });
     });

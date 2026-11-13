@@ -751,6 +751,19 @@ export interface CriticalValueLog {
 
 export type AntibioticSensitivityFlag = 'S' | 'I' | 'R';
 
+export interface AntibioticCatalogItem {
+  id: string;
+  code: string;
+  nameEn: string;
+  nameAr: string;
+  antibioticClass: string;
+  defaultMicValue: string;
+  clsiBreakpoint: string;
+  targetGroup: 'Gram-Negative' | 'Gram-Positive' | 'Broad-Spectrum' | 'Urinary-Specific';
+  active: boolean;
+  createdAt: string;
+}
+
 export interface CultureAntibioticResult {
   antibioticCode: string;
   antibioticNameEn: string;
