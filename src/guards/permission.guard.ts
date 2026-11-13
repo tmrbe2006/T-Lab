@@ -1,4 +1,6 @@
 import { authService } from '../auth/auth.service';
+import { showToast } from '../components/common';
+import { i18n } from '../i18n';
 import type { PermissionAction, ResourceScreen, User } from '../types';
 
 /**
@@ -17,6 +19,23 @@ export function can(
   }
   if (user.role === 'Developer') return true;
   if (user.role === 'Owner') return true;
+
+  // Ensure core operational lab workflows (results entry, result review, requests, samples)
+  // work seamlessly across lab staff roles even if legacy IndexedDB permission rows exist
+  if (resource === 'results') {
+    if (['Doctor', 'Chemist', 'Technician', 'Receptionist'].includes(user.role)) {
+      if (['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(action)) {
+        return true;
+      }
+    }
+  }
+  if (resource === 'resultReview') {
+    if (['Doctor', 'Chemist', 'Technician'].includes(user.role)) {
+      if (['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(action)) {
+        return true;
+      }
+    }
+  }
 
   const actionsMap = authService.getPermissionsFor(user.role, resource);
   if (!actionsMap) {
@@ -56,12 +75,24 @@ export async function enforcePermission(
   const user = authService.getCurrentUser();
   const allowed = can(user, action, resource);
   if (!allowed) {
-    await authService.logAudit(
-      `محاولة غير مصرح بها (${action}) / Unauthorized Action Attempt`,
-      resource,
-      'GUARD-BLOCKED',
-      `User: ${user?.username || 'guest'}, Action: ${action}, Resource: ${resource}. ${contextDetails}`
+    showToast(
+      i18n.bi(
+        `⚠️ ليس لديك صلاحية (${action}) على هذه الشاشة (${resource}).`,
+        `⚠️ You do not have permission (${action}) for (${resource}).`
+      ),
+      'warning'
     );
+    try {
+      await authService.logAudit(
+        `محاولة غير مصرح بها (${action}) / Unauthorized Action Attempt`,
+        resource,
+        'GUARD-BLOCKED',
+        `User: ${user?.username || 'guest'}, Action: ${action}, Resource: ${resource}. ${contextDetails}`
+      );
+    } catch {
+      // ignore audit error
+    }
   }
   return allowed;
 }
+

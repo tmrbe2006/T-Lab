@@ -36,7 +36,8 @@ export class PrintService {
   private openPrintPreviewAndExecute(
     format: PrintFormatType,
     documentTitle: string,
-    sheetInnerHtml: string
+    sheetInnerHtml: string,
+    forceEnglishLtr = false
   ): void {
     const printRoot = document.getElementById('print-root');
     if (printRoot) {
@@ -48,6 +49,10 @@ export class PrintService {
       window.print();
       return;
     }
+
+    const docLang = forceEnglishLtr ? 'en' : i18n.getLang();
+    const docDir = forceEnglishLtr ? 'ltr' : i18n.getDirection();
+    const cellAlign = forceEnglishLtr ? 'left' : 'start';
 
     const widthClass =
       format === 'A4'
@@ -98,7 +103,7 @@ export class PrintService {
 
         <!-- Paper Canvas Container -->
         <div class="max-w-4xl w-full mx-auto bg-slate-800/90 border-x border-b border-slate-700 rounded-b-xl p-6 flex justify-center overflow-x-auto shadow-2xl">
-          <div class="print-paper-sheet ${widthClass} rounded-lg shadow-xl p-6 border border-slate-300">
+          <div class="print-paper-sheet ${widthClass} rounded-lg shadow-xl p-6 border border-slate-300" dir="${docDir}" lang="${docLang}">
             ${sheetInnerHtml}
           </div>
         </div>
@@ -127,22 +132,24 @@ export class PrintService {
           doc.open();
           doc.write(`
             <!doctype html>
-            <html lang="${i18n.getLang()}" dir="${i18n.getDirection()}">
+            <html lang="${docLang}" dir="${docDir}">
               <head>
                 <meta charset="UTF-8" />
                 <title>${documentTitle}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
                 <style>
                   body {
-                    font-family: 'Cairo', 'Plus Jakarta Sans', sans-serif;
+                    font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif;
                     color: #000;
                     background: #fff;
                     margin: 0;
                     padding: 12px;
+                    direction: ${docDir};
+                    text-align: ${cellAlign};
                   }
                   .tabular-nums { font-family: 'JetBrains Mono', monospace; }
-                  table.print-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-                  table.print-table th, table.print-table td { border: 1px solid #94a3b8; padding: 6px 8px; text-align: start; font-size: 12px; }
+                  table.print-table { width: 100%; border-collapse: collapse; margin-top: 8px; direction: ${docDir}; }
+                  table.print-table th, table.print-table td { border: 1px solid #94a3b8; padding: 6px 8px; text-align: ${cellAlign}; font-size: 12px; }
                   table.print-table th { background-color: #f1f5f9; font-weight: 700; }
                 </style>
               </head>
@@ -177,14 +184,14 @@ export class PrintService {
 
     document.getElementById('preview-download-html-btn')?.addEventListener('click', () => {
       const fullHtml = `<!doctype html>
-<html lang="${i18n.getLang()}" dir="${i18n.getDirection()}">
+<html lang="${docLang}" dir="${docDir}">
 <head>
   <meta charset="UTF-8" />
   <title>${documentTitle}</title>
   <style>
-    body { font-family: 'Cairo', sans-serif; padding: 20px; color: #0f172a; background: #fff; }
-    table.print-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    table.print-table th, table.print-table td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: start; font-size: 12px; }
+    body { font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif; padding: 20px; color: #0f172a; background: #fff; direction: ${docDir}; text-align: ${cellAlign}; }
+    table.print-table { width: 100%; border-collapse: collapse; margin-top: 10px; direction: ${docDir}; }
+    table.print-table th, table.print-table td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: ${cellAlign}; font-size: 12px; }
     table.print-table th { background: #f1f5f9; }
   </style>
 </head>
@@ -210,32 +217,56 @@ export class PrintService {
   /**
    * Prints an official A4 Report with Lab Header, Timestamp, Printed-By user, and custom HTML body.
    */
-  async printA4(title: string, contentHtml: string, subtitle = ''): Promise<void> {
+  async printA4(
+    title: string,
+    contentHtml: string,
+    subtitle = '',
+    options?: { forceEnglishLtr?: boolean }
+  ): Promise<void> {
+    const forceEn = Boolean(options?.forceEnglishLtr);
     const settings = await permissionsRepository.getSettings();
     const user = authService.getCurrentUser();
-    const nowStr = new Date().toLocaleString(i18n.getLang() === 'ar' ? 'ar-EG' : 'en-US');
-    const labName = i18n.bi(
-      settings?.labNameAr || 'مختبرات الشفاء التخصصية',
-      settings?.labNameEn || 'Al-Shifa Specialized Medical Laboratories'
+    const nowStr = new Date().toLocaleString(
+      forceEn ? 'en-US' : i18n.getLang() === 'ar' ? 'ar-EG' : 'en-US'
     );
-    const branchName = i18n.bi(
-      settings?.branchNameAr || 'الفرع الرئيسي',
-      settings?.branchNameEn || 'Main Branch'
-    );
-    const address = i18n.bi(settings?.addressAr || '', settings?.addressEn || '');
-    const footer = i18n.bi(settings?.printFooterAr || '', settings?.printFooterEn || '');
+    const labName = forceEn
+      ? settings?.labNameEn || 'Al-Shifa Specialized Medical Laboratories'
+      : i18n.bi(
+          settings?.labNameAr || 'مختبرات الشفاء التخصصية',
+          settings?.labNameEn || 'Al-Shifa Specialized Medical Laboratories'
+        );
+    const branchName = forceEn
+      ? settings?.branchNameEn || 'Main Branch'
+      : i18n.bi(
+          settings?.branchNameAr || 'الفرع الرئيسي',
+          settings?.branchNameEn || 'Main Branch'
+        );
+    const address = forceEn
+      ? settings?.addressEn || '15 Tahrir St., Dokki, Cairo'
+      : i18n.bi(settings?.addressAr || '', settings?.addressEn || '');
+    const footer = forceEn
+      ? settings?.printFooterEn || 'Official Validated Medical Laboratory Report — ISO 15189 Compliant'
+      : i18n.bi(settings?.printFooterAr || '', settings?.printFooterEn || '');
+    const printedAtLabel = forceEn ? 'Printed At' : i18n.dict.common.printedAt;
+    const printedByLabel = forceEn ? 'Printed By' : i18n.dict.common.printedBy;
+    const printedByUser = user
+      ? forceEn
+        ? `${user.fullNameEn || user.username} (${user.role})`
+        : `${i18n.bi(user.fullNameAr, user.fullNameEn)} (${user.role})`
+      : 'System';
+    const sheetDir = forceEn ? 'ltr' : i18n.getDirection();
 
     const sheetHtml = `
-      <div class="print-a4" dir="${i18n.getDirection()}">
+      <div class="print-a4" dir="${sheetDir}" style="direction:${sheetDir}; text-align:${forceEn ? 'left' : 'start'};">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
           <div>
             <h1 style="font-size:18px; font-weight:700; margin:0; color:#0f172a;">${labName}</h1>
             <p style="font-size:12px; margin:2px 0; color:#334155;">${branchName} · ${address}</p>
             <p style="font-size:11px; margin:2px 0; color:#475569;">Tel: ${settings?.phone || '19014'}</p>
           </div>
-          <div style="text-align:end; font-size:11px; color:#334155;">
-            <div><strong>${i18n.dict.common.printedAt}:</strong> ${nowStr}</div>
-            <div><strong>${i18n.dict.common.printedBy}:</strong> ${user ? i18n.bi(user.fullNameAr, user.fullNameEn) : 'System'} (${user?.role || ''})</div>
+          <div style="text-align:${forceEn ? 'right' : 'end'}; font-size:11px; color:#334155;">
+            <div><strong>${printedAtLabel}:</strong> ${nowStr}</div>
+            <div><strong>${printedByLabel}:</strong> ${printedByUser}</div>
           </div>
         </div>
         <div style="margin-bottom:12px;">
@@ -251,7 +282,7 @@ export class PrintService {
     `;
 
     await authService.logAudit(`طباعة A4: ${title}`, 'printing', 'PRINT-A4', subtitle);
-    this.openPrintPreviewAndExecute('A4', title, sheetHtml);
+    this.openPrintPreviewAndExecute('A4', title, sheetHtml, forceEn);
   }
 
   /**

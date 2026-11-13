@@ -752,84 +752,87 @@ async function printAnalysisReportA4(
     .map((f) => {
       const colorLabel =
         f.semanticColor === 'green'
-          ? i18n.bi('أخضر - طبيعي', 'Green - Normal')
+          ? 'Green - Normal'
           : f.semanticColor === 'yellow'
-          ? i18n.bi('أصفر - ملاحظة', 'Yellow - Note')
-          : i18n.bi('أحمر - غير طبيعي', 'Red - Abnormal');
+          ? 'Yellow - Note'
+          : 'Red - Abnormal';
       return `
         <tr>
-          <td>${i18n.bi(f.groupTitleAr, f.groupTitleEn)}</td>
-          <td><strong>${f.nameAr}</strong><br/><span style="font-size:10px;color:#475569;">${f.nameEn} ${f.scientificName ? `(${f.scientificName})` : ''}</span></td>
+          <td>${f.groupTitleEn || f.groupTitleAr}</td>
+          <td><strong>${f.nameEn || f.nameAr}</strong> ${f.scientificName ? `<br/><span style="font-size:10px;color:#475569;">(${f.scientificName})</span>` : ''}</td>
           <td style="font-family:monospace;font-weight:700;">${f.countOrGrade}</td>
           <td style="font-family:monospace;">${f.confidence}%</td>
           <td><strong>${colorLabel}</strong></td>
-          <td>${i18n.bi(f.clinicalSignificanceAr, f.clinicalSignificanceEn)}</td>
+          <td>${f.clinicalSignificanceEn || f.clinicalSignificanceAr}</td>
         </tr>
       `;
     })
     .join('');
 
   const reportHtml = `
-    <div style="margin-bottom:12px; padding:10px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; font-size:12px;">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-        <div><strong>${i18n.bi('رقم التحليل:', 'Analysis #:')}</strong> ${analysis.analysisNumber}</div>
-        <div><strong>${i18n.bi('اسم المريض:', 'Patient Name:')}</strong> ${analysis.patientName || i18n.bi('فحص مجهري مباشر', 'Direct Microscopy Slide')}</div>
-        <div><strong>${i18n.bi('نظام التحليل:', 'Diagnostic System:')}</strong> ${i18n.bi(analysis.engineSystemNameAr, analysis.engineSystemNameEn)}</div>
-        <div><strong>${i18n.bi('الصبغة / التكبير:', 'Stain & Magnification:')}</strong> ${analysis.stainOrPrep} · ${analysis.magnification}</div>
+    <div dir="ltr" style="direction:ltr; text-align:left;">
+      <div style="margin-bottom:12px; padding:10px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; font-size:12px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+          <div><strong>Analysis #:</strong> ${analysis.analysisNumber}</div>
+          <div><strong>Patient Name:</strong> ${analysis.patientName || 'Direct Microscopy Slide'}</div>
+          <div><strong>Diagnostic System:</strong> ${analysis.engineSystemNameEn || analysis.engineSystemNameAr}</div>
+          <div><strong>Stain & Magnification:</strong> ${analysis.stainOrPrep} · ${analysis.magnification}</div>
+        </div>
       </div>
-    </div>
 
-    ${
-      analysis.hasCriticalAlert
-        ? `<div style="margin-bottom:10px; padding:8px 12px; border:2px solid #dc2626; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:12px; font-weight:700;">
-            🚨 ${i18n.bi(analysis.criticalAlertMessageAr || 'تنبيه طبي عاجل: توجد نتائج حرجة تستلزم المراجعة الفورية', analysis.criticalAlertMessageEn || 'URGENT CLINICAL ALERT')}
-          </div>`
-        : ''
-    }
+      ${
+        analysis.hasCriticalAlert
+          ? `<div style="margin-bottom:10px; padding:8px 12px; border:2px solid #dc2626; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:12px; font-weight:700;">
+              🚨 ${analysis.criticalAlertMessageEn || analysis.criticalAlertMessageAr || 'URGENT CLINICAL ALERT'}
+            </div>`
+          : ''
+      }
 
-    ${
-      analysis.requiresSpecialistReview
-        ? `<div style="margin-bottom:10px; padding:8px 12px; border:1px solid #d97706; background:#fffbeb; color:#92400e; border-radius:6px; font-size:12px; font-weight:700;">
-            ⚠️ ${i18n.bi('يُنصح بمراجعة أخصائي المختبر لتأكيد بعض العناصر المكتشفة', 'Specialist review is recommended')}
-          </div>`
-        : ''
-    }
+      ${
+        analysis.requiresSpecialistReview
+          ? `<div style="margin-bottom:10px; padding:8px 12px; border:1px solid #d97706; background:#fffbeb; color:#92400e; border-radius:6px; font-size:12px; font-weight:700;">
+              ⚠️ Specialist laboratory review is recommended to confirm detected findings.
+            </div>`
+          : ''
+      }
 
-    ${
-      analysis.imageDataUrl && !analysis.imageDeleted
-        ? `<div style="text-align:center; margin-bottom:12px;">
-            <img src="${analysis.imageDataUrl}" alt="Microscopy Slide" style="max-height:190px; border-radius:8px; border:1px solid #94a3b8;" />
-          </div>`
-        : ''
-    }
+      ${
+        analysis.imageDataUrl && !analysis.imageDeleted
+          ? `<div style="text-align:center; margin-bottom:12px;">
+              <img src="${analysis.imageDataUrl}" alt="Microscopy Slide" style="max-height:190px; border-radius:8px; border:1px solid #94a3b8;" />
+            </div>`
+          : ''
+      }
 
-    <table class="print-table">
-      <thead>
-        <tr>
-          <th>${i18n.bi('القسم العلمي', 'Section')}</th>
-          <th>${i18n.bi('العنصر المكتشف (عربي / إنجليزي)', 'Detected Element (AR / EN)')}</th>
-          <th>${i18n.bi('العدد / التقدير', 'Count / Grade')}</th>
-          <th>${i18n.bi('نسبة الثقة', 'Confidence')}</th>
-          <th>${i18n.bi('الدلالة اللونية', 'Semantic Status')}</th>
-          <th>${i18n.bi('الأهمية السريرية', 'Clinical Significance')}</th>
-        </tr>
-      </thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
+      <table class="print-table" dir="ltr" style="direction:ltr; text-align:left;">
+        <thead>
+          <tr>
+            <th>Section</th>
+            <th>Detected Element</th>
+            <th>Count / Grade</th>
+            <th>Confidence</th>
+            <th>Semantic Status</th>
+            <th>Clinical Significance</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
 
-    <div style="margin-top:14px; padding:10px; border:1px solid #94a3b8; border-radius:8px; font-size:12px;">
-      <div><strong>${i18n.bi('التفسير الطبي السريري:', 'Clinical Interpretation:')}</strong> ${i18n.bi(analysis.clinicalInterpretationAr, analysis.clinicalInterpretationEn)}</div>
-      <div style="margin-top:6px;"><strong>${i18n.bi('التوصيات الطبية:', 'Medical Recommendations:')}</strong> ${i18n.bi(analysis.recommendationsAr, analysis.recommendationsEn || analysis.recommendationsAr)}</div>
-      <div style="margin-top:8px; padding-top:6px; border-top:1px dashed #cbd5e1; font-size:11px; color:#475569; font-weight:700;">
-        ⚕️ ${i18n.bi('تنويه طبي: هذه نتائج مجهرية مساعدة صادرة عن نظام التشخيص المساعد وتحتاج مراجعة واعتماد الطبيب المختص — لا تمثل تشخيصًا نهائيًا بمفردها.', 'Medical Disclaimer: These are assistive microscopy findings requiring specialist physician review and do not constitute a standalone final diagnosis.')}
+      <div style="margin-top:14px; padding:10px; border:1px solid #94a3b8; border-radius:8px; font-size:12px;">
+        <div><strong>Clinical Interpretation:</strong> ${analysis.clinicalInterpretationEn || analysis.clinicalInterpretationAr}</div>
+        <div style="margin-top:6px;"><strong>Medical Recommendations:</strong> ${analysis.recommendationsEn || analysis.recommendationsAr}</div>
+        <div style="margin-top:8px; padding-top:6px; border-top:1px dashed #cbd5e1; font-size:11px; color:#475569; font-weight:700;">
+          ⚕️ Medical Disclaimer: These are assistive microscopy findings requiring specialist physician review and do not constitute a standalone final diagnosis.
+        </div>
       </div>
     </div>
   `;
 
   await printService.printA4(
-    i18n.bi('تقرير الفحص والتشخيص المجهري الذكي', 'Intelligent Microscopy Diagnostic Report'),
+    'Intelligent Microscopy Diagnostic Report',
     reportHtml,
-    `${analysis.analysisNumber} · ${analysis.patientName || ''}`
+    `${analysis.analysisNumber} · ${analysis.patientName || ''}`,
+    { forceEnglishLtr: true }
   );
 }
 

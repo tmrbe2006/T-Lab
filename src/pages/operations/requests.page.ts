@@ -134,23 +134,77 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             </div>
           </div>
 
-          <div>
-            <label class="block font-semibold mb-1.5">${i18n.bi('اختر التحاليل المطلوبة *', 'Select Requested Lab Tests *')}</label>
-            <div class="max-h-44 overflow-y-auto rounded-lg border border-slate-200 p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50">
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label class="block font-bold text-slate-900 text-xs">${i18n.bi('اختر التحاليل المطلوبة *', 'Select Requested Lab Tests *')}</label>
+              <div class="flex items-center gap-2">
+                <span id="req-selected-tests-badge" class="text-xs font-bold text-sky-800 font-mono tabular-nums"></span>
+                <button
+                  type="button"
+                  id="req-toggle-selected-only"
+                  class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  ${i18n.bi('عرض المختارة فقط', 'Show Selected Only')}
+                </button>
+                <button
+                  type="button"
+                  id="req-clear-tests-btn"
+                  class="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                >
+                  ${i18n.bi('إلغاء تحديد الكل', 'Clear Selection')}
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Search & Department Filter for Tests -->
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+              <div class="sm:col-span-8 relative">
+                <input
+                  id="req-test-search-input"
+                  type="search"
+                  autocomplete="off"
+                  placeholder="${i18n.bi('🔍 ابحث عن اسم التحليل بالعربي أو الإنجليزي أو الكود (مثال: CBC, Urea, صورة دم, غدة)...', '🔍 Search test by Arabic/English name or code (e.g., CBC, Urea, TSH)...')}"
+                  class="w-full rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
+                />
+              </div>
+              <div class="sm:col-span-4">
+                <select
+                  id="req-test-dept-filter"
+                  class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 focus:border-sky-600 focus:outline-none"
+                >
+                  <option value="">${i18n.bi('كل الأقسام العلمية (' + tests.length + ' تحليل)', 'All Departments (' + tests.length + ' Tests)')}</option>
+                  ${Array.from(new Set(tests.map((t) => t.department).filter(Boolean)))
+                    .map((dept) => `<option value="${dept}">${dept}</option>`)
+                    .join('')}
+                </select>
+              </div>
+            </div>
+
+            <div id="req-tests-grid" class="max-h-56 overflow-y-auto rounded-lg border border-slate-200 p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50">
               ${tests
                 .map((t, idx) => {
                   const isChecked = isEdit ? existingTestIds.has(t.id) : idx < 2;
+                  const searchBlob = `${t.code} ${t.nameAr} ${t.nameEn} ${t.department} ${t.sampleType}`.toLowerCase().replace(/"/g, '');
                   return `
-                  <label class="flex items-center justify-between gap-2 rounded bg-white border border-slate-200 px-2.5 py-1.5 cursor-pointer">
-                    <span class="flex items-center gap-2">
-                      <input type="checkbox" name="testIds" value="${t.id}" ${isChecked ? 'checked' : ''} class="req-tst-chk accent-sky-600" />
-                      <span class="font-semibold text-slate-800">${t.code} — ${i18n.bi(t.nameAr, t.nameEn)}</span>
+                  <label
+                    data-test-search="${searchBlob}"
+                    data-test-dept="${t.department}"
+                    class="req-tst-card flex items-center justify-between gap-2 rounded bg-white border ${
+                      isChecked ? 'border-sky-500 bg-sky-50/40' : 'border-slate-200'
+                    } px-2.5 py-2 cursor-pointer hover:border-sky-400 transition-colors"
+                  >
+                    <span class="flex items-center gap-2 min-w-0">
+                      <input type="checkbox" name="testIds" value="${t.id}" ${isChecked ? 'checked' : ''} class="req-tst-chk w-4 h-4 accent-sky-600 shrink-0" />
+                      <span class="font-semibold text-slate-800 leading-snug">${t.code} — ${i18n.bi(t.nameAr, t.nameEn)}</span>
                     </span>
-                    <span class="font-mono font-bold text-slate-900 tabular-nums">${t.price} EGP</span>
+                    <span class="font-mono font-bold text-slate-900 tabular-nums shrink-0 ms-2">${t.price} EGP</span>
                   </label>
                 `;
                 })
                 .join('')}
+            </div>
+            <div id="req-tests-empty-msg" class="hidden rounded-lg border border-amber-200 bg-amber-50 p-3 text-center text-xs font-semibold text-amber-900">
+              ${i18n.bi('لا توجد تحاليل مطابقة لعبارة البحث الحالية.', 'No lab tests match your current search filter.')}
             </div>
           </div>
 
@@ -256,10 +310,84 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           }
         });
 
-        document.querySelectorAll('.req-tst-chk').forEach((c) => c.addEventListener('change', updateCalc));
+        const testSearchInput = document.getElementById('req-test-search-input') as HTMLInputElement | null;
+        const testDeptFilter = document.getElementById('req-test-dept-filter') as HTMLSelectElement | null;
+        const selectedTestsBadge = document.getElementById('req-selected-tests-badge');
+        const toggleSelectedOnlyBtn = document.getElementById('req-toggle-selected-only');
+        const clearTestsBtn = document.getElementById('req-clear-tests-btn');
+        const emptyTestsMsg = document.getElementById('req-tests-empty-msg');
+        let showSelectedOnly = false;
+
+        const filterTestsGrid = () => {
+          const q = (testSearchInput?.value || '').trim().toLowerCase();
+          const deptVal = testDeptFilter?.value || '';
+          let visibleCount = 0;
+
+          document.querySelectorAll<HTMLElement>('.req-tst-card').forEach((card) => {
+            const searchBlob = (card.getAttribute('data-test-search') || '').toLowerCase();
+            const cardDept = card.getAttribute('data-test-dept') || '';
+            const chk = card.querySelector<HTMLInputElement>('.req-tst-chk');
+            const isChecked = Boolean(chk?.checked);
+
+            card.classList.toggle('border-sky-500', isChecked);
+            card.classList.toggle('bg-sky-50/40', isChecked);
+            card.classList.toggle('border-slate-200', !isChecked);
+
+            const matchesQuery = !q || searchBlob.includes(q);
+            const matchesDept = !deptVal || cardDept === deptVal;
+            const matchesSelected = !showSelectedOnly || isChecked;
+
+            if (matchesQuery && matchesDept && matchesSelected) {
+              card.style.display = 'flex';
+              visibleCount++;
+            } else {
+              card.style.display = 'none';
+            }
+          });
+
+          if (emptyTestsMsg) {
+            emptyTestsMsg.classList.toggle('hidden', visibleCount > 0);
+          }
+          const totalChecked = document.querySelectorAll('.req-tst-chk:checked').length;
+          if (selectedTestsBadge) {
+            selectedTestsBadge.textContent = i18n.bi(
+              `تم تحديد (${totalChecked}) تحليل من أصل ${tests.length}`,
+              `Selected (${totalChecked}) of ${tests.length} tests`
+            );
+          }
+        };
+
+        testSearchInput?.addEventListener('input', filterTestsGrid);
+        testDeptFilter?.addEventListener('change', filterTestsGrid);
+        toggleSelectedOnlyBtn?.addEventListener('click', () => {
+          showSelectedOnly = !showSelectedOnly;
+          toggleSelectedOnlyBtn.textContent = showSelectedOnly
+            ? i18n.bi('إظهار جميع التحاليل', 'Show All Tests')
+            : i18n.bi('عرض المختارة فقط', 'Show Selected Only');
+          filterTestsGrid();
+        });
+        clearTestsBtn?.addEventListener('click', () => {
+          document.querySelectorAll<HTMLInputElement>('.req-tst-chk').forEach((c) => {
+            c.checked = false;
+          });
+          showSelectedOnly = false;
+          if (toggleSelectedOnlyBtn) {
+            toggleSelectedOnlyBtn.textContent = i18n.bi('عرض المختارة فقط', 'Show Selected Only');
+          }
+          filterTestsGrid();
+          updateCalc();
+        });
+
+        document.querySelectorAll('.req-tst-chk').forEach((c) =>
+          c.addEventListener('change', () => {
+            filterTestsGrid();
+            updateCalc();
+          })
+        );
         discTypeEl?.addEventListener('change', updateCalc);
         discValEl?.addEventListener('input', updateCalc);
         taxRateEl?.addEventListener('input', updateCalc);
+        filterTestsGrid();
         updateCalc();
 
         const form = document.getElementById('req-form') as HTMLFormElement | null;
@@ -380,7 +508,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             patientShareAmount: math.patientShare,
             companyShareAmount: math.companyShare,
             type: rType,
-            status: 'awaiting_sample',
+            status: 'sample_received',
             subtotal: math.subtotal,
             discountType: math.discountType,
             discountValue: math.discountValue,
@@ -401,21 +529,20 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             commissionEligible: t.commissionEligible,
           }));
 
-          await requestsRepository.saveRequest(newReq, rItems);
-
-          // Automatically create Sample & Invoice + Journal Entry
+          // Automatically create Sample first so ensureDraftResultsForAllRequests sees the received sample
           const newSample: Sample = {
             id: `smp_${Date.now()}`,
             sampleCode: `SMP-${seq}`,
             requestId: reqId,
             patientId: newReq.patientId,
-            sampleType: chosen[0].sampleType,
-            tubeType: chosen[0].tubeType,
+            sampleType: chosen.map((c) => c.sampleType).filter((v, i, a) => a.indexOf(v) === i).join(' + '),
+            tubeType: chosen.map((c) => c.tubeType).filter((v, i, a) => a.indexOf(v) === i).join(' + '),
             status: 'received',
             receivedAt: `${today} 10:00`,
             receivedBy: user?.username || 'technician',
           };
           await requestsRepository.saveSample(newSample);
+          await requestsRepository.saveRequest(newReq, rItems);
 
           const invId = `inv_${Date.now()}`;
           const invNum = `INV-2026-${seq}`;

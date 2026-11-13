@@ -738,7 +738,7 @@ async function printCultureA4(rec: CultureSensitivityRecord): Promise<void> {
         <td><strong>${escapeHtml(a.antibioticNameEn)}</strong> (${escapeHtml(a.antibioticCode)})</td>
         <td>${escapeHtml(a.antibioticClass)}</td>
         <td style="font-weight:800;color:${a.sensitivity === 'S' ? '#047857' : a.sensitivity === 'I' ? '#b45309' : '#be123c'};">
-          ${a.sensitivity === 'S' ? 'S (Susceptible - حساس)' : a.sensitivity === 'I' ? 'I (Intermediate - متوسط)' : 'R (Resistant - مقاوم)'}
+          ${a.sensitivity === 'S' ? 'S (Susceptible)' : a.sensitivity === 'I' ? 'I (Intermediate)' : 'R (Resistant)'}
         </td>
         <td style="font-family:monospace;">${escapeHtml(a.micValue)}</td>
         <td style="font-family:monospace;color:#475569;">${escapeHtml(a.clsiBreakpoint)}</td>
@@ -755,45 +755,48 @@ async function printCultureA4(rec: CultureSensitivityRecord): Promise<void> {
   });
 
   const body = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;font-size:12px;background:#f8fafc;padding:10px;border:1px solid #cbd5e1;border-radius:6px;">
-      <div><strong>المريض / Patient:</strong> ${escapeHtml(rec.patientName)}</div>
-      <div><strong>رقم التقرير / Report No:</strong> ${escapeHtml(rec.reportNumber)}</div>
-      <div><strong>نوع العينة / Specimen:</strong> ${escapeHtml(rec.specimenSourceAr)}</div>
-      <div><strong>تاريخ التقرير / Date:</strong> ${escapeHtml(formatDate(rec.createdAt))}</div>
-      <div><strong>صبغة جرام / Gram Stain:</strong> ${escapeHtml(rec.gramStainAr)}</div>
-      <div><strong>خلايا الصديد / Pus Cells:</strong> ${escapeHtml(rec.pusCellsCount)}</div>
-      <div style="grid-column:span 2;"><strong>الميكروب المعزول / Isolated Organism:</strong> <span style="color:#be123c;font-weight:800;">${escapeHtml(rec.organismNameEn)} (${escapeHtml(rec.organismNameAr)})</span> — <strong>Colony Count:</strong> ${escapeHtml(rec.colonyCount)}</div>
+    <div dir="ltr" style="direction:ltr;text-align:left;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;font-size:12px;background:#f8fafc;padding:10px;border:1px solid #cbd5e1;border-radius:6px;">
+        <div><strong>Patient:</strong> ${escapeHtml(rec.patientName)}</div>
+        <div><strong>Report No:</strong> ${escapeHtml(rec.reportNumber)}</div>
+        <div><strong>Specimen Source:</strong> ${escapeHtml(rec.specimenSourceAr)}</div>
+        <div><strong>Report Date:</strong> ${escapeHtml(formatDate(rec.createdAt))}</div>
+        <div><strong>Gram Stain:</strong> ${escapeHtml(rec.gramStainAr)}</div>
+        <div><strong>Pus Cells (WBCs):</strong> ${escapeHtml(rec.pusCellsCount)}</div>
+        <div style="grid-column:span 2;"><strong>Isolated Organism:</strong> <span style="color:#be123c;font-weight:800;">${escapeHtml(rec.organismNameEn)}</span> — <strong>Colony Count:</strong> ${escapeHtml(rec.colonyCount)}</div>
+      </div>
+
+      ${
+        rec.antibiotics.length > 0
+          ? `
+        <table class="print-table" dir="ltr" style="direction:ltr;text-align:left;">
+          <thead>
+            <tr>
+              <th>Antibiotic</th>
+              <th>Antimicrobial Class</th>
+              <th>Sensitivity</th>
+              <th>MIC Value</th>
+              <th>CLSI 2025 Breakpoint</th>
+            </tr>
+          </thead>
+          <tbody>${abRows}</tbody>
+        </table>
+      `
+          : `<div style="padding:16px;border:1px solid #10b981;background:#ecfdf5;border-radius:8px;font-weight:bold;color:#065f46;">No bacterial growth observed after 48 hours of aerobic incubation.</div>`
+      }
+
+      <div style="margin-top:12px;padding:10px;border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;">
+        <strong>Clinical Interpretation & Notes:</strong> ${escapeHtml(rec.clinicalNotesAr)}
+      </div>
+
+      ${qrFooter}
     </div>
-
-    ${
-      rec.antibiotics.length > 0
-        ? `
-      <table class="print-table">
-        <thead>
-          <tr>
-            <th>المضاد الحيوي / Antibiotic</th>
-            <th>المجموعة / Class</th>
-            <th>الحساسية / Sensitivity</th>
-            <th>التركيز المثبط / MIC</th>
-            <th>معيار CLSI 2025</th>
-          </tr>
-        </thead>
-        <tbody>${abRows}</tbody>
-      </table>
-    `
-        : `<div style="padding:16px;border:1px solid #10b981;background:#ecfdf5;border-radius:8px;font-weight:bold;color:#065f46;">لا يوجد نمو بكتيري بعد 48 ساعة من التحضين (No Growth after 48h incubation).</div>`
-    }
-
-    <div style="margin-top:12px;padding:10px;border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;">
-      <strong>التوصيات الإكلينيكية / Clinical Interpretation:</strong> ${escapeHtml(rec.clinicalNotesAr)}
-    </div>
-
-    ${qrFooter}
   `;
 
   await printService.printA4(
-    i18n.bi('تقرير المزرعة البكتيرية والحساسية (Culture & Sensitivity + MIC Report)', 'Microbiology Culture & Sensitivity (MIC) Report'),
+    'Microbiology Culture & Sensitivity (MIC) Report',
     body,
-    `${rec.patientName} — ${rec.reportNumber}`
+    `${rec.patientName} — ${rec.reportNumber}`,
+    { forceEnglishLtr: true }
   );
 }
