@@ -65,6 +65,41 @@ class MySQLSyncService {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
   }
 
+  private async fetchMySQLApi<T extends { ok?: boolean; error?: string }>(
+    endpoint: string,
+    init?: RequestInit
+  ): Promise<T> {
+    const candidateBases = [
+      '',
+      'http://127.0.0.1:3007',
+      'http://localhost:3007',
+      'http://127.0.0.1:3000',
+      'http://localhost:3000',
+    ];
+    let lastResult: T | null = null;
+    let lastErr = '';
+
+    for (const base of candidateBases) {
+      try {
+        const res = await fetch(`${base}${endpoint}`, init);
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          continue;
+        }
+        const json = (await res.json()) as T;
+        if (json?.ok) {
+          return json;
+        }
+        lastResult = json;
+      } catch (err: unknown) {
+        lastErr = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    if (lastResult) return lastResult;
+    return { ok: false, error: lastErr || 'Unable to reach local T-Lab MySQL API server' } as T;
+  }
+
   /**
    * Loads the MySQL configuration from the server's .env file so that credentials
    * (especially MYSQL_PASSWORD) set in .env ALWAYS override stale browser localStorage.
@@ -72,11 +107,12 @@ class MySQLSyncService {
   public async loadEnvConfigFromServer(): Promise<MySQLClientConfig> {
     const localCfg = this.getConfig();
     try {
-      const res = await fetch('/api/mysql/env-config');
-      if (!res.ok) return localCfg;
-      const json = await res.json();
+      const json = await this.fetchMySQLApi<{
+        ok?: boolean;
+        config?: Partial<MySQLClientConfig>;
+      }>('/api/mysql/env-config');
       if (json?.ok && json?.config) {
-        const envCfg = json.config as Partial<MySQLClientConfig>;
+        const envCfg = json.config;
         const merged: MySQLClientConfig = {
           host: envCfg.host || localCfg.host || '127.0.0.1',
           port: Number(envCfg.port || localCfg.port || 3306),
@@ -214,19 +250,24 @@ class MySQLSyncService {
     existingTablesCount?: number;
     error?: string;
   }> {
-    try {
-      const res = await fetch('/api/mysql/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: cfg }),
-      });
-      return await res.json();
-    } catch (err: unknown) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+    const res = await this.fetchMySQLApi<{
+      ok: boolean;
+      version?: string;
+      existingTablesCount?: number;
+      error?: string;
+    }>('/api/mysql/test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: cfg }),
+    });
+    this.isConnected = Boolean(res.ok);
+    if (res.ok) {
+      this.connectedDb = cfg.database || 'tlab_db';
+      this.lastError = '';
+    } else {
+      this.lastError = res.error || '';
     }
+    return res;
   }
 
   public async initSchemaOnServer(cfg: MySQLClientConfig): Promise<{
@@ -235,19 +276,11 @@ class MySQLSyncService {
     tablesCreated?: number;
     error?: string;
   }> {
-    try {
-      const res = await fetch('/api/mysql/init-schema', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: cfg }),
-      });
-      return await res.json();
-    } catch (err: unknown) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
+    return this.fetchMySQLApi('/api/mysql/init-schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: cfg }),
+    });
   }
 
   public async pushAllToMySQL(cfg: MySQLClientConfig): Promise<{
@@ -259,12 +292,22 @@ class MySQLSyncService {
   }> {
     try {
       const data = await this.collectAllTablesData();
-      const res = await fetch('/api/mysql/push-all', {
+      const res = await this.fetchMySQLApi<{
+        ok: boolean;
+        totalRowsSynced?: number;
+        tablesCount?: number;
+        version?: string;
+        error?: string;
+      }>('/api/mysql/push-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: cfg, data }),
       });
-      return await res.json();
+      if (res.ok) {
+        this.isConnected = true;
+        this.connectedDb = cfg.database || 'tlab_db';
+      }
+      return res;
     } catch (err: unknown) {
       return {
         ok: false,
@@ -279,12 +322,16 @@ class MySQLSyncService {
     error?: string;
   }> {
     try {
-      const res = await fetch('/api/mysql/pull-all', {
+      const json = await this.fetchMySQLApi<{
+        ok: boolean;
+        totalRowsPulled?: number;
+        data?: Record<string, Record<string, unknown>[]>;
+        error?: string;
+      }>('/api/mysql/pull-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: cfg }),
       });
-      const json = await res.json();
       if (!json.ok || !json.data) {
         this.isConnected = false;
         this.lastError = json.error || 'Failed to pull data from MySQL';
@@ -420,7 +467,7 @@ class MySQLSyncService {
     record?: Record<string, unknown>
   ): Promise<void> {
     try {
-      await fetch('/api/mysql/sync-change', {
+      await this.fetchMySQLApi('/api/mysql/sync-change', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -742,8 +789,17 @@ class MySQLSyncService {
       box.textContent = msg;
     };
 
-    // Hydrate form inputs directly from the server's .env file if available
-    void this.loadEnvConfigFromServer().then((envCfg) => {
+    const updateStatusBadge = (connected: boolean, labelText: string) => {
+      const badge = container.querySelector(`#${prefix}-status-badge`) as HTMLElement | null;
+      if (!badge) return;
+      badge.className = `rounded-lg px-2.5 py-1 font-mono text-[11px] font-bold ${
+        connected ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+      }`;
+      badge.textContent = labelText;
+    };
+
+    // Hydrate form inputs directly from the server's .env file and immediately verify real MySQL connection
+    void this.loadEnvConfigFromServer().then(async (envCfg) => {
       const hostEl = container.querySelector(`#${prefix}-host`) as HTMLInputElement | null;
       const portEl = container.querySelector(`#${prefix}-port`) as HTMLInputElement | null;
       const userEl = container.querySelector(`#${prefix}-user`) as HTMLInputElement | null;
@@ -757,6 +813,25 @@ class MySQLSyncService {
       if (passEl && envCfg.password) passEl.value = envCfg.password;
       if (dbEl && envCfg.database) dbEl.value = envCfg.database;
       if (autoEl) autoEl.checked = Boolean(envCfg.autoSync);
+
+      const testRes = await this.testConnection(envCfg);
+      if (testRes.ok) {
+        updateStatusBadge(true, `🟢 متصل فعلياً بسيرفر MySQL (${testRes.version})`);
+        showResult(
+          true,
+          `✓ متصل فعلياً بسيرفر MySQL ${testRes.version} | القاعدة: ${envCfg.database} | عدد الجداول الحالية: ${testRes.existingTablesCount}`
+        );
+      } else {
+        updateStatusBadge(false, '🔴 غير متصل حالياً بسيرفر MySQL');
+        const isCloudHost = window.location.hostname.includes('.run.app');
+        const cloudHint = isCloudHost
+          ? ' (ملاحظة: أنت تفتح الآن رابط المعاينة السحابية؛ تأكد من تشغيل start-tlab-production.bat على جهازك وفتح http://localhost:3007)'
+          : '';
+        showResult(
+          false,
+          `✕ السيرفر غير متصل بقاعدة بيانات MySQL (${envCfg.host}:${envCfg.port}): ${testRes.error || 'تأكد من تشغيل السيرفر المحلي وخدمة MySQL على جهازك'}${cloudHint}`
+        );
+      }
     });
 
     container.querySelector(`#${prefix}-dl-empty-users-sql`)?.addEventListener('click', () => {
@@ -882,12 +957,14 @@ class MySQLSyncService {
       showResult(true, '⏳ جاري اختبار الاتصال بسيرفر MySQL...');
       const res = await this.testConnection(cfg);
       if (res.ok) {
+        updateStatusBadge(true, `🟢 متصل فعلياً بسيرفر MySQL (${res.version})`);
         showResult(
           true,
           `✓ متصل بنجاح! إصدار السيرفر: MySQL ${res.version} | القاعدة: ${cfg.database} | عدد الجداول الحالية: ${res.existingTablesCount}`
         );
         showToast(i18n.bi('تم الاتصال بسيرفر MySQL بنجاح', 'Connected to MySQL Server!'), 'success');
       } else {
+        updateStatusBadge(false, '🔴 غير متصل حالياً بسيرفر MySQL');
         showResult(
           false,
           `✕ تعذر الاتصال بسيرفر MySQL (${cfg.host}:${cfg.port}): ${res.error || 'تأكد من تشغيل خدمة MySQL80 أو MySQL55 على جهازك'}`
@@ -898,9 +975,10 @@ class MySQLSyncService {
     container.querySelector(`#${prefix}-push-btn`)?.addEventListener('click', async () => {
       const cfg = readFormConfig();
       this.saveConfig(cfg);
-      showResult(true, '⏳ جاري إنشاء الـ 26 جدولاً ورفع كافة البيانات إلى سيرفر MySQL...');
+      showResult(true, '⏳ جاري إنشاء الـ 37 جدولاً ورفع كافة البيانات إلى سيرفر MySQL...');
       const res = await this.pushAllToMySQL(cfg);
       if (res.ok) {
+        updateStatusBadge(true, `🟢 متصل فعلياً بسيرفر MySQL (${res.version})`);
         showResult(
           true,
           `✓ تمت المزامنة الكاملة بنجاح! تم إنشاء/تحديث ${res.tablesCount} جدولاً ورفع ${res.totalRowsSynced} سجلاً إلى قاعدة بيانات (${cfg.database}) على MySQL ${res.version}`
@@ -913,6 +991,7 @@ class MySQLSyncService {
           'success'
         );
       } else {
+        updateStatusBadge(false, '🔴 غير متصل حالياً بسيرفر MySQL');
         showResult(
           false,
           `✕ فشل رفع البيانات إلى سيرفر MySQL: ${res.error || 'تأكد من تشغيل سيرفر MySQL على جهازك، أو استخدم زر (تنزيل قاعدة البيانات كاملة .SQL) لاستيرادها يدوياً.'}`
