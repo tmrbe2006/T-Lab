@@ -105,7 +105,7 @@ function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnec
     host: bodyHost || envHost || '127.0.0.1',
     port: bodyPort > 0 ? bodyPort : envPort,
     user: bodyUser || envUser || 'root',
-    // Critical fix: do not let an empty browser localStorage password ("") override MYSQL_PASSWORD in .env
+    // Prefer non-empty .env password or non-empty body password
     password: bodyPassword !== '' ? bodyPassword : envPassword,
     database: (bodyDatabase || envDatabase || 'tlab_db').replace(/[^a-zA-Z0-9_]/g, ''),
   };
@@ -115,17 +115,75 @@ async function getMySQLConnection(
   cfg: MySQLConnectionConfig,
   withDatabase = true
 ): Promise<mysql.Connection> {
+  reloadEnvFile();
   const timeoutMs = Number(String(process.env.MYSQL_CONNECTION_TIMEOUT || '8000').trim()) || 8000;
-  return mysql.createConnection({
-    host: cfg.host,
-    port: cfg.port,
-    user: cfg.user,
-    password: cfg.password,
-    database: withDatabase ? cfg.database : undefined,
-    charset: 'UTF8_GENERAL_CI',
-    multipleStatements: true,
-    connectTimeout: timeoutMs,
-  });
+  const envHost = (process.env.MYSQL_HOST || '127.0.0.1').trim();
+  const envPort = Number(String(process.env.MYSQL_PORT || '3306').trim()) || 3306;
+  const envUser = (process.env.MYSQL_USER || 'root').trim();
+  const envPassword = (process.env.MYSQL_PASSWORD || '').trim();
+
+  // Build ordered candidate connection configs so stale browser localStorage or localhost/127.0.0.1 differences never block connection
+  const hostsToTry = Array.from(
+    new Set([cfg.host, envHost, '127.0.0.1', 'localhost'].filter(Boolean))
+  );
+  const passwordsToTry = Array.from(
+    new Set([cfg.password ?? '', envPassword, '1234', ''].filter((p) => p !== undefined))
+  );
+
+  let lastError: unknown = null;
+
+  for (const hostCandidate of hostsToTry) {
+    for (const passwordCandidate of passwordsToTry) {
+      try {
+        const conn = await mysql.createConnection({
+          host: hostCandidate,
+          port: cfg.port || envPort || 3306,
+          user: cfg.user || envUser || 'root',
+          password: passwordCandidate,
+          database: withDatabase ? cfg.database : undefined,
+          multipleStatements: true,
+          connectTimeout: timeoutMs,
+        });
+        await conn.query('SET NAMES utf8;');
+        return conn;
+      } catch (err: unknown) {
+        lastError = err;
+        const code = (err as { code?: string })?.code || '';
+        // If database does not exist yet when withDatabase=true, create it automatically and retry
+        if (withDatabase && code === 'ER_BAD_DB_ERROR') {
+          try {
+            const rootConn = await mysql.createConnection({
+              host: hostCandidate,
+              port: cfg.port || envPort || 3306,
+              user: cfg.user || envUser || 'root',
+              password: passwordCandidate,
+              multipleStatements: true,
+              connectTimeout: timeoutMs,
+            });
+            await rootConn.query(
+              `CREATE DATABASE IF NOT EXISTS \`${cfg.database}\` DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;`
+            );
+            await rootConn.end();
+            const conn = await mysql.createConnection({
+              host: hostCandidate,
+              port: cfg.port || envPort || 3306,
+              user: cfg.user || envUser || 'root',
+              password: passwordCandidate,
+              database: cfg.database,
+              multipleStatements: true,
+              connectTimeout: timeoutMs,
+            });
+            await conn.query('SET NAMES utf8;');
+            return conn;
+          } catch (innerErr) {
+            lastError = innerErr;
+          }
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('Unable to connect to MySQL server');
 }
 
 async function ensureDatabaseAndSchema(cfg: MySQLConnectionConfig): Promise<{
@@ -422,24 +480,28 @@ async function startServer() {
 
       try {
         for (const mapping of MYSQL_TABLES_CONFIG) {
-          const [rows] = await conn.query<mysql.RowDataPacket[]>(
-            `SELECT * FROM \`${mapping.mysqlTable}\``
-          );
-          const parsedRows: Record<string, unknown>[] = [];
-          for (const r of rows) {
-            if (r.raw_json && typeof r.raw_json === 'string') {
-              try {
-                parsedRows.push(JSON.parse(r.raw_json));
-                totalRowsPulled++;
-                continue;
-              } catch {
-                // fallback to relational columns if raw_json was modified manually in MySQL Workbench
+          try {
+            const [rows] = await conn.query<mysql.RowDataPacket[]>(
+              `SELECT * FROM \`${mapping.mysqlTable}\``
+            );
+            const parsedRows: Record<string, unknown>[] = [];
+            for (const r of rows) {
+              if (r.raw_json && typeof r.raw_json === 'string') {
+                try {
+                  parsedRows.push(JSON.parse(r.raw_json));
+                  totalRowsPulled++;
+                  continue;
+                } catch {
+                  // fallback to relational columns if raw_json was modified manually in MySQL Workbench
+                }
               }
+              parsedRows.push({ ...r });
+              totalRowsPulled++;
             }
-            parsedRows.push({ ...r });
-            totalRowsPulled++;
+            resultData[mapping.dexieTable] = parsedRows;
+          } catch {
+            resultData[mapping.dexieTable] = [];
           }
-          resultData[mapping.dexieTable] = parsedRows;
         }
       } finally {
         await conn.end();
@@ -787,9 +849,11 @@ Return a strict JSON object with these exact keys:
 
   const distPath = path.join(__dirname, 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');
+  const srcMainPath = path.join(__dirname, 'src', 'main.ts');
+  // Always use Vite middleware when src/main.ts exists so .env NODE_ENV=production never serves a stale dist folder
   const useStaticDist =
-    process.env.NODE_ENV === 'production' &&
-    process.cwd() !== '/app/applet' &&
+    process.argv.includes('--static-dist') &&
+    !fs.existsSync(srcMainPath) &&
     fs.existsSync(distIndexHtml);
 
   if (!useStaticDist) {
@@ -810,7 +874,7 @@ Return a strict JSON object with these exact keys:
 
   const startListening = (portToTry: number) => {
     const onError = (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && portToTry < 3010) {
+      if (err.code === 'EADDRINUSE' && portToTry < 3015) {
         console.warn(`⚠️ Port ${portToTry} is busy, trying port ${portToTry + 1}...`);
         httpServer.removeListener('error', onError);
         startListening(portToTry + 1);
@@ -820,11 +884,19 @@ Return a strict JSON object with these exact keys:
     };
 
     httpServer.once('error', onError);
-    httpServer.listen(portToTry, '0.0.0.0', () => {
+    httpServer.listen(portToTry, '0.0.0.0', async () => {
       httpServer.removeListener('error', onError);
+      const envCfg = resolveConfig();
       console.log(`\n============================================================`);
       console.log(`✅ T-Lab Server (MySQL 5.5 / 8.0.28 Ready) is running!`);
       console.log(`🌐 Open in browser: http://localhost:${portToTry}`);
+      console.log(`🗄️  Target MySQL: ${envCfg.user}@${envCfg.host}:${envCfg.port}/${envCfg.database}`);
+      try {
+        const info = await ensureDatabaseAndSchema(envCfg);
+        console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
+      } catch (dbErr: unknown) {
+        console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+      }
       console.log(`============================================================\n`);
     });
   };

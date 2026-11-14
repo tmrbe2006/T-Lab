@@ -9,7 +9,13 @@ async function bootstrap(): Promise<void> {
   // Validate environment secrets configuration safely
   SecretsConfig.validateSecrets();
 
-  // Register Service Worker for PWA offline capability
+  // Clear any stale Service Worker caches so updated code and .env connections always run fresh
+  if ('caches' in window) {
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .catch(() => {});
+  }
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js').catch(() => {

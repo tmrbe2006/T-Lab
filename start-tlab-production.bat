@@ -26,11 +26,8 @@ echo.
 :: Open browser automatically after 2 seconds in background
 start "" cmd /c "timeout /t 2 /nobreak >nul & start http://localhost:%APP_PORT%"
 
-:: Start Server (uses production dist if built, otherwise dev mode)
-if exist "dist\index.html" (
-  set NODE_ENV=production
-  npx tsx server.ts --port %APP_PORT%
-) else (
-  npm run dev -- --port %APP_PORT%
-)
+:: Start Server directly from current source files so updates and .env changes take effect immediately
+set NODE_ENV=development
+npx tsx server.ts --port %APP_PORT%
 pause
+

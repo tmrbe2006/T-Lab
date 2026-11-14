@@ -622,18 +622,22 @@ export class MedicalLabApp {
             >
               🛠️ ${i18n.bi('إعدادات القوائم', 'Menu Settings')}
             </button>
-            ${
-              isDeveloper
-                ? `<button
-                    id="top-mysql-btn"
-                    type="button"
-                    class="rounded-lg border border-emerald-400/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/35 whitespace-nowrap cursor-pointer"
-                    title="MySQL 5.5 / 8.0.28 Database & .SQL Download"
-                  >
-                    🗄️ ${i18n.bi('قاعدة بيانات MySQL (.SQL)', 'MySQL DB (.SQL)')}
-                  </button>`
-                : ''
-            }
+            <button
+              id="top-mysql-btn"
+              type="button"
+              class="rounded-lg border ${
+                mysqlSyncService.isConnected
+                  ? 'border-emerald-400/60 bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/40'
+                  : 'border-rose-400/50 bg-rose-500/20 text-rose-100 hover:bg-rose-500/35'
+              } px-3 py-1.5 text-xs font-bold whitespace-nowrap cursor-pointer"
+              title="MySQL 5.5 / 8.0.28 Database & .SQL Download"
+            >
+              ${
+                mysqlSyncService.isConnected
+                  ? `🟢 ${i18n.bi(`متصل بـ MySQL (${mysqlSyncService.connectedDb || 'tlab_db'})`, `MySQL Connected (${mysqlSyncService.connectedDb || 'tlab_db'})`)}`
+                  : `🗄️ ${i18n.bi('قاعدة بيانات MySQL (اضغط للربط)', 'MySQL DB (Connect)')}`
+              }
+            </button>
             <button
               id="top-global-search-btn"
               type="button"

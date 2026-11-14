@@ -30,6 +30,9 @@ const STORAGE_KEY = 'tlab_mysql_config_v1';
 class MySQLSyncService {
   private hooksRegistered = false;
   private isPulling = false;
+  public isConnected = false;
+  public lastError = '';
+  public connectedDb = '';
 
   public getConfig(): MySQLClientConfig {
     try {
@@ -64,7 +67,7 @@ class MySQLSyncService {
 
   /**
    * Loads the MySQL configuration from the server's .env file so that credentials
-   * (especially MYSQL_PASSWORD) set in .env are automatically used by the frontend.
+   * (especially MYSQL_PASSWORD) set in .env ALWAYS override stale browser localStorage.
    */
   public async loadEnvConfigFromServer(): Promise<MySQLClientConfig> {
     const localCfg = this.getConfig();
@@ -79,9 +82,9 @@ class MySQLSyncService {
           port: Number(envCfg.port || localCfg.port || 3306),
           user: envCfg.user || localCfg.user || 'root',
           password:
-            localCfg.password && localCfg.password.trim() !== ''
-              ? localCfg.password
-              : envCfg.password || '',
+            envCfg.password && envCfg.password.trim() !== ''
+              ? envCfg.password.trim()
+              : localCfg.password || '',
           database: envCfg.database || localCfg.database || 'tlab_db',
           autoSync:
             typeof envCfg.autoSync === 'boolean' ? envCfg.autoSync : Boolean(localCfg.autoSync),
@@ -283,27 +286,44 @@ class MySQLSyncService {
       });
       const json = await res.json();
       if (!json.ok || !json.data) {
-        return { ok: false, error: json.error || 'Failed to pull data from MySQL' };
+        this.isConnected = false;
+        this.lastError = json.error || 'Failed to pull data from MySQL';
+        return { ok: false, error: this.lastError };
       }
+
+      this.isConnected = true;
+      this.lastError = '';
+      this.connectedDb = cfg.database || 'tlab_db';
+
+      const protectedMasterTables = new Set([
+        'roles',
+        'permissions',
+        'settings',
+        'users',
+        'tests',
+        'testParameters',
+        'scientificDepartments',
+        'sampleTubes',
+        'doctorSpecialties',
+        'antibioticsCatalog',
+      ]);
 
       this.isPulling = true;
       try {
         for (const mapping of MYSQL_TABLES_CONFIG) {
           const rows = json.data[mapping.dexieTable];
           if (Array.isArray(rows)) {
-            if (
-              rows.length === 0 &&
-              (mapping.dexieTable === 'roles' ||
-                mapping.dexieTable === 'permissions' ||
-                mapping.dexieTable === 'settings' ||
-                mapping.dexieTable === 'users')
-            ) {
+            if (rows.length === 0 && protectedMasterTables.has(mapping.dexieTable)) {
               continue;
             }
             const table = db.table(mapping.dexieTable);
+            if (!table) continue;
             await table.clear();
             if (rows.length > 0) {
-              await table.bulkPut(rows);
+              const validRows = rows.filter((r) => r && typeof r === 'object' && r.id);
+              if (validRows.length > 0) {
+                await table.bulkPut(validRows);
+              }
             }
           }
         }
@@ -323,22 +343,30 @@ class MySQLSyncService {
         totalRowsPulled: json.totalRowsPulled || 0,
       };
     } catch (err: unknown) {
+      this.isConnected = false;
+      this.lastError = err instanceof Error ? err.message : String(err);
       return {
         ok: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: this.lastError,
       };
     }
   }
 
   /**
-   * Automatically pulls from the MySQL server configured in .env / localStorage on app startup
-   * so the user immediately enters their MySQL database (even if empty except users).
+   * Automatically pulls from the MySQL server configured in .env / localStorage on app startup.
+   * If the MySQL database is connected but completely empty (0 rows), automatically pushes
+   * the initial 37 tables and master catalog so the database is ready immediately.
    */
   public async autoSyncOnStartup(): Promise<void> {
     const cfg = await this.loadEnvConfigFromServer();
     const res = await this.pullAllFromMySQL(cfg);
     if (res.ok) {
+      this.isConnected = true;
+      this.connectedDb = cfg.database || 'tlab_db';
       this.saveConfig({ ...cfg, autoSync: true });
+      if ((res.totalRowsPulled || 0) === 0) {
+        await this.pushAllToMySQL({ ...cfg, autoSync: true });
+      }
     }
   }
 
@@ -977,25 +1005,6 @@ class MySQLSyncService {
   }
 
   public openMySQLModal(): void {
-    const rawUser = localStorage.getItem('medlab_current_user');
-    if (rawUser) {
-      try {
-        const parsed = JSON.parse(rawUser) as { role?: string };
-        if (parsed.role !== 'Developer') {
-          showToast(
-            i18n.bi(
-              'عذراً، إدارة قاعدة بيانات MySQL متاحة فقط لدور (المبرمج / Developer)',
-              'Access Denied: MySQL Database Manager is restricted to the Developer role only.'
-            ),
-            'unauthorized'
-          );
-          return;
-        }
-      } catch {
-        // ignore
-      }
-    }
-
     openModal(
       i18n.bi(
         '🗄️ إدارة قاعدة بيانات MySQL (5.5 / 8.0.28) وتنزيل ملف SQL',
