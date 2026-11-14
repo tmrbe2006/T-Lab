@@ -1,17 +1,17 @@
 ; =============================================================================
-; T-Lab Medical Laboratory & ERP System - Inno Setup 6 Installer Script
+; T-Lab Medical Laboratory & ERP System - Inno Setup 6 Installer Script (v5.0.0)
 ; متوافق مع برنامج Inno Setup 6 (الإصدار 6.0 وما بعده)
 ; طريقة التجميع (Compile):
-;   1. شغل ملف build-installer.bat
+;   1. شغل ملف build-installer.bat (أسهل طريقة بضغطة واحدة)
 ;   أو:
 ;   2. افتح هذا الملف (tlab-setup.iss) ببرنامج Inno Setup Compiler 6 واضغط Build -> Compile (Ctrl+F9)
 ; =============================================================================
 
 #define MyAppName "T-Lab Medical Laboratory System"
 #define MyAppNameAr "نظام إدارة معمل التحاليل الطبية العالمي T-Lab"
-#define MyAppVersion "4.0.0"
+#define MyAppVersion "5.0.0"
 #define MyAppPublisher "T-Lab Medical Systems"
-#define MyAppURL "http://localhost:3000"
+#define MyAppURL "http://localhost:3007"
 #define MyAppExeName "start-tlab-production.bat"
 
 [Setup]
@@ -35,22 +35,29 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+CloseApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon} (إنشاء اختصار لنظام المعمل على سطح المكتب)"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "importdb_full"; Description: "استيراد قاعدة البيانات المرجعية الكاملة (36 جدول + 106 تحليل عالمي + 414 بارامتر بالمعادلات + الأنابيب والأقسام والتخصصات)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive
-Name: "importdb_clean"; Description: "استيراد قاعدة البيانات التشغيلية بدون حركات تجريبية (مع الاحتفاظ بالتحاليل والبارامترات والأنابيب والمستخدمين)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive unchecked
+Name: "importdb_keep"; Description: "الاحتفاظ بقاعدة البيانات الحالية (tlab_db) كما هي مع إضافة الجداول الجديدة تلقائياً (مثل جدول المضادات الحيوية antibiotics_catalog)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive
+Name: "importdb_full"; Description: "استيراد قاعدة البيانات المرجعية الكاملة من الصفر (37 جدول + 106 تحليل + 414 بارامتر + المضادات الحيوية + الأنابيب والأقسام)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive unchecked
+Name: "importdb_clean"; Description: "استيراد قاعدة بيانات تشغيلية فارغة بدون حركات تجريبية (مع الاحتفاظ بالمستخدمين والتحاليل والبارامترات والمضادات الحيوية)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive unchecked
+
+[InstallDelete]
+; حذف أي نسخة قديمة من مجلد البناء المؤقت لضمان تشغيل أحدث كود ومزامنة MySQL فوراً
+Type: filesandordirs; Name: "{app}\dist"
 
 [Files]
-; نسخ ملفات المشروع الأساسية بالكامل مع استثناء مجلدات التطوير المؤقتة
-Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Output\*,dist-installer\*,.git\*,coverage\*,*.iss"
+; نسخ ملفات المشروع الأساسية بالكامل مع استثناء مجلدات البناء المؤقتة
+Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Output\*,dist\*,dist-installer\*,.git\*,coverage\*,*.iss"
 
 [Icons]
 ; اختصار قائمة ابدأ (Start Menu)
 Name: "{group}\{#MyAppName} (تشغيل النظام)"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 13
+Name: "{group}\تشغيل النظام في الخلفية (Silent Launcher)"; Filename: "{app}\launch-tlab.vbs"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 13
 Name: "{group}\تغيير بورت التشغيل (Select Port)"; Filename: "{app}\start-windows.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 21
 Name: "{group}\إيقاف السيرفر (Stop T-Lab Server)"; Filename: "{app}\stop-tlab.bat"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 27
 Name: "{group}\سكريبت قاعدة البيانات الكاملة (SQL v7)"; Filename: "{app}\public\tlab_db_complete_v7.sql"; WorkingDir: "{app}\public"
@@ -87,13 +94,22 @@ begin
   ServerConfigPage.Add('كلمة مرور MySQL (MYSQL_PASSWORD):', True);
   ServerConfigPage.Add('اسم قاعدة البيانات (MYSQL_DATABASE):', False);
 
-  // القيم الافتراضية
-  ServerConfigPage.Values[0] := '3000';
+  // القيم الافتراضية (تتوافق مع إعدادات جهازك PORT=3007 وقاعدة tlab_db)
+  ServerConfigPage.Values[0] := '3007';
   ServerConfigPage.Values[1] := '127.0.0.1';
   ServerConfigPage.Values[2] := '3306';
   ServerConfigPage.Values[3] := 'root';
-  ServerConfigPage.Values[4] := '';
+  ServerConfigPage.Values[4] := 'root';
   ServerConfigPage.Values[5] := 'tlab_db';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  // إيقاف أي سيرفر قديم يعمل في الخلفية قبل نسخ الملفات الجديدة
+  Exec('cmd.exe', '/c taskkill /F /IM node.exe /T >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := '';
 end;
 
 function FindMySQLExePath(): String;
@@ -123,7 +139,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     AppPort := Trim(ServerConfigPage.Values[0]);
-    if AppPort = '' then AppPort := '3000';
+    if AppPort = '' then AppPort := '3007';
 
     DbHost := Trim(ServerConfigPage.Values[1]);
     if DbHost = '' then DbHost := '127.0.0.1';
@@ -139,12 +155,19 @@ begin
     DbName := Trim(ServerConfigPage.Values[5]);
     if DbName = '' then DbName := 'tlab_db';
 
-    // 1. كتابة ملف .env تلقائياً
+    // 1. كتابة ملف .env تلقائياً (مع NODE_ENV=development لضمان القراءة الفورية بدون كاش قديم)
     EnvContent :=
-      '# T-Lab Server & MySQL Configuration (Generated by Inno Setup 6)' + #13#10 +
+      '# ============================================================================' + #13#10 +
+      '# T-Lab Medical Laboratory & ERP System - Server & MySQL Configuration (.env)' + #13#10 +
+      '# Generated by Inno Setup 6 v5.0.0' + #13#10 +
+      '# ============================================================================' + #13#10 +
+      '' + #13#10 +
+      '# 1. إعدادات سيرفر البرنامج (Application Server Settings)' + #13#10 +
       'PORT=' + AppPort + #13#10 +
       'HOST=0.0.0.0' + #13#10 +
-      'NODE_ENV=production' + #13#10 +
+      'NODE_ENV=development' + #13#10 +
+      '' + #13#10 +
+      '# 2. إعدادات سيرفر قاعدة بيانات MySQL (MySQL 5.5 / MySQL 8.0.28 Server Settings)' + #13#10 +
       'MYSQL_HOST=' + DbHost + #13#10 +
       'MYSQL_PORT=' + DbPort + #13#10 +
       'MYSQL_USER=' + DbUser + #13#10 +
@@ -152,7 +175,12 @@ begin
       'MYSQL_DATABASE=' + DbName + #13#10 +
       'MYSQL_CHARSET=utf8_general_ci' + #13#10 +
       'MYSQL_CONNECTION_TIMEOUT=8000' + #13#10 +
+      '' + #13#10 +
+      '# 3. إعدادات المزامنة التلقائية مع MySQL (Auto-Sync Settings)' + #13#10 +
       'MYSQL_AUTO_SYNC=true' + #13#10 +
+      '' + #13#10 +
+      '# 4. إعدادات إضافية اختيارية (Optional External Integrations)' + #13#10 +
+      'GEMINI_API_KEY=' + #13#10 +
       'APP_URL=http://localhost:' + AppPort + #13#10;
 
     SaveStringToFile(ExpandConstant('{app}\.env'), EnvContent, False);
@@ -161,7 +189,7 @@ begin
     PortJsonContent := '{' + #13#10 + '  "port": ' + AppPort + #13#10 + '}';
     SaveStringToFile(ExpandConstant('{app}\port.config.json'), PortJsonContent, False);
 
-    // 3. استيراد قاعدة البيانات المحدثة تلقائياً إلى MySQL
+    // 3. استيراد قاعدة البيانات إلى MySQL إذا اختار المستخدم الاستيراد الكامل أو الفارغ
     SqlFilePath := '';
     if WizardIsTaskSelected('importdb_full') then
       SqlFilePath := ExpandConstant('{app}\public\tlab_db_complete_v7.sql')

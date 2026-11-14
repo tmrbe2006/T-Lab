@@ -547,6 +547,7 @@ class MySQLSyncService {
           <div class="flex flex-wrap items-center gap-2">
             <button type="button" data-port-preset="3000" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">3000</button>
             <button type="button" data-port-preset="3001" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">3001</button>
+            <button type="button" data-port-preset="3007" class="${prefix}-port-preset rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 font-mono text-xs font-bold text-sky-800 hover:bg-sky-100 cursor-pointer">3007</button>
             <button type="button" data-port-preset="4000" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">4000</button>
             <button type="button" data-port-preset="5000" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">5000</button>
             <button type="button" data-port-preset="8080" class="${prefix}-port-preset rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">8080</button>
@@ -555,8 +556,8 @@ class MySQLSyncService {
               type="number"
               min="80"
               max="65535"
-              value="${window.location.port || '3000'}"
-              placeholder="4000"
+              value="${window.location.port || '3007'}"
+              placeholder="3007"
               class="w-24 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-mono font-bold text-center"
             />
             <button
@@ -567,7 +568,7 @@ class MySQLSyncService {
               💾 ${i18n.bi('حفظ بورت التشغيل', 'Save App Port')}
             </button>
             <a
-              href="/api/server/inno-setup-script"
+              href="/tlab-setup.iss"
               download="tlab-setup.iss"
               class="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 cursor-pointer inline-flex items-center gap-1"
             >
@@ -590,8 +591,8 @@ class MySQLSyncService {
               </div>
               <p class="text-slate-300 text-[11px] leading-relaxed">
                 ${i18n.bi(
-                  'متوافق 100% مع MySQL 5.5 ومع mysql-installer-community-8.0.28.0 (InnoDB + UTF-8 بدون تعارض طول المفاتيح 767-byte). يضم 36 جدولاً لكافة أقسام المعمل والمايكروبيولوجي ورقابة الجودة والمخزون والحسابات وموسوعة التحاليل العالمية.',
-                  '100% compatible with both MySQL 5.5 and mysql-installer-community-8.0.28.0 (InnoDB + UTF-8). Includes all 36 relational tables and current records.'
+                  'متوافق 100% مع MySQL 5.5 ومع mysql-installer-community-8.0.28.0 (InnoDB + UTF-8 بدون تعارض طول المفاتيح 767-byte). يضم 37 جدولاً لكافة أقسام المعمل والمايكروبيولوجي والمضادات الحيوية ورقابة الجودة والمخزون والحسابات وموسوعة التحاليل العالمية.',
+                  '100% compatible with both MySQL 5.5 and mysql-installer-community-8.0.28.0 (InnoDB + UTF-8). Includes all 37 relational tables and current records.'
                 )}
               </p>
             </div>
