@@ -13,13 +13,31 @@ import {
   type MySQLTableMapping,
 } from './src/db/mysql-schema';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const ENV_FILE_PATH = path.join(__dirname, '.env');
 const PORT_CONFIG_FILE = path.join(__dirname, 'port.config.json');
 
+function reloadEnvFile(): void {
+  try {
+    if (fs.existsSync(ENV_FILE_PATH)) {
+      dotenv.config({ path: ENV_FILE_PATH, override: true });
+    } else {
+      dotenv.config();
+    }
+  } catch {
+    // ignore dotenv reload errors
+  }
+}
+
+reloadEnvFile();
+
 function resolveRequestedPort(): number {
+  // Always use port 3000 inside the AI Studio preview container
+  if (process.cwd() === '/app/applet') {
+    return 3000;
+  }
+
   // 1. CLI arguments: e.g. `npm run dev -- 4000` or `npm run dev -- --port 4000`
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
@@ -38,25 +56,24 @@ function resolveRequestedPort(): number {
     }
   }
 
-  // 2. Environment variable PORT
+  // 2. Environment variable PORT from .env
+  reloadEnvFile();
   if (process.env.PORT) {
-    const envPort = Number(process.env.PORT);
+    const envPort = Number(String(process.env.PORT).trim());
     if (Number.isInteger(envPort) && envPort >= 80 && envPort <= 65535) return envPort;
   }
 
   // 3. Saved port.config.json (used when running locally on Windows/Server outside cloud container)
-  if (process.cwd() !== '/app/applet') {
-    try {
-      if (fs.existsSync(PORT_CONFIG_FILE)) {
-        const parsed = JSON.parse(fs.readFileSync(PORT_CONFIG_FILE, 'utf-8'));
-        const savedPort = Number(parsed?.port);
-        if (Number.isInteger(savedPort) && savedPort >= 80 && savedPort <= 65535) {
-          return savedPort;
-        }
+  try {
+    if (fs.existsSync(PORT_CONFIG_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(PORT_CONFIG_FILE, 'utf-8'));
+      const savedPort = Number(parsed?.port);
+      if (Number.isInteger(savedPort) && savedPort >= 80 && savedPort <= 65535) {
+        return savedPort;
       }
-    } catch {
-      // ignore
     }
+  } catch {
+    // ignore
   }
 
   return 3000;
@@ -71,18 +88,26 @@ export interface MySQLConnectionConfig {
 }
 
 function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnectionConfig {
+  reloadEnvFile();
+  const envHost = (process.env.MYSQL_HOST || '127.0.0.1').trim();
+  const envPort = Number(String(process.env.MYSQL_PORT || '3306').trim()) || 3306;
+  const envUser = (process.env.MYSQL_USER || 'root').trim();
+  const envPassword = (process.env.MYSQL_PASSWORD || '').trim();
+  const envDatabase = (process.env.MYSQL_DATABASE || 'tlab_db').trim();
+
+  const bodyHost = typeof bodyConfig?.host === 'string' ? bodyConfig.host.trim() : '';
+  const bodyPort = Number(bodyConfig?.port || 0);
+  const bodyUser = typeof bodyConfig?.user === 'string' ? bodyConfig.user.trim() : '';
+  const bodyPassword = typeof bodyConfig?.password === 'string' ? bodyConfig.password.trim() : '';
+  const bodyDatabase = typeof bodyConfig?.database === 'string' ? bodyConfig.database.trim() : '';
+
   return {
-    host: bodyConfig?.host || process.env.MYSQL_HOST || '127.0.0.1',
-    port: Number(bodyConfig?.port || process.env.MYSQL_PORT || 3306),
-    user: bodyConfig?.user || process.env.MYSQL_USER || 'root',
-    password:
-      bodyConfig?.password !== undefined
-        ? bodyConfig.password
-        : process.env.MYSQL_PASSWORD || '',
-    database: (bodyConfig?.database || process.env.MYSQL_DATABASE || 'tlab_db').replace(
-      /[^a-zA-Z0-9_]/g,
-      ''
-    ),
+    host: bodyHost || envHost || '127.0.0.1',
+    port: bodyPort > 0 ? bodyPort : envPort,
+    user: bodyUser || envUser || 'root',
+    // Critical fix: do not let an empty browser localStorage password ("") override MYSQL_PASSWORD in .env
+    password: bodyPassword !== '' ? bodyPassword : envPassword,
+    database: (bodyDatabase || envDatabase || 'tlab_db').replace(/[^a-zA-Z0-9_]/g, ''),
   };
 }
 
@@ -90,15 +115,16 @@ async function getMySQLConnection(
   cfg: MySQLConnectionConfig,
   withDatabase = true
 ): Promise<mysql.Connection> {
+  const timeoutMs = Number(String(process.env.MYSQL_CONNECTION_TIMEOUT || '8000').trim()) || 8000;
   return mysql.createConnection({
     host: cfg.host,
     port: cfg.port,
     user: cfg.user,
     password: cfg.password,
     database: withDatabase ? cfg.database : undefined,
-    charset: 'utf8_general_ci',
+    charset: 'UTF8_GENERAL_CI',
     multipleStatements: true,
-    connectTimeout: 8000,
+    connectTimeout: timeoutMs,
   });
 }
 
@@ -276,6 +302,24 @@ async function startServer() {
     } catch (err: unknown) {
       res.status(500).send(err instanceof Error ? err.message : String(err));
     }
+  });
+
+  // 0.d Return current .env MySQL configuration to the frontend
+  app.get('/api/mysql/env-config', (_req, res) => {
+    const cfg = resolveConfig();
+    const autoSync =
+      String(process.env.MYSQL_AUTO_SYNC || 'true').trim().toLowerCase() !== 'false';
+    res.json({
+      ok: true,
+      config: {
+        host: cfg.host,
+        port: cfg.port,
+        user: cfg.user,
+        password: cfg.password || '',
+        database: cfg.database,
+        autoSync,
+      },
+    });
   });
 
   // 1. Test MySQL 5.5 / 8.0.28 Connection
@@ -741,7 +785,14 @@ Return a strict JSON object with these exact keys:
   const http = await import('http');
   const httpServer = http.createServer(app);
 
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.join(__dirname, 'dist');
+  const distIndexHtml = path.join(distPath, 'index.html');
+  const useStaticDist =
+    process.env.NODE_ENV === 'production' &&
+    process.cwd() !== '/app/applet' &&
+    fs.existsSync(distIndexHtml);
+
+  if (!useStaticDist) {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -751,10 +802,9 @@ Return a strict JSON object with these exact keys:
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(distIndexHtml);
     });
   }
 

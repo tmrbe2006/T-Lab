@@ -63,6 +63,39 @@ class MySQLSyncService {
   }
 
   /**
+   * Loads the MySQL configuration from the server's .env file so that credentials
+   * (especially MYSQL_PASSWORD) set in .env are automatically used by the frontend.
+   */
+  public async loadEnvConfigFromServer(): Promise<MySQLClientConfig> {
+    const localCfg = this.getConfig();
+    try {
+      const res = await fetch('/api/mysql/env-config');
+      if (!res.ok) return localCfg;
+      const json = await res.json();
+      if (json?.ok && json?.config) {
+        const envCfg = json.config as Partial<MySQLClientConfig>;
+        const merged: MySQLClientConfig = {
+          host: envCfg.host || localCfg.host || '127.0.0.1',
+          port: Number(envCfg.port || localCfg.port || 3306),
+          user: envCfg.user || localCfg.user || 'root',
+          password:
+            localCfg.password && localCfg.password.trim() !== ''
+              ? localCfg.password
+              : envCfg.password || '',
+          database: envCfg.database || localCfg.database || 'tlab_db',
+          autoSync:
+            typeof envCfg.autoSync === 'boolean' ? envCfg.autoSync : Boolean(localCfg.autoSync),
+        };
+        this.saveConfig(merged);
+        return merged;
+      }
+    } catch {
+      // ignore if server endpoint is unreachable
+    }
+    return localCfg;
+  }
+
+  /**
    * Collects all records from all 36 Dexie tables mapped to MySQL,
    * guaranteeing that Scientific Departments, Sample Tubes, Doctor Specialties,
    * all 106 Global Medical Tests, and all 415+ Parameters are populated.
@@ -302,7 +335,7 @@ class MySQLSyncService {
    * so the user immediately enters their MySQL database (even if empty except users).
    */
   public async autoSyncOnStartup(): Promise<void> {
-    const cfg = this.getConfig();
+    const cfg = await this.loadEnvConfigFromServer();
     const res = await this.pullAllFromMySQL(cfg);
     if (res.ok) {
       this.saveConfig({ ...cfg, autoSync: true });
@@ -680,6 +713,23 @@ class MySQLSyncService {
       }`;
       box.textContent = msg;
     };
+
+    // Hydrate form inputs directly from the server's .env file if available
+    void this.loadEnvConfigFromServer().then((envCfg) => {
+      const hostEl = container.querySelector(`#${prefix}-host`) as HTMLInputElement | null;
+      const portEl = container.querySelector(`#${prefix}-port`) as HTMLInputElement | null;
+      const userEl = container.querySelector(`#${prefix}-user`) as HTMLInputElement | null;
+      const passEl = container.querySelector(`#${prefix}-password`) as HTMLInputElement | null;
+      const dbEl = container.querySelector(`#${prefix}-database`) as HTMLInputElement | null;
+      const autoEl = container.querySelector(`#${prefix}-autosync`) as HTMLInputElement | null;
+
+      if (hostEl && envCfg.host) hostEl.value = envCfg.host;
+      if (portEl && envCfg.port) portEl.value = String(envCfg.port);
+      if (userEl && envCfg.user) userEl.value = envCfg.user;
+      if (passEl && envCfg.password) passEl.value = envCfg.password;
+      if (dbEl && envCfg.database) dbEl.value = envCfg.database;
+      if (autoEl) autoEl.checked = Boolean(envCfg.autoSync);
+    });
 
     container.querySelector(`#${prefix}-dl-empty-users-sql`)?.addEventListener('click', () => {
       const cfg = readFormConfig();
