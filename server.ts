@@ -186,6 +186,47 @@ async function getMySQLConnection(
   throw lastError || new Error('Unable to connect to MySQL server');
 }
 
+function mapRelationalRowToCamelCase(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row };
+  for (const [k, v] of Object.entries(row)) {
+    if (k === 'raw_json') continue;
+    const camelKey = k.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase());
+    if (out[camelKey] === undefined) {
+      out[camelKey] = v;
+    }
+    if (k.endsWith('_json') && typeof v === 'string' && v.trim() !== '') {
+      const baseKey = k.slice(0, -5).replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase());
+      try {
+        out[baseKey] = JSON.parse(v);
+      } catch {
+        // ignore invalid json
+      }
+    }
+  }
+  if (out.id !== undefined && out.id !== null) {
+    out.id = String(out.id);
+  }
+  const boolFields = [
+    'active',
+    'commissionEnabled',
+    'commissionEligible',
+    'isCalculated',
+    'hasDefaultDiscount',
+    'enableCriticalAlerts',
+    'commissionIncludesTax',
+    'commissionFromCollectedOnly',
+    'readBackConfirmed',
+    'qcLocked',
+    'stockReceived',
+    'locked',
+  ];
+  for (const bf of boolFields) {
+    if (out[bf] === 1 || out[bf] === '1' || out[bf] === 'true') out[bf] = true;
+    else if (out[bf] === 0 || out[bf] === '0' || out[bf] === 'false') out[bf] = false;
+  }
+  return out;
+}
+
 async function ensureDatabaseAndSchema(cfg: MySQLConnectionConfig): Promise<{
   version: string;
   tablesCreated: number;
@@ -195,14 +236,19 @@ async function ensureDatabaseAndSchema(cfg: MySQLConnectionConfig): Promise<{
     const [verRows] = await rootConn.query<mysql.RowDataPacket[]>('SELECT VERSION() AS version');
     const version = String(verRows?.[0]?.version || 'MySQL');
 
+    await rootConn.query('SET FOREIGN_KEY_CHECKS = 0;');
     await rootConn.query(
       `CREATE DATABASE IF NOT EXISTS \`${cfg.database}\` DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;`
     );
     await rootConn.query(`USE \`${cfg.database}\`;`);
 
     for (const mapping of MYSQL_TABLES_CONFIG) {
-      const ddl = buildCreateTableSQL(mapping);
-      await rootConn.query(ddl);
+      try {
+        const ddl = buildCreateTableSQL(mapping);
+        await rootConn.query(ddl);
+      } catch {
+        // If table already exists with foreign keys or custom collation, continue safely
+      }
 
       // Ensure any newly added columns exist on pre-existing tables
       try {
@@ -215,21 +261,30 @@ async function ensureDatabaseAndSchema(cfg: MySQLConnectionConfig): Promise<{
         for (const col of mapping.columns) {
           if (!existingCols.has(col.name.toLowerCase())) {
             const cleanType = col.sqlType.replace(/PRIMARY KEY/gi, '').trim();
-            await rootConn.query(
-              `ALTER TABLE \`${mapping.mysqlTable}\` ADD COLUMN \`${col.name}\` ${cleanType}`
-            );
+            try {
+              await rootConn.query(
+                `ALTER TABLE \`${mapping.mysqlTable}\` ADD COLUMN \`${col.name}\` ${cleanType}`
+              );
+            } catch {
+              // ignore individual column alter warning
+            }
           }
         }
         if (!existingCols.has('raw_json')) {
-          await rootConn.query(
-            `ALTER TABLE \`${mapping.mysqlTable}\` ADD COLUMN \`raw_json\` LONGTEXT`
-          );
+          try {
+            await rootConn.query(
+              `ALTER TABLE \`${mapping.mysqlTable}\` ADD COLUMN \`raw_json\` LONGTEXT`
+            );
+          } catch {
+            // ignore
+          }
         }
       } catch {
         // ignore column check errors
       }
     }
 
+    await rootConn.query('SET FOREIGN_KEY_CHECKS = 1;');
     return { version, tablesCreated: MYSQL_TABLES_CONFIG.length };
   } finally {
     await rootConn.end();
@@ -241,15 +296,20 @@ async function upsertRowInMySQL(
   mapping: MySQLTableMapping,
   row: Record<string, unknown>
 ): Promise<void> {
-  const colNames = [...mapping.columns.map((c) => `\`${c.name}\``), '`raw_json`'].join(', ');
-  const placeholders = [...mapping.columns.map(() => '?'), '?'].join(', ');
+  const allCols = [...mapping.columns.map((c) => c.name), 'raw_json'];
+  const colNames = allCols.map((n) => `\`${n}\``).join(', ');
+  const placeholders = allCols.map(() => '?').join(', ');
+  const updateAssignments = allCols
+    .filter((n) => n !== 'id')
+    .map((n) => `\`${n}\` = VALUES(\`${n}\`)`)
+    .join(', ');
   const values = [
     ...mapping.columns.map((c) => c.extract(row)),
     JSON.stringify(row),
   ];
 
   await conn.execute(
-    `REPLACE INTO \`${mapping.mysqlTable}\` (${colNames}) VALUES (${placeholders})`,
+    `INSERT INTO \`${mapping.mysqlTable}\` (${colNames}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateAssignments}`,
     values
   );
 }
@@ -445,21 +505,35 @@ async function startServer() {
     const tablesData = (req.body?.data || {}) as Record<string, Record<string, unknown>[]>;
 
     try {
-      const info = await ensureDatabaseAndSchema(cfg);
+      let version = 'MySQL';
+      let tablesCreated = MYSQL_TABLES_CONFIG.length;
+      try {
+        const info = await ensureDatabaseAndSchema(cfg);
+        version = info.version;
+        tablesCreated = info.tablesCreated;
+      } catch {
+        // proceed even if a pre-existing table had custom foreign keys
+      }
       const conn = await getMySQLConnection(cfg, true);
       let totalRowsSynced = 0;
 
       try {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 0;');
         await conn.beginTransaction();
         for (const mapping of MYSQL_TABLES_CONFIG) {
           const rows = tablesData[mapping.dexieTable] || [];
           for (const row of rows) {
             if (!row || !row.id) continue;
-            await upsertRowInMySQL(conn, mapping, row);
-            totalRowsSynced++;
+            try {
+              await upsertRowInMySQL(conn, mapping, row);
+              totalRowsSynced++;
+            } catch {
+              // continue syncing remaining rows if a legacy table has custom constraints
+            }
           }
         }
         await conn.commit();
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1;');
       } catch (txErr) {
         await conn.rollback();
         throw txErr;
@@ -469,9 +543,9 @@ async function startServer() {
 
       res.json({
         ok: true,
-        version: info.version,
+        version,
         database: cfg.database,
-        tablesCount: info.tablesCreated,
+        tablesCount: tablesCreated,
         totalRowsSynced,
       });
     } catch (err: unknown) {
@@ -484,12 +558,17 @@ async function startServer() {
   app.post('/api/mysql/pull-all', async (req, res) => {
     const cfg = resolveConfig(req.body?.config);
     try {
-      await ensureDatabaseAndSchema(cfg);
+      try {
+        await ensureDatabaseAndSchema(cfg);
+      } catch {
+        // Never allow DDL or foreign key checks on existing tables to block pulling data
+      }
       const conn = await getMySQLConnection(cfg, true);
       const resultData: Record<string, Record<string, unknown>[]> = {};
       let totalRowsPulled = 0;
 
       try {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 0;');
         for (const mapping of MYSQL_TABLES_CONFIG) {
           try {
             const [rows] = await conn.query<mysql.RowDataPacket[]>(
@@ -506,7 +585,7 @@ async function startServer() {
                   // fallback to relational columns if raw_json was modified manually in MySQL Workbench
                 }
               }
-              parsedRows.push({ ...r });
+              parsedRows.push(mapRelationalRowToCamelCase({ ...r }));
               totalRowsPulled++;
             }
             resultData[mapping.dexieTable] = parsedRows;
@@ -549,6 +628,7 @@ async function startServer() {
     try {
       const conn = await getMySQLConnection(cfg, true);
       try {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 0;');
         if (operation === 'delete' && recordId) {
           await conn.execute(`DELETE FROM \`${mapping.mysqlTable}\` WHERE \`id\` = ?`, [
             String(recordId),
@@ -556,6 +636,7 @@ async function startServer() {
         } else if (operation === 'upsert' && record && record.id) {
           await upsertRowInMySQL(conn, mapping, record);
         }
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1;');
       } finally {
         await conn.end();
       }

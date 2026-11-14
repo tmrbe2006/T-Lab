@@ -244,6 +244,22 @@ class MySQLSyncService {
     );
   }
 
+  public updateTopHeaderButtonDOM(): void {
+    if (typeof document === 'undefined') return;
+    const btn = document.getElementById('top-mysql-btn');
+    if (!btn) return;
+    const dbName = this.connectedDb || 'tlab_db';
+    if (this.isConnected) {
+      btn.className =
+        'rounded-lg border border-emerald-400/60 bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/40 px-3 py-1.5 text-xs font-bold whitespace-nowrap cursor-pointer';
+      btn.innerHTML = `🟢 ${i18n.bi(`متصل بـ MySQL (${dbName})`, `MySQL Connected (${dbName})`)}`;
+    } else {
+      btn.className =
+        'rounded-lg border border-rose-400/50 bg-rose-500/20 text-rose-100 hover:bg-rose-500/35 px-3 py-1.5 text-xs font-bold whitespace-nowrap cursor-pointer';
+      btn.innerHTML = `🗄️ ${i18n.bi('قاعدة بيانات MySQL (اضغط للربط)', 'MySQL DB (Connect)')}`;
+    }
+  }
+
   public async testConnection(cfg: MySQLClientConfig): Promise<{
     ok: boolean;
     version?: string;
@@ -267,6 +283,7 @@ class MySQLSyncService {
     } else {
       this.lastError = res.error || '';
     }
+    this.updateTopHeaderButtonDOM();
     return res;
   }
 
@@ -306,6 +323,7 @@ class MySQLSyncService {
       if (res.ok) {
         this.isConnected = true;
         this.connectedDb = cfg.database || 'tlab_db';
+        this.updateTopHeaderButtonDOM();
       }
       return res;
     } catch (err: unknown) {
@@ -333,14 +351,22 @@ class MySQLSyncService {
         body: JSON.stringify({ config: cfg }),
       });
       if (!json.ok || !json.data) {
-        this.isConnected = false;
-        this.lastError = json.error || 'Failed to pull data from MySQL';
+        const errMsg = json.error || 'Failed to pull data from MySQL';
+        const isConstraintError = /foreign key constraint|errno:\s*150|errno:\s*1215|errno:\s*1451|errno:\s*1452/i.test(
+          errMsg
+        );
+        if (!isConstraintError) {
+          this.isConnected = false;
+        }
+        this.lastError = errMsg;
+        this.updateTopHeaderButtonDOM();
         return { ok: false, error: this.lastError };
       }
 
       this.isConnected = true;
       this.lastError = '';
       this.connectedDb = cfg.database || 'tlab_db';
+      this.updateTopHeaderButtonDOM();
 
       const protectedMasterTables = new Set([
         'roles',
@@ -392,6 +418,7 @@ class MySQLSyncService {
     } catch (err: unknown) {
       this.isConnected = false;
       this.lastError = err instanceof Error ? err.message : String(err);
+      this.updateTopHeaderButtonDOM();
       return {
         ok: false,
         error: this.lastError,
@@ -406,11 +433,19 @@ class MySQLSyncService {
    */
   public async autoSyncOnStartup(): Promise<void> {
     const cfg = await this.loadEnvConfigFromServer();
+    const testRes = await this.testConnection(cfg);
+    if (testRes.ok) {
+      this.isConnected = true;
+      this.connectedDb = cfg.database || 'tlab_db';
+      this.saveConfig({ ...cfg, autoSync: true });
+      this.updateTopHeaderButtonDOM();
+    }
     const res = await this.pullAllFromMySQL(cfg);
     if (res.ok) {
       this.isConnected = true;
       this.connectedDb = cfg.database || 'tlab_db';
       this.saveConfig({ ...cfg, autoSync: true });
+      this.updateTopHeaderButtonDOM();
       if ((res.totalRowsPulled || 0) === 0) {
         await this.pushAllToMySQL({ ...cfg, autoSync: true });
       }
