@@ -89,13 +89,13 @@ export function openCustomModal(title: string, bodyHtml: string, onMount?: (clos
   if (!root) return;
 
   root.innerHTML = `
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto">
-      <div class="w-full max-w-2xl rounded-xl bg-white border border-slate-200 p-6 shadow-xl my-8">
-        <div class="flex items-center justify-between gap-4 border-b border-slate-200 pb-3 mb-4">
-          <h3 class="text-base font-bold text-slate-900">${title}</h3>
-          <button id="custom-modal-close" type="button" class="text-slate-400 hover:text-slate-700 text-sm font-bold px-2 py-1">✕</button>
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-2 sm:p-3 overflow-y-auto">
+      <div class="w-full max-w-4xl max-h-[95vh] flex flex-col rounded-xl bg-white border border-slate-200 px-4 py-3 shadow-xl">
+        <div class="flex items-center justify-between gap-4 border-b border-slate-200 pb-2 mb-2.5 shrink-0">
+          <h3 class="text-sm font-bold text-slate-900">${title}</h3>
+          <button id="custom-modal-close" type="button" class="text-slate-400 hover:text-slate-700 text-sm font-bold px-2 py-0.5 cursor-pointer">✕</button>
         </div>
-        <div id="custom-modal-body">${bodyHtml}</div>
+        <div id="custom-modal-body" class="overflow-y-auto pr-0.5">${bodyHtml}</div>
       </div>
     </div>
   `;

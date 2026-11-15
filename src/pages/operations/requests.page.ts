@@ -68,7 +68,6 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
 
   const openRequestModal = async (existingReq?: LabRequest) => {
     const isEdit = Boolean(existingReq);
-    const canDiscount = can(user, 'discount', 'requests');
     const existingItems = existingReq ? await requestsRepository.getRequestItems(existingReq.id) : [];
     const existingTestIds = new Set(existingItems.map((it) => it.testId));
 
@@ -80,30 +79,62 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
       : discountService.getPatientDefaultDiscount(selectedPat);
     const initTaxRate = existingReq ? existingReq.taxRate : 14;
     const initType: RequestType = existingReq ? existingReq.type : 'referred';
+    const initDate = existingReq?.createdAt
+      ? existingReq.createdAt.slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
 
     openCustomModal(
       isEdit
         ? i18n.bi(`تعديل طلب التحاليل: ${existingReq?.requestNumber}`, `Edit Lab Request: ${existingReq?.requestNumber}`)
         : i18n.bi('إنشاء طلب تحاليل جديد + توليد باركود وفاتورة تلقائية', 'Create New Lab Request + Auto Barcode & Invoice'),
       `
-        <form id="req-form" class="space-y-4 text-xs">
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label class="block font-semibold mb-1">${i18n.bi('المريض *', 'Patient *')}</label>
-              <select id="req-pat-sel" name="patientId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
+        <form id="req-form" class="space-y-2.5 text-xs">
+          <!-- Row 1: Patient Search + Patient Selector + Order Date -->
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 rounded-lg bg-slate-50 p-2 border border-slate-200">
+            <div class="sm:col-span-5">
+              <div class="flex items-center justify-between mb-0.5">
+                <label class="block font-bold text-slate-900 text-[11px]">${i18n.bi('بحث سريع عن المريض', 'Search Patient')}</label>
+                <span id="req-pat-match-badge" class="text-[10px] font-mono font-bold text-sky-700">${patients.length} ${i18n.bi('مريض', 'patients')}</span>
+              </div>
+              <input
+                id="req-pat-search"
+                type="search"
+                autocomplete="off"
+                placeholder="${i18n.bi('🔍 ابحث بالاسم أو الكود أو رقم الهاتف أو الرقم القومي...', '🔍 Search by name, code, phone, or national ID...')}"
+                class="w-full rounded-md border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
+              />
+            </div>
+            <div class="sm:col-span-4">
+              <label class="block font-bold text-slate-900 mb-0.5 text-[11px]">${i18n.bi('المريض المختار *', 'Selected Patient *')}</label>
+              <select id="req-pat-sel" name="patientId" class="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900 focus:border-sky-600 focus:outline-none">
                 ${patients
                   .map(
                     (p) =>
                       `<option value="${p.id}" ${p.id === selectedPat?.id ? 'selected' : ''}>${p.name}${
                         p.nameEn ? ` (${p.nameEn})` : ''
-                      } — ${p.code}</option>`
+                      } — ${p.code}${p.phone ? ` · ${p.phone}` : ''}</option>`
                   )
                   .join('')}
               </select>
             </div>
+            <div class="sm:col-span-3">
+              <label class="block font-bold text-slate-900 mb-0.5 text-[11px]">${i18n.bi('📅 تاريخ طلب التحاليل *', '📅 Request Date *')}</label>
+              <input
+                id="req-date-input"
+                name="createdAt"
+                type="date"
+                required
+                value="${initDate}"
+                class="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-sky-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <!-- Row 2: Contract / Insurance + Request Type + Referring Doctor -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
-              <label class="block font-semibold mb-1">${i18n.bi('جهة التعاقد / التأمين / النقابة', 'Corporate / Insurance Contract')}</label>
-              <select id="req-contract-sel" name="contractId" class="w-full rounded-lg border border-indigo-300 bg-indigo-50/50 px-3 py-2 text-xs font-bold text-indigo-950">
+              <label class="block font-semibold mb-0.5 text-[11px]">${i18n.bi('جهة التعاقد / التأمين / النقابة', 'Corporate / Insurance Contract')}</label>
+              <select id="req-contract-sel" name="contractId" class="w-full rounded-md border border-indigo-300 bg-indigo-50/50 px-2.5 py-1.5 text-xs font-bold text-indigo-950">
                 <option value="">${i18n.bi('نقدي مباشر (Cash Walk-in)', 'Direct Cash (No Contract)')}</option>
                 ${contracts
                   .map(
@@ -114,15 +145,15 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               </select>
             </div>
             <div>
-              <label class="block font-semibold mb-1">${i18n.bi('نوع الطلب', 'Request Type')}</label>
-              <select id="req-type-sel" name="type" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
+              <label class="block font-semibold mb-0.5 text-[11px]">${i18n.bi('نوع الطلب', 'Request Type')}</label>
+              <select id="req-type-sel" name="type" class="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold">
                 <option value="referred" ${initType === 'referred' ? 'selected' : ''}>${i18n.bi('محول من طبيب خارجي (Referred)', 'Referred by Doctor')}</option>
                 <option value="internal" ${initType === 'internal' ? 'selected' : ''}>${i18n.bi('طلب داخلي مباشر (Internal)', 'Internal Direct Request')}</option>
               </select>
             </div>
             <div id="req-doc-wrap" style="display: ${initType === 'referred' ? 'block' : 'none'};">
-              <label class="block font-semibold mb-1">${i18n.bi('الطبيب المحول', 'Referring Doctor')}</label>
-              <select id="req-doc-sel" name="doctorId" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs">
+              <label class="block font-semibold mb-0.5 text-[11px]">${i18n.bi('الطبيب المحول', 'Referring Doctor')}</label>
+              <select id="req-doc-sel" name="doctorId" class="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-xs">
                 ${doctors
                   .filter((d) => d.type !== 'internal')
                   .map(
@@ -134,22 +165,22 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             </div>
           </div>
 
-          <div class="space-y-2">
+          <div class="space-y-1.5">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <label class="block font-bold text-slate-900 text-xs">${i18n.bi('اختر التحاليل المطلوبة *', 'Select Requested Lab Tests *')}</label>
-              <div class="flex items-center gap-2">
-                <span id="req-selected-tests-badge" class="text-xs font-bold text-sky-800 font-mono tabular-nums"></span>
+              <div class="flex items-center gap-1.5">
+                <span id="req-selected-tests-badge" class="text-[11px] font-bold text-sky-800 font-mono tabular-nums"></span>
                 <button
                   type="button"
                   id="req-toggle-selected-only"
-                  class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  class="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
                 >
                   ${i18n.bi('عرض المختارة فقط', 'Show Selected Only')}
                 </button>
                 <button
                   type="button"
                   id="req-clear-tests-btn"
-                  class="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                  class="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 cursor-pointer"
                 >
                   ${i18n.bi('إلغاء تحديد الكل', 'Clear Selection')}
                 </button>
@@ -164,13 +195,13 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                   type="search"
                   autocomplete="off"
                   placeholder="${i18n.bi('🔍 ابحث عن اسم التحليل بالعربي أو الإنجليزي أو الكود (مثال: CBC, Urea, صورة دم, غدة)...', '🔍 Search test by Arabic/English name or code (e.g., CBC, Urea, TSH)...')}"
-                  class="w-full rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
+                  class="w-full rounded-md border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
                 />
               </div>
               <div class="sm:col-span-4">
                 <select
                   id="req-test-dept-filter"
-                  class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 focus:border-sky-600 focus:outline-none"
+                  class="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 focus:border-sky-600 focus:outline-none"
                 >
                   <option value="">${i18n.bi('كل الأقسام العلمية (' + tests.length + ' تحليل)', 'All Departments (' + tests.length + ' Tests)')}</option>
                   ${Array.from(new Set(tests.map((t) => t.department).filter(Boolean)))
@@ -180,7 +211,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               </div>
             </div>
 
-            <div id="req-tests-grid" class="max-h-56 overflow-y-auto rounded-lg border border-slate-200 p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50">
+            <div id="req-tests-grid" class="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-1.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 bg-slate-50">
               ${tests
                 .map((t, idx) => {
                   const isChecked = isEdit ? existingTestIds.has(t.id) : idx < 2;
@@ -189,60 +220,73 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                   <label
                     data-test-search="${searchBlob}"
                     data-test-dept="${t.department}"
-                    class="req-tst-card flex items-center justify-between gap-2 rounded bg-white border ${
+                    title="${t.code} — ${t.nameAr} (${t.nameEn})"
+                    class="req-tst-card flex items-center justify-between gap-1.5 rounded bg-white border ${
                       isChecked ? 'border-sky-500 bg-sky-50/40' : 'border-slate-200'
-                    } px-2.5 py-2 cursor-pointer hover:border-sky-400 transition-colors"
+                    } px-2 py-1.5 cursor-pointer hover:border-sky-400 transition-colors"
                   >
-                    <span class="flex items-center gap-2 min-w-0">
-                      <input type="checkbox" name="testIds" value="${t.id}" ${isChecked ? 'checked' : ''} class="req-tst-chk w-4 h-4 accent-sky-600 shrink-0" />
-                      <span class="font-semibold text-slate-800 leading-snug">${t.code} — ${i18n.bi(t.nameAr, t.nameEn)}</span>
+                    <span class="flex items-center gap-1.5 min-w-0">
+                      <input type="checkbox" name="testIds" value="${t.id}" ${isChecked ? 'checked' : ''} class="req-tst-chk w-3.5 h-3.5 accent-sky-600 shrink-0" />
+                      <span class="font-semibold text-[11px] text-slate-800 truncate">${t.code} — ${i18n.bi(t.nameAr, t.nameEn)}</span>
                     </span>
-                    <span class="font-mono font-bold text-slate-900 tabular-nums shrink-0 ms-2">${t.price} EGP</span>
+                    <span class="font-mono font-bold text-[11px] text-slate-900 tabular-nums shrink-0 ms-1">${t.price} EGP</span>
                   </label>
                 `;
                 })
                 .join('')}
             </div>
-            <div id="req-tests-empty-msg" class="hidden rounded-lg border border-amber-200 bg-amber-50 p-3 text-center text-xs font-semibold text-amber-900">
+            <div id="req-tests-empty-msg" class="hidden rounded-md border border-amber-200 bg-amber-50 p-2 text-center text-xs font-semibold text-amber-900">
               ${i18n.bi('لا توجد تحاليل مطابقة لعبارة البحث الحالية.', 'No lab tests match your current search filter.')}
             </div>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-lg bg-slate-100 p-3 border border-slate-200">
-            <div>
-              <label class="block font-semibold mb-1">${i18n.bi('نوع الخصم', 'Discount Type')}</label>
-              <select id="req-disc-type" name="discountType" ${!canDiscount ? 'disabled' : ''} class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs">
-                <option value="none" ${initDisc.type === 'none' ? 'selected' : ''}>بدون خصم (None)</option>
-                <option value="percentage" ${initDisc.type === 'percentage' ? 'selected' : ''}>نسبة مئوية (%)</option>
-                <option value="fixed" ${initDisc.type === 'fixed' ? 'selected' : ''}>مبلغ ثابت (EGP)</option>
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 rounded-lg bg-slate-100 p-2 border border-slate-200 items-end">
+            <div class="sm:col-span-4">
+              <label class="block font-bold text-slate-800 mb-0.5 text-[11px]">${i18n.bi('نوع الخصم (متاح لجميع المرضى)', 'Discount Type (All Patients)')}</label>
+              <select id="req-disc-type" name="discountType" class="w-full rounded border border-sky-300 bg-white px-2 py-1 text-xs font-bold text-slate-900 focus:border-sky-600 focus:outline-none cursor-pointer">
+                <option value="none" ${initDisc.type === 'none' ? 'selected' : ''}>${i18n.bi('بدون خصم (None)', 'No Discount (None)')}</option>
+                <option value="percentage" ${initDisc.type === 'percentage' ? 'selected' : ''}>${i18n.bi('نسبة مئوية (%)', 'Percentage (%)')}</option>
+                <option value="fixed" ${initDisc.type === 'fixed' ? 'selected' : ''}>${i18n.bi('مبلغ ثابت (EGP)', 'Fixed Amount (EGP)')}</option>
               </select>
             </div>
-            <div>
-              <label class="block font-semibold mb-1">${i18n.bi('قيمة الخصم', 'Discount Value')}</label>
-              <input id="req-disc-val" name="discountValue" type="number" min="0" step="0.5" value="${initDisc.value}" ${!canDiscount ? 'disabled' : ''} class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+            <div class="sm:col-span-5">
+              <div class="flex items-center justify-between mb-0.5 gap-1">
+                <label class="block font-bold text-slate-800 text-[11px]">${i18n.bi('قيمة الخصم', 'Discount Value')}</label>
+                <div class="flex items-center gap-1">
+                  ${[0, 5, 10, 15, 20, 25, 50]
+                    .map(
+                      (pct) =>
+                        `<button type="button" data-disc-preset="${pct}" class="req-disc-preset rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-900 hover:bg-amber-100 cursor-pointer">${pct}%</button>`
+                    )
+                    .join('')}
+                </div>
+              </div>
+              <input id="req-disc-val" name="discountValue" type="number" min="0" step="0.5" value="${initDisc.value}" class="w-full rounded border border-sky-300 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-sky-600 focus:outline-none" />
             </div>
-            <div>
-              <label class="block font-semibold mb-1">${i18n.bi('الضريبة (تُحسب بعد الخصم %)', 'Tax After Discount (%)')}</label>
-              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="50" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+            <div class="sm:col-span-3">
+              <label class="block font-semibold mb-0.5 text-[11px]">${i18n.bi('الضريبة (تُحسب بعد الخصم %)', 'Tax After Discount (%)')}</label>
+              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="50" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono" />
             </div>
           </div>
 
-          <!-- Live Calculation Summary -->
-          <div id="req-calc-preview" class="rounded-lg bg-slate-900 text-white p-4 grid grid-cols-2 sm:grid-cols-6 gap-3 text-center"></div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
+          <!-- Live Calculation Summary + Submit Button -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-lg bg-slate-900 text-white px-3 py-2">
+            <div id="req-calc-preview" class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center flex-1"></div>
+            <button type="submit" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-500 cursor-pointer shrink-0">
               ${
                 isEdit
-                  ? i18n.bi('حفظ تعديلات الطلب والفاتورة', 'Save Request & Invoice Changes')
-                  : i18n.bi('حفظ الطلب وإصدار الباركود والفاتورة', 'Save Request & Generate Barcode/Invoice')
+                  ? i18n.bi('💾 حفظ التعديلات', '💾 Save Changes')
+                  : i18n.bi('💾 حفظ الطلب وإصدار الباركود والفاتورة', '💾 Save Request & Barcode/Invoice')
               }
             </button>
           </div>
         </form>
       `,
       (close) => {
+        const patSearchInput = document.getElementById('req-pat-search') as HTMLInputElement | null;
+        const patMatchBadge = document.getElementById('req-pat-match-badge');
         const patSel = document.getElementById('req-pat-sel') as HTMLSelectElement | null;
+        const reqDateInput = document.getElementById('req-date-input') as HTMLInputElement | null;
         const contractSel = document.getElementById('req-contract-sel') as HTMLSelectElement | null;
         const typeSel = document.getElementById('req-type-sel') as HTMLSelectElement | null;
         const docWrap = document.getElementById('req-doc-wrap');
@@ -250,6 +294,60 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
         const discValEl = document.getElementById('req-disc-val') as HTMLInputElement | null;
         const taxRateEl = document.getElementById('req-tax-rate') as HTMLInputElement | null;
         const calcPreview = document.getElementById('req-calc-preview');
+
+        const applyPatientDiscountAndCalc = () => {
+          if (!patSel) return;
+          const pat = patientMap.get(patSel.value);
+          const def = discountService.getPatientDefaultDiscount(pat);
+          if (!contractSel?.value && discTypeEl && discValEl && def.type !== 'none' && def.value > 0) {
+            discTypeEl.value = def.type;
+            discValEl.value = String(def.value);
+          }
+          updateCalc();
+        };
+
+        patSearchInput?.addEventListener('input', () => {
+          if (!patSel) return;
+          const q = patSearchInput.value.trim().toLowerCase();
+          const prevSelectedId = patSel.value;
+          const matchedPatients = !q
+            ? patients
+            : patients.filter((p) => {
+                const blob = `${p.name} ${p.nameEn || ''} ${p.code} ${p.phone || ''} ${p.nationalId || ''}`.toLowerCase();
+                return blob.includes(q);
+              });
+
+          if (patMatchBadge) {
+            patMatchBadge.textContent = q
+              ? i18n.bi(`${matchedPatients.length} مطابق من ${patients.length}`, `${matchedPatients.length} of ${patients.length}`)
+              : `${patients.length} ${i18n.bi('مريض', 'patients')}`;
+            patMatchBadge.className = `text-[11px] font-mono font-bold ${
+              matchedPatients.length > 0 ? 'text-sky-700' : 'text-rose-600'
+            }`;
+          }
+
+          if (matchedPatients.length === 0) {
+            patSel.innerHTML = `<option value="">${i18n.bi('— لا يوجد مريض مطابق للبحث —', '— No matching patient found —')}</option>`;
+            return;
+          }
+
+          const nextSelectedId = matchedPatients.some((p) => p.id === prevSelectedId)
+            ? prevSelectedId
+            : matchedPatients[0].id;
+
+          patSel.innerHTML = matchedPatients
+            .map(
+              (p) =>
+                `<option value="${p.id}" ${p.id === nextSelectedId ? 'selected' : ''}>${p.name}${
+                  p.nameEn ? ` (${p.nameEn})` : ''
+                } — ${p.code}${p.phone ? ` · ${p.phone}` : ''}</option>`
+            )
+            .join('');
+
+          if (nextSelectedId !== prevSelectedId) {
+            applyPatientDiscountAndCalc();
+          }
+        });
 
         const getSelectedTests = () => {
           const checkedIds = Array.from(document.querySelectorAll<HTMLInputElement>('.req-tst-chk:checked')).map(
@@ -294,15 +392,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           updateCalc();
         });
 
-        patSel?.addEventListener('change', () => {
-          const pat = patientMap.get(patSel.value);
-          const def = discountService.getPatientDefaultDiscount(pat);
-          if (!contractSel?.value && discTypeEl && discValEl) {
-            discTypeEl.value = def.type;
-            discValEl.value = String(def.value);
-          }
-          updateCalc();
-        });
+        patSel?.addEventListener('change', applyPatientDiscountAndCalc);
 
         typeSel?.addEventListener('change', () => {
           if (docWrap) {
@@ -384,8 +474,29 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             updateCalc();
           })
         );
-        discTypeEl?.addEventListener('change', updateCalc);
-        discValEl?.addEventListener('input', updateCalc);
+        discTypeEl?.addEventListener('change', () => {
+          if (discTypeEl.value === 'none' && discValEl) {
+            discValEl.value = '0';
+          }
+          updateCalc();
+        });
+        discValEl?.addEventListener('input', () => {
+          const val = Number(discValEl.value) || 0;
+          if (val > 0 && discTypeEl && discTypeEl.value === 'none') {
+            discTypeEl.value = 'percentage';
+          }
+          updateCalc();
+        });
+        document.querySelectorAll<HTMLButtonElement>('.req-disc-preset').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const pct = Number(btn.getAttribute('data-disc-preset') || '0');
+            if (discTypeEl && discValEl) {
+              discTypeEl.value = pct > 0 ? 'percentage' : 'none';
+              discValEl.value = String(pct);
+              updateCalc();
+            }
+          });
+        });
         taxRateEl?.addEventListener('input', updateCalc);
         filterTestsGrid();
         updateCalc();
@@ -394,6 +505,10 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!(await enforcePermission(isEdit ? 'edit' : 'add', 'requests'))) return;
+          if (!patSel?.value) {
+            showToast(i18n.bi('يرجى اختيار المريض أولاً', 'Please select a patient first'), 'warning');
+            return;
+          }
           const chosen = getSelectedTests();
           if (chosen.length === 0) {
             showToast(i18n.bi('يرجى اختيار تحليل واحد على الأقل', 'Select at least one test'), 'warning');
@@ -403,7 +518,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           const rType = (typeSel?.value as RequestType) || 'referred';
           const docSel = document.getElementById('req-doc-sel') as HTMLSelectElement | null;
           const docId = rType === 'referred' ? docSel?.value : undefined;
-          const today = new Date().toISOString().slice(0, 10);
+          const reqDate = (reqDateInput?.value || '').trim() || new Date().toISOString().slice(0, 10);
 
           if (isEdit && existingReq) {
             const updatedReq: LabRequest = {
@@ -422,6 +537,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               taxRate: math.taxRate,
               taxAmount: math.taxAmount,
               netTotal: math.netTotal,
+              createdAt: reqDate,
             };
 
             const rItems: RequestItem[] = chosen.map((t, idx) => ({
@@ -450,6 +566,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                 patientId: updatedReq.patientId,
                 doctorId: docId,
                 requestType: rType,
+                date: reqDate,
                 subtotal: math.subtotal,
                 discountType: math.discountType,
                 discountValue: math.discountValue,
@@ -517,7 +634,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             taxAmount: math.taxAmount,
             netTotal: math.netTotal,
             createdBy: user?.username || 'admin',
-            createdAt: today,
+            createdAt: reqDate,
             notes: '',
           };
 
@@ -538,7 +655,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             sampleType: chosen.map((c) => c.sampleType).filter((v, i, a) => a.indexOf(v) === i).join(' + '),
             tubeType: chosen.map((c) => c.tubeType).filter((v, i, a) => a.indexOf(v) === i).join(' + '),
             status: 'received',
-            receivedAt: `${today} 10:00`,
+            receivedAt: `${reqDate} 10:00`,
             receivedBy: user?.username || 'technician',
           };
           await requestsRepository.saveSample(newSample);
@@ -557,7 +674,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             patientShareAmount: math.patientShare,
             companyShareAmount: math.companyShare,
             requestType: rType,
-            date: today,
+            date: reqDate,
             subtotal: math.subtotal,
             discountType: math.discountType,
             discountValue: math.discountValue,

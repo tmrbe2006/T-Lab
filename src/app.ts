@@ -32,6 +32,7 @@ export interface UserMenuPreferences {
   hiddenRoutes: string[];
   groupOrder: string[];
   customGroupTitlesAr: Record<string, string>;
+  routeGroupOverrides: Record<string, string>;
 }
 
 const MENU_PREFS_STORAGE_KEY = 'tlab_menu_preferences_v2';
@@ -162,6 +163,7 @@ function loadMenuPreferences(): UserMenuPreferences {
     hiddenRoutes: [],
     groupOrder: DEFAULT_SIDEBAR_GROUPS.map((g) => g.id),
     customGroupTitlesAr: {},
+    routeGroupOverrides: {},
   };
   try {
     const raw = localStorage.getItem(MENU_PREFS_STORAGE_KEY);
@@ -177,6 +179,7 @@ function loadMenuPreferences(): UserMenuPreferences {
           ? parsed.groupOrder
           : defaultPrefs.groupOrder,
       customGroupTitlesAr: parsed.customGroupTitlesAr || {},
+      routeGroupOverrides: parsed.routeGroupOverrides || {},
     };
   } catch {
     return defaultPrefs;
@@ -189,6 +192,37 @@ function saveMenuPreferences(prefs: UserMenuPreferences): void {
   } catch {
     // ignore storage quota errors
   }
+}
+
+function getResolvedSidebarGroups(prefs: UserMenuPreferences): NavGroup[] {
+  const validGroupIds = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
+  const itemsByGroup = new Map<string, NavItem[]>();
+  for (const grp of DEFAULT_SIDEBAR_GROUPS) {
+    itemsByGroup.set(grp.id, []);
+  }
+
+  for (const grp of DEFAULT_SIDEBAR_GROUPS) {
+    for (const item of grp.items) {
+      const overrideGrpId = prefs.routeGroupOverrides?.[item.route];
+      const targetGrpId =
+        overrideGrpId && validGroupIds.has(overrideGrpId) ? overrideGrpId : grp.id;
+      itemsByGroup.get(targetGrpId)?.push(item);
+    }
+  }
+
+  const resolvedGroups = DEFAULT_SIDEBAR_GROUPS.map((grp) => ({
+    ...grp,
+    titleAr: prefs.customGroupTitlesAr[grp.id] || grp.titleAr,
+    items: itemsByGroup.get(grp.id) || [],
+  }));
+
+  resolvedGroups.sort((a, b) => {
+    const ia = prefs.groupOrder.indexOf(a.id);
+    const ib = prefs.groupOrder.indexOf(b.id);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
+  return resolvedGroups;
 }
 
 /**
@@ -376,11 +410,7 @@ export class MedicalLabApp {
     const currentUser = authService.getCurrentUser();
     const isDeveloper = currentUser?.role === 'Developer';
 
-    const orderedGroups = [...DEFAULT_SIDEBAR_GROUPS].sort((a, b) => {
-      const ia = prefs.groupOrder.indexOf(a.id);
-      const ib = prefs.groupOrder.indexOf(b.id);
-      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-    });
+    const orderedGroups = getResolvedSidebarGroups(prefs);
 
     openCustomModal(
       i18n.bi('⚙️ إعدادات وتنسيق القوائم الجانبية (Menu Settings & Customization)', 'Sidebar Menu Settings & Customization'),
@@ -409,13 +439,18 @@ export class MedicalLabApp {
           </div>
 
           <div class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-            <div class="font-bold text-slate-900 text-sm">${i18n.bi('2. تخصيص القوائم الرئيسية والشاشات الفرعية (تعديل الاسم / إظهار أو إخفاء)', '2. Customize Menu Groups & Sub-Screens')}</div>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="font-bold text-slate-900 text-sm">${i18n.bi('2. تخصيص القوائم الرئيسية والشاشات الفرعية (تعديل الاسم / نقل الشاشة الفرعية لأي قائمة رئيسية / إظهار أو إخفاء)', '2. Customize Main Menus & Move Any Sub-Screen to Any Main Group')}</div>
+              <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-800">
+                🔀 ${i18n.bi('يمكنك نقل أي شاشة فرعية إلى أي قائمة رئيسية من القائمة المنسدلة بجانب كل شاشة', 'Select target main group next to any submenu item')}
+              </span>
+            </div>
             ${orderedGroups
               .map((grp, gIdx) => {
                 const isGrpVisible = !prefs.hiddenGroups.includes(grp.id);
                 const customTitle = prefs.customGroupTitlesAr[grp.id] || grp.titleAr;
                 return `
-                  <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2" data-group-card="${grp.id}">
                     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
                       <label class="flex items-center gap-2 font-bold text-slate-900 cursor-pointer">
                         <input type="checkbox" name="grp_vis_${grp.id}" value="1" ${isGrpVisible ? 'checked' : ''} class="w-4 h-4 accent-sky-600 rounded" />
@@ -439,16 +474,35 @@ export class MedicalLabApp {
                         />
                       </div>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+                    <div id="grp-items-grid-${grp.id}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
                       ${grp.items
                         .filter((item) => isDeveloper || !DEVELOPER_ONLY_ROUTES.includes(item.route))
                         .map((item) => {
                           const isItemVis = !prefs.hiddenRoutes.includes(item.route);
+                          const currentGrpId = prefs.routeGroupOverrides?.[item.route] || grp.id;
                           return `
-                            <label class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 cursor-pointer hover:bg-slate-50">
-                              <input type="checkbox" name="route_vis_${item.route}" value="1" ${isItemVis ? 'checked' : ''} class="accent-sky-600 rounded" />
-                              <span>${d.nav[item.labelKey]}</span>
-                            </label>
+                            <div data-submenu-card="${item.route}" class="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 text-[11px] font-semibold text-slate-700 shadow-2xs transition-colors">
+                              <label class="flex items-center gap-1.5 cursor-pointer hover:text-sky-700">
+                                <input type="checkbox" name="route_vis_${item.route}" value="1" ${isItemVis ? 'checked' : ''} class="accent-sky-600 rounded" />
+                                <span class="font-bold text-slate-800">${d.nav[item.labelKey]}</span>
+                              </label>
+                              <div class="flex items-center gap-1 border-t border-slate-100 pt-1">
+                                <span class="text-[10px] text-slate-400 shrink-0">${i18n.bi('القائمة:', 'Group:')}</span>
+                                <select
+                                  name="route_grp_${item.route}"
+                                  data-route-group-select="${item.route}"
+                                  class="w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-900 focus:border-sky-500 focus:bg-white outline-none cursor-pointer"
+                                  title="${i18n.bi('نقل هذه الشاشة الفرعية إلى قائمة رئيسية أخرى', 'Move this submenu to another main menu group')}"
+                                >
+                                  ${orderedGroups
+                                    .map((gOpt) => {
+                                      const gOptTitle = prefs.customGroupTitlesAr[gOpt.id] || gOpt.titleAr;
+                                      return `<option value="${gOpt.id}" ${gOpt.id === currentGrpId ? 'selected' : ''}>${gOpt.icon} ${gOptTitle}</option>`;
+                                    })
+                                    .join('')}
+                                </select>
+                              </div>
+                            </div>
                           `;
                         })
                         .join('')}
@@ -478,6 +532,25 @@ export class MedicalLabApp {
       `,
       (close) => {
         const form = document.getElementById('menu-prefs-form') as HTMLFormElement | null;
+
+        // Live DOM move when user changes the target main group of any submenu item
+        form?.querySelectorAll<HTMLSelectElement>('select[data-route-group-select]').forEach((selectEl) => {
+          selectEl.addEventListener('change', () => {
+            const routeId = selectEl.dataset.routeGroupSelect;
+            const targetGroupId = selectEl.value;
+            if (!routeId || !targetGroupId) return;
+            const cardEl = form.querySelector<HTMLElement>(`[data-submenu-card="${routeId}"]`);
+            const targetGrid = document.getElementById(`grp-items-grid-${targetGroupId}`);
+            if (cardEl && targetGrid) {
+              targetGrid.appendChild(cardEl);
+              cardEl.classList.add('ring-2', 'ring-indigo-400', 'bg-indigo-50/40');
+              setTimeout(() => {
+                cardEl.classList.remove('ring-2', 'ring-indigo-400', 'bg-indigo-50/40');
+              }, 1200);
+            }
+          });
+        });
+
         document.getElementById('menu-prefs-reset-btn')?.addEventListener('click', () => {
           localStorage.removeItem(MENU_PREFS_STORAGE_KEY);
           this.expandedGroups = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
@@ -494,6 +567,7 @@ export class MedicalLabApp {
           const hiddenGroups: string[] = [];
           const hiddenRoutes: string[] = [];
           const customGroupTitlesAr: Record<string, string> = {};
+          const routeGroupOverrides: Record<string, string> = {};
           const orderPairs: Array<{ id: string; ord: number }> = [];
 
           for (const grp of DEFAULT_SIDEBAR_GROUPS) {
@@ -514,27 +588,35 @@ export class MedicalLabApp {
               if (!fd.get(`route_vis_${item.route}`)) {
                 hiddenRoutes.push(item.route);
               }
+              const selectedGrp = String(fd.get(`route_grp_${item.route}`) || '').trim();
+              if (selectedGrp && selectedGrp !== grp.id) {
+                routeGroupOverrides[item.route] = selectedGrp;
+              }
             }
           }
 
           orderPairs.sort((a, b) => a.ord - b.ord);
           const groupOrder = orderPairs.map((p) => p.id);
 
-          saveMenuPreferences({
+          const updatedPrefs: UserMenuPreferences = {
             layoutMode,
             showAllScreensRegardlessOfRole,
             hiddenGroups,
             hiddenRoutes,
             groupOrder,
             customGroupTitlesAr,
-          });
+            routeGroupOverrides,
+          };
 
+          saveMenuPreferences(updatedPrefs);
+
+          const resolvedGroups = getResolvedSidebarGroups(updatedPrefs);
           if (layoutMode === 'grouped_expanded') {
-            this.expandedGroups = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
+            this.expandedGroups = new Set(resolvedGroups.map((g) => g.id));
           } else if (layoutMode === 'grouped_accordion') {
             const currentRoute = router.getRoute();
-            const activeGrp = DEFAULT_SIDEBAR_GROUPS.find((g) => g.items.some((i) => i.route === currentRoute));
-            this.expandedGroups = new Set(activeGrp ? [activeGrp.id] : [DEFAULT_SIDEBAR_GROUPS[0].id]);
+            const activeGrp = resolvedGroups.find((g) => g.items.some((i) => i.route === currentRoute));
+            this.expandedGroups = new Set(activeGrp ? [activeGrp.id] : [resolvedGroups[0].id]);
           }
 
           close();
@@ -561,18 +643,13 @@ export class MedicalLabApp {
     }
 
     const prefs = loadMenuPreferences();
+    const orderedGroups = getResolvedSidebarGroups(prefs);
 
     // Ensure the group containing the active route is expanded automatically
-    const activeGroup = DEFAULT_SIDEBAR_GROUPS.find((g) => g.items.some((i) => i.route === currentRoute));
+    const activeGroup = orderedGroups.find((g) => g.items.some((i) => i.route === currentRoute));
     if (activeGroup) {
       this.expandedGroups.add(activeGroup.id);
     }
-
-    const orderedGroups = [...DEFAULT_SIDEBAR_GROUPS].sort((a, b) => {
-      const ia = prefs.groupOrder.indexOf(a.id);
-      const ib = prefs.groupOrder.indexOf(b.id);
-      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-    });
 
     const canViewDashboard = prefs.showAllScreensRegardlessOfRole || can(user, 'view', 'dashboard');
     const isDeveloper = user.role === 'Developer';

@@ -36,6 +36,9 @@ export function can(
       }
     }
   }
+  if (resource === 'requests' && action === 'discount') {
+    return true;
+  }
 
   const actionsMap = authService.getPermissionsFor(user.role, resource);
   if (!actionsMap) {

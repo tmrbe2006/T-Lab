@@ -818,7 +818,17 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-              <div class="md:col-span-4">
+              <div class="md:col-span-3">
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('🔍 بحث سريع عن المضاد الحيوي', '🔍 Search Antibiotic')}</label>
+                <input
+                  id="cd-pick-ab-search"
+                  type="search"
+                  autocomplete="off"
+                  placeholder="${i18n.bi('ابحث بالاسم أو الكود أو المجموعة...', 'Search name, code, class...')}"
+                  class="w-full rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:border-sky-600 focus:outline-none"
+                />
+              </div>
+              <div class="md:col-span-3">
                 <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('المضاد الحيوي من القاعدة', 'Antibiotic from DB Catalog')}</label>
                 <select id="cd-pick-ab-code" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
                   ${catalog
@@ -837,13 +847,13 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
                   <option value="R">R (Resistant - مقاوم)</option>
                 </select>
               </div>
-              <div class="md:col-span-2">
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('التركيز المثبط (MIC)', 'MIC Value')}</label>
-                <input id="cd-pick-ab-mic" type="text" value="${escapeHtml(firstCatalogItem?.defaultMicValue || '<= 0.5 µg/mL')}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+              <div class="md:col-span-1">
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">MIC</label>
+                <input id="cd-pick-ab-mic" type="text" value="${escapeHtml(firstCatalogItem?.defaultMicValue || '<= 0.5 µg/mL')}" class="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-mono" />
               </div>
-              <div class="md:col-span-2">
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('نقاط القطع (CLSI)', 'CLSI Breakpoints')}</label>
-                <input id="cd-pick-ab-bp" type="text" value="${escapeHtml(firstCatalogItem?.clsiBreakpoint || 'S <= 1, R >= 4')}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono" />
+              <div class="md:col-span-1">
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">CLSI</label>
+                <input id="cd-pick-ab-bp" type="text" value="${escapeHtml(firstCatalogItem?.clsiBreakpoint || 'S <= 1, R >= 4')}" class="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-mono" />
               </div>
               <div class="md:col-span-2">
                 <button type="button" id="cd-add-picked-ab-btn" class="w-full rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-sky-700 cursor-pointer">
@@ -973,16 +983,42 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
     });
 
     // When changing dropdown of catalog antibiotic to add, auto-populate MIC & Breakpoint
+    const pickSearch = document.getElementById('cd-pick-ab-search') as HTMLInputElement | null;
     const pickSelect = document.getElementById('cd-pick-ab-code') as HTMLSelectElement | null;
     const pickMic = document.getElementById('cd-pick-ab-mic') as HTMLInputElement | null;
     const pickBp = document.getElementById('cd-pick-ab-bp') as HTMLInputElement | null;
-    pickSelect?.addEventListener('change', () => {
+
+    const updatePickInputsFromSelection = () => {
+      if (!pickSelect) return;
       const found = catalog.find((c) => c.code === pickSelect.value);
       if (found) {
         if (pickMic) pickMic.value = found.defaultMicValue;
         if (pickBp) pickBp.value = found.clsiBreakpoint;
       }
+    };
+
+    pickSearch?.addEventListener('input', () => {
+      if (!pickSelect) return;
+      const q = pickSearch.value.trim().toLowerCase();
+      const matched = !q
+        ? catalog
+        : catalog.filter((c) =>
+            `${c.code} ${c.nameEn} ${c.nameAr || ''} ${c.antibioticClass}`.toLowerCase().includes(q)
+          );
+      if (matched.length === 0) {
+        pickSelect.innerHTML = `<option value="">${i18n.bi('— لا يوجد مضاد حيوي مطابق —', '— No matching antibiotic —')}</option>`;
+        return;
+      }
+      pickSelect.innerHTML = matched
+        .map(
+          (c) =>
+            `<option value="${escapeHtml(c.code)}">${escapeHtml(c.nameEn)} (${escapeHtml(c.code)}) — ${escapeHtml(c.antibioticClass)}</option>`
+        )
+        .join('');
+      updatePickInputsFromSelection();
     });
+
+    pickSelect?.addEventListener('change', updatePickInputsFromSelection);
 
     // When changing a row's antibiotic dropdown, auto-update its class, MIC, and breakpoint
     document.querySelectorAll<HTMLSelectElement>('[data-edit-ab-select]').forEach((sel) => {
@@ -1125,33 +1161,38 @@ function openNewCultureModal(
   let workingAntibiotics: CultureAntibioticResult[] = ORGANISM_PRESETS[0].antibiotics.map((a) => ({
     ...a,
   }));
+  let tableSearchFilter = '';
 
   const renderWorkingAntibioticsTable = () => {
     const tbody = document.getElementById('nc-ab-tbody');
     if (!tbody) return;
+    const q = tableSearchFilter.trim().toLowerCase();
     tbody.innerHTML = workingAntibiotics
-      .map(
-        (ab, idx) => `
-        <tr class="border-b border-slate-200">
+      .map((ab, idx) => {
+        const matchesTableFilter =
+          !q ||
+          `${ab.antibioticNameEn} ${ab.antibioticCode} ${ab.antibioticClass}`.toLowerCase().includes(q);
+        return `
+        <tr class="border-b border-slate-200 ${matchesTableFilter ? '' : 'hidden'}">
           <td class="px-2.5 py-1.5 font-bold text-slate-900">${escapeHtml(ab.antibioticNameEn)} (${escapeHtml(ab.antibioticCode)})</td>
           <td class="px-2.5 py-1.5 text-slate-600">${escapeHtml(ab.antibioticClass)}</td>
           <td class="px-2.5 py-1.5">
-            <select data-nc-ab-sens="${idx}" class="rounded border border-slate-300 px-2 py-0.5 text-xs font-bold">
+            <select data-nc-ab-sens="${idx}" class="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs font-bold">
               <option value="S" ${ab.sensitivity === 'S' ? 'selected' : ''}>S (Susceptible)</option>
               <option value="I" ${ab.sensitivity === 'I' ? 'selected' : ''}>I (Intermediate)</option>
               <option value="R" ${ab.sensitivity === 'R' ? 'selected' : ''}>R (Resistant)</option>
             </select>
           </td>
           <td class="px-2.5 py-1.5">
-            <input data-nc-ab-mic="${idx}" type="text" value="${escapeHtml(ab.micValue)}" class="w-28 rounded border border-slate-300 px-2 py-0.5 text-xs font-mono" />
+            <input data-nc-ab-mic="${idx}" type="text" value="${escapeHtml(ab.micValue)}" class="w-28 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs font-mono" />
           </td>
           <td class="px-2.5 py-1.5 font-mono text-slate-500">${escapeHtml(ab.clsiBreakpoint)}</td>
           <td class="px-2 py-1.5 text-center">
             <button type="button" data-nc-del-ab="${idx}" class="text-rose-600 hover:text-rose-800 font-bold cursor-pointer">✕</button>
           </td>
         </tr>
-      `
-      )
+      `;
+      })
       .join('');
 
     tbody.querySelectorAll<HTMLSelectElement>('[data-nc-ab-sens]').forEach((sel) => {
@@ -1220,13 +1261,26 @@ function openNewCultureModal(
         </div>
 
         <!-- Select & Add Antibiotics from DB Catalog -->
-        <div id="nc-ab-section" class="rounded-xl border border-teal-300 bg-teal-50/40 p-3.5 space-y-3">
+        <div id="nc-ab-section" class="rounded-xl border border-teal-300 bg-teal-50/40 p-3.5 space-y-2.5">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="text-xs font-extrabold text-teal-950">
-              💊 ${i18n.bi('قائمة المضادات الحيوية المختارة للتقرير (يمكنك الإضافة من جدول قاعدة البيانات):', 'Selected Antibiotics for Report (Pick from Database Catalog):')}
+              💊 ${i18n.bi('قائمة المضادات الحيوية المختارة للتقرير (يمكنك البحث والإضافة من جدول قاعدة البيانات):', 'Selected Antibiotics for Report (Search & Pick from Database Catalog):')}
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <select id="nc-add-ab-select" class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold">
+            <span id="nc-ab-match-badge" class="text-[11px] font-mono font-bold text-teal-800">${antibioticsCatalog.length} ${i18n.bi('مضاد متاح بالقاعدة', 'antibiotics in DB')}</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+            <div class="sm:col-span-5">
+              <input
+                id="nc-ab-search"
+                type="search"
+                autocomplete="off"
+                placeholder="${i18n.bi('🔍 ابحث عن المضاد الحيوي بالاسم أو الكود أو المجموعة (مثال: MEM, Amikacin, Meropenem)...', '🔍 Search antibiotic by name, code, or drug class...')}"
+                class="w-full rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
+              />
+            </div>
+            <div class="sm:col-span-5">
+              <select id="nc-add-ab-select" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
                 ${antibioticsCatalog
                   .map(
                     (c) =>
@@ -1234,22 +1288,24 @@ function openNewCultureModal(
                   )
                   .join('')}
               </select>
-              <button type="button" id="nc-add-ab-btn" class="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-500 cursor-pointer">
+            </div>
+            <div class="sm:col-span-2">
+              <button type="button" id="nc-add-ab-btn" class="w-full rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-500 cursor-pointer">
                 + ${i18n.bi('إضافة المضاد للتقرير', 'Add Antibiotic')}
               </button>
             </div>
           </div>
 
-          <div class="overflow-x-auto bg-white rounded-lg border border-slate-200 max-h-56 overflow-y-auto">
-            <table class="w-full text-xs text-start">
-              <thead class="bg-slate-900 text-white sticky top-0">
+          <div class="overflow-x-auto bg-white rounded-lg border border-slate-200 max-h-56 overflow-y-auto relative">
+            <table class="w-full text-xs text-start border-collapse">
+              <thead class="bg-slate-900 text-white sticky top-0 z-10 shadow-xs">
                 <tr>
-                  <th class="px-2.5 py-2 text-start">${i18n.bi('المضاد الحيوي', 'Antibiotic')}</th>
-                  <th class="px-2.5 py-2 text-start">${i18n.bi('المجموعة', 'Class')}</th>
-                  <th class="px-2.5 py-2 text-start">${i18n.bi('الحساسية', 'Sensitivity')}</th>
-                  <th class="px-2.5 py-2 text-start">MIC</th>
-                  <th class="px-2.5 py-2 text-start">CLSI</th>
-                  <th class="px-2 py-2 text-center w-10">✕</th>
+                  <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('المضاد الحيوي', 'Antibiotic')}</th>
+                  <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('المجموعة', 'Class')}</th>
+                  <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('الحساسية', 'Sensitivity')}</th>
+                  <th class="px-2.5 py-2 text-start bg-slate-900">MIC</th>
+                  <th class="px-2.5 py-2 text-start bg-slate-900">CLSI</th>
+                  <th class="px-2 py-2 text-center w-10 bg-slate-900">✕</th>
                 </tr>
               </thead>
               <tbody id="nc-ab-tbody"></tbody>
@@ -1273,6 +1329,38 @@ function openNewCultureModal(
   });
 
   renderWorkingAntibioticsTable();
+
+  const ncAbSearch = document.getElementById('nc-ab-search') as HTMLInputElement | null;
+  const ncAbSelect = document.getElementById('nc-add-ab-select') as HTMLSelectElement | null;
+  const ncAbMatchBadge = document.getElementById('nc-ab-match-badge');
+
+  ncAbSearch?.addEventListener('input', () => {
+    const q = ncAbSearch.value.trim().toLowerCase();
+    const matched = !q
+      ? antibioticsCatalog
+      : antibioticsCatalog.filter((c) =>
+          `${c.code} ${c.nameEn} ${c.nameAr || ''} ${c.antibioticClass}`.toLowerCase().includes(q)
+        );
+
+    if (ncAbMatchBadge) {
+      ncAbMatchBadge.textContent = q
+        ? i18n.bi(`${matched.length} مطابق من ${antibioticsCatalog.length}`, `${matched.length} of ${antibioticsCatalog.length}`)
+        : `${antibioticsCatalog.length} ${i18n.bi('مضاد متاح بالقاعدة', 'antibiotics in DB')}`;
+    }
+
+    if (ncAbSelect) {
+      if (matched.length === 0) {
+        ncAbSelect.innerHTML = `<option value="">${i18n.bi('— لا يوجد مضاد حيوي مطابق للبحث —', '— No matching antibiotic —')}</option>`;
+      } else {
+        ncAbSelect.innerHTML = matched
+          .map(
+            (c) =>
+              `<option value="${escapeHtml(c.code)}">${escapeHtml(c.nameEn)} (${escapeHtml(c.code)}) — ${escapeHtml(c.antibioticClass)}</option>`
+          )
+          .join('');
+      }
+    }
+  });
 
   const orgSelect = document.getElementById('nc-organism') as HTMLSelectElement | null;
   orgSelect?.addEventListener('change', () => {
