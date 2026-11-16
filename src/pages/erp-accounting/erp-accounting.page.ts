@@ -2,17 +2,21 @@ import { authService } from '../../auth/auth.service';
 import {
   closeModal,
   formatCurrency,
+  openCustomModal,
+  openDeleteConfirmModal,
   openModal,
   pageHeader,
   showToast,
 } from '../../components/common';
 import { db } from '../../db/database';
 import { i18n } from '../../i18n';
+import { accountingRepository } from '../../repositories';
 import {
   ACCOUNTING_MAPPINGS,
   erpAccountingService,
 } from '../../services/erp-accounting.service';
 import { printService } from '../../print/print.service';
+import type { Account } from '../../types';
 
 type ErpAccTab =
   | 'coa'
@@ -29,6 +33,7 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
 
   async function draw(): Promise<void> {
     const user = authService.getCurrentUser()!;
+    await accountingRepository.ensureEgyptianChartOfAccounts();
     const [
       accounts,
       entries,
@@ -41,7 +46,7 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
       boms,
       tests,
     ] = await Promise.all([
-      db.chartOfAccounts.toArray(),
+      accountingRepository.getAccounts(),
       db.journalEntries.toArray(),
       db.costCenters.toArray(),
       db.periodLocks.toArray(),
@@ -64,8 +69,8 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
       },
       {
         id: 'coa',
-        labelAr: 'دليل الحسابات الهرمي (IFRS)',
-        labelEn: 'IFRS Chart of Accounts',
+        labelAr: 'دليل الحسابات المصري الموحد (IFRS)',
+        labelEn: 'Egyptian & IFRS Chart of Accounts',
         badge: accounts.length,
       },
       {
@@ -304,10 +309,19 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
       `;
     } else if (activeTab === 'coa') {
       tabBody.innerHTML = `
-        <div class="rounded-xl border border-slate-200 bg-white p-4 mb-4 flex items-center justify-between">
+        <div class="rounded-xl border border-slate-200 bg-white p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 class="text-sm font-bold text-slate-900">شجرة الحسابات الهرمية متعددة المستويات (IFRS Hierarchical Chart of Accounts - Levels 1..4)</h3>
-            <p class="text-xs text-slate-500">يمنع النظام حذف أي حساب رئيسي له فروع أو أي حساب فرعي مسجل عليه قيود محاسبية.</p>
+            <h3 class="text-sm font-bold text-slate-900">شجرة الحسابات المصرية القياسية متعددة المستويات (Egyptian & IFRS Chart of Accounts)</h3>
+            <p class="text-xs text-slate-500">تضم جميع الحسابات الرئيسية والحسابات الفرعية المعتمدة في الحسابات المصرية مع إمكانية الإضافة والتعديل والحذف.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              id="erp-coa-add-btn"
+              class="rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer"
+            >
+              + إضافة حساب رئيسي / فرعي
+            </button>
           </div>
         </div>
         <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -319,7 +333,7 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
                 <th class="px-3 py-2.5 text-start">المستوى</th>
                 <th class="px-3 py-2.5 text-start">التصنيف المالي</th>
                 <th class="px-3 py-2.5 text-start">الرصيد الدفتري</th>
-                <th class="px-3 py-2.5 text-start">التحقق والحذف</th>
+                <th class="px-3 py-2.5 text-start">الإجراءات (تعديل / حذف)</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -334,17 +348,26 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
                         <span class="text-slate-900">${acc.isGroup ? '📂 ' : '📄 '}${acc.nameAr}</span>
                         <span class="text-[11px] text-slate-400 ms-2">${acc.nameEn}</span>
                       </td>
-                      <td class="px-3 py-2 font-mono text-slate-500">L${lvl}</td>
+                      <td class="px-3 py-2 font-mono text-slate-500">${acc.isGroup ? 'رئيسي' : 'فرعي'} (L${lvl})</td>
                       <td class="px-3 py-2 uppercase text-[11px] font-semibold text-sky-700">${acc.type}</td>
                       <td class="px-3 py-2 font-mono font-bold">${formatCurrency(acc.balance)}</td>
                       <td class="px-3 py-2">
-                        <button
-                          type="button"
-                          data-try-delete-acc="${acc.code}"
-                          class="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-700 hover:bg-rose-100 cursor-pointer"
-                        >
-                          اختبار الحذف الآمن
-                        </button>
+                        <div class="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            data-erp-edit-acc="${acc.id}"
+                            class="rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer"
+                          >
+                            ✏️ تعديل
+                          </button>
+                          <button
+                            type="button"
+                            data-erp-del-acc="${acc.id}"
+                            class="rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                          >
+                            🗑️ حذف
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   `;
@@ -771,16 +794,207 @@ export async function renderErpAccountingPage(container: HTMLElement): Promise<v
       });
     });
 
-    // Safe Account Delete Verification
-    container.querySelectorAll<HTMLButtonElement>('[data-try-delete-acc]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const code = btn.dataset.tryDeleteAcc!;
-        const check = await erpAccountingService.canDeleteAccount(code);
-        if (!check.allowed) {
-          showToast(`حماية النظام: ${check.reasonAr}`, 'warning');
-        } else {
-          showToast(`الحساب (${code}) لا يحتوي على حركات ويمكن حذفه بأمان`, 'info');
+    // ERP COA Add / Edit / Delete Modal
+    const openErpCoaModal = (existing?: Account) => {
+      const isEdit = Boolean(existing);
+      const groupAccounts = sortedAccounts.filter((a) => a.isGroup && a.id !== existing?.id);
+      const initialType: Account['type'] = existing?.type || 'asset';
+      const initialIsGroup = existing ? Boolean(existing.isGroup) : false;
+      const initialParentCode = existing
+        ? existing.parentCode || ''
+        : accountingRepository.getDefaultParentCode(sortedAccounts, initialType, initialIsGroup);
+      const initialCode = existing
+        ? existing.code
+        : accountingRepository.generateNextAccountCode(
+            sortedAccounts,
+            initialType,
+            initialIsGroup,
+            initialParentCode
+          );
+
+      openCustomModal(
+        isEdit
+          ? `تعديل الحساب (${existing!.code} - ${existing!.nameAr})`
+          : 'إضافة حساب رئيسي أو فرعي جديد (الدليل المحاسبي المصري)',
+        `
+          <form id="erp-coa-form" autocomplete="off" class="space-y-4 text-xs">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block font-bold">كود الحساب (يتولد تلقائياً تبعا للحساب) *</label>
+                  <button type="button" id="erp-coa-regen-btn" class="rounded bg-sky-50 border border-sky-200 px-2 py-0.5 text-[10px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                    🔄 توليد تلقائي
+                  </button>
+                </div>
+                <input id="erp-coa-code" name="code" autocomplete="off" required value="${initialCode}" placeholder="يتولد تلقائياً حسب الحساب..." class="w-full rounded-lg border border-sky-300 bg-sky-50/40 px-3 py-2 text-sm font-mono font-bold text-sky-950" />
+              </div>
+              <div>
+                <label class="block font-bold mb-1">التصنيف المالي *</label>
+                <select id="erp-coa-type" name="type" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
+                  <option value="asset" ${initialType === 'asset' ? 'selected' : ''}>1 - أصول (Assets)</option>
+                  <option value="liability" ${initialType === 'liability' ? 'selected' : ''}>2 - التزامات / خصوم (Liabilities)</option>
+                  <option value="equity" ${initialType === 'equity' ? 'selected' : ''}>3 - حقوق الملكية (Equity)</option>
+                  <option value="revenue" ${initialType === 'revenue' ? 'selected' : ''}>4 - إيرادات (Revenues)</option>
+                  <option value="expense" ${initialType === 'expense' ? 'selected' : ''}>5 - مصروفات وتكاليف (Expenses)</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block font-bold mb-1">اسم الحساب بالعربي *</label>
+                <input name="nameAr" autocomplete="off" required value="${existing?.nameAr || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label class="block font-bold mb-1">اسم الحساب بالإنجليزي *</label>
+                <input name="nameEn" autocomplete="off" required value="${existing?.nameEn || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block font-bold mb-1">نوع الحساب</label>
+                <select id="erp-coa-isgroup" name="isGroup" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
+                  <option value="false" ${!initialIsGroup ? 'selected' : ''}>📄 حساب فرعي</option>
+                  <option value="true" ${initialIsGroup ? 'selected' : ''}>📂 حساب رئيسي</option>
+                </select>
+              </div>
+              <div>
+                <label class="block font-bold mb-1">الحساب الرئيسي التابع له</label>
+                <select id="erp-coa-parent" name="parentCode" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
+                  <option value="">— حساب جذري رئيسي —</option>
+                  ${groupAccounts
+                    .map(
+                      (g) =>
+                        `<option value="${g.code}" ${initialParentCode === g.code ? 'selected' : ''}>${g.code} - ${g.nameAr}</option>`
+                    )
+                    .join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block font-bold mb-1">الرصيد الدفتري (EGP)</label>
+                <input name="balance" autocomplete="off" type="number" step="0.01" value="${existing?.balance ?? 0}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold" />
+              </div>
+            </div>
+            <div class="flex justify-end pt-2">
+              <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">حفظ الحساب</button>
+            </div>
+          </form>
+        `,
+        (close) => {
+          const form = document.getElementById('erp-coa-form') as HTMLFormElement | null;
+          const codeInput = document.getElementById('erp-coa-code') as HTMLInputElement | null;
+          const typeSelect = document.getElementById('erp-coa-type') as HTMLSelectElement | null;
+          const isGroupSelect = document.getElementById('erp-coa-isgroup') as HTMLSelectElement | null;
+          const parentSelect = document.getElementById('erp-coa-parent') as HTMLSelectElement | null;
+          const regenBtn = document.getElementById('erp-coa-regen-btn') as HTMLButtonElement | null;
+
+          const recomputeCode = () => {
+            if (!codeInput || !typeSelect || !isGroupSelect || !parentSelect) return;
+            const curType = (typeSelect.value as Account['type']) || 'asset';
+            const curIsGroup = isGroupSelect.value === 'true';
+            const curParent = parentSelect.value.trim() || undefined;
+            const pool = existing ? sortedAccounts.filter((a) => a.id !== existing.id) : sortedAccounts;
+            codeInput.value = accountingRepository.generateNextAccountCode(
+              pool,
+              curType,
+              curIsGroup,
+              curParent
+            );
+          };
+
+          typeSelect?.addEventListener('change', () => {
+            const curType = (typeSelect.value as Account['type']) || 'asset';
+            const curIsGroup = isGroupSelect?.value === 'true';
+            if (parentSelect) {
+              const selectedParent = groupAccounts.find((g) => g.code === parentSelect.value);
+              if (!selectedParent || selectedParent.type !== curType) {
+                parentSelect.value = accountingRepository.getDefaultParentCode(
+                  sortedAccounts,
+                  curType,
+                  curIsGroup
+                );
+              }
+            }
+            recomputeCode();
+          });
+
+          isGroupSelect?.addEventListener('change', () => {
+            const curType = (typeSelect?.value as Account['type']) || 'asset';
+            const curIsGroup = isGroupSelect.value === 'true';
+            if (parentSelect) {
+              parentSelect.value = accountingRepository.getDefaultParentCode(
+                sortedAccounts,
+                curType,
+                curIsGroup
+              );
+            }
+            recomputeCode();
+          });
+
+          parentSelect?.addEventListener('change', () => {
+            const chosenParent = groupAccounts.find((g) => g.code === parentSelect.value);
+            if (chosenParent && typeSelect && typeSelect.value !== chosenParent.type) {
+              typeSelect.value = chosenParent.type;
+            }
+            recomputeCode();
+          });
+
+          regenBtn?.addEventListener('click', () => {
+            recomputeCode();
+          });
+
+          form?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fd = new FormData(form);
+            const code = String(fd.get('code') || '').trim();
+            const nameAr = String(fd.get('nameAr') || '').trim();
+            const nameEn = String(fd.get('nameEn') || nameAr).trim();
+            const type = (fd.get('type') as Account['type']) || 'asset';
+            const isGroup = String(fd.get('isGroup')) === 'true';
+            const parentCode = String(fd.get('parentCode') || '').trim() || undefined;
+            const balance = Number(fd.get('balance')) || 0;
+            const parentAcc = parentCode ? sortedAccounts.find((a) => a.code === parentCode) : undefined;
+            const level: 1 | 2 | 3 | 4 = !parentCode ? 1 : parentAcc?.level === 1 ? 2 : 3;
+
+            await accountingRepository.saveAccount({
+              id: existing?.id || `acc_${code}_${Date.now()}`,
+              code,
+              nameAr,
+              nameEn,
+              type,
+              level,
+              parentCode,
+              isGroup,
+              balance,
+            });
+            showToast(isEdit ? 'تم تعديل الحساب بنجاح' : 'تم إضافة الحساب بنجاح', 'success');
+            close();
+            await draw();
+          });
         }
+      );
+    };
+
+    document.getElementById('erp-coa-add-btn')?.addEventListener('click', () => openErpCoaModal());
+
+    container.querySelectorAll<HTMLButtonElement>('[data-erp-edit-acc]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = sortedAccounts.find((a) => a.id === btn.dataset.erpEditAcc);
+        if (target) openErpCoaModal(target);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-erp-del-acc]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = sortedAccounts.find((a) => a.id === btn.dataset.erpDelAcc);
+        if (!target) return;
+        openDeleteConfirmModal({
+          recordLabel: `${target.code} - ${target.nameAr}`,
+          onConfirm: async () => {
+            await accountingRepository.deleteAccount(target.id);
+            showToast(`تم حذف الحساب (${target.code} - ${target.nameAr}) بنجاح`, 'success');
+            await draw();
+          },
+        });
       });
     });
 

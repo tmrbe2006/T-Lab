@@ -9,6 +9,7 @@ import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
 import { testsRepository } from '../../repositories';
+import { mysqlSyncService } from '../../services/mysql-sync.service';
 import type { ParameterResultType, TestParameter } from '../../types';
 import {
   getSelectedTestForParams,
@@ -17,30 +18,27 @@ import {
 
 export async function renderTestParametersPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
+  await syncGlobalMedicalCatalog();
   let tests = await testsRepository.getAllTests();
   let params = await testsRepository.getParametersByTestId(getSelectedTestForParams());
 
   const openParamForm = (existing?: TestParameter) => {
     const isEdit = Boolean(existing);
     openCustomModal(
-      isEdit ? i18n.bi('تعديل بارامتر تحليل', 'Edit Test Parameter') : i18n.bi('إضافة بارامتر جديد للتحليل', 'Add Test Parameter'),
+      isEdit ? i18n.bi('تعديل بارامتر تحليل (English)', 'Edit Test Parameter') : i18n.bi('إضافة بارامتر جديد للتحليل (English)', 'Add Test Parameter'),
       `
         <form id="prm-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>
-            <label class="block font-semibold mb-1">${i18n.bi('كود البارامتر *', 'Parameter Code *')}</label>
-            <input name="code" required value="${existing?.code || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <label class="block font-semibold mb-1">${i18n.bi('كود البارامتر (Code) *', 'Parameter Code *')}</label>
+            <input name="code" dir="ltr" required value="${existing?.code || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block font-semibold mb-1">${i18n.bi('الوحدة القياسية (Unit) *', 'Unit *')}</label>
-            <input name="unit" required value="${existing?.unit || 'mg/dL'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input name="unit" dir="ltr" required value="${existing?.unit || 'mg/dL'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
-          <div>
-            <label class="block font-semibold mb-1">${i18n.bi('الاسم بالعربي *', 'Name (AR) *')}</label>
-            <input name="nameAr" required value="${existing?.nameAr || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="block font-semibold mb-1">${i18n.bi('الاسم بالإنجليزي *', 'Name (EN) *')}</label>
-            <input name="nameEn" required value="${existing?.nameEn || ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <div class="sm:col-span-2">
+            <label class="block font-semibold mb-1">${i18n.bi('اسم البارامتر باللغة الإنجليزية (Parameter Name in English Only) *', 'Parameter Name (English Only) *')}</label>
+            <input name="nameEn" dir="ltr" required value="${existing?.nameEn || existing?.nameAr || ''}" placeholder="e.g. Hemoglobin (Hb), Fasting Blood Glucose, Serum Creatinine" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold" />
           </div>
           <div>
             <label class="block font-semibold mb-1">${i18n.bi('الحد الطبيعي الأدنى (ذكور)', 'Normal Male Min')}</label>
@@ -129,12 +127,13 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
           const formulaCondStr = String(fd.get('formulaCondition') || '').trim();
           const isCalc = Boolean(fd.get('isCalculated')) || Boolean(formulaStr);
           const currentTestId = getSelectedTestForParams();
+          const englishName = String(fd.get('nameEn') || fd.get('nameAr') || '').trim();
           const rec: TestParameter = {
             id: existing?.id || `prm_${Date.now()}`,
             testId: currentTestId,
             code: String(fd.get('code') || '').trim().toUpperCase(),
-            nameAr: String(fd.get('nameAr') || '').trim(),
-            nameEn: String(fd.get('nameEn') || '').trim(),
+            nameAr: englishName,
+            nameEn: englishName,
             unit: String(fd.get('unit') || '').trim(),
             normalMaleMin: minM,
             normalMaleMax: maxM,
@@ -179,9 +178,12 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
             <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.testParameters}</h1>
             <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إدارة البارامترات الفرعية، الوحدات الدولية، المعدلات الطبيعية للذكور والإناث، والحدود الحرجة لكل تحليل طبقاً للتقارير العالمية', 'Manage sub-parameters, international units, male/female reference ranges, and critical limits per test')}</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="prm-dl-sql-btn" type="button" class="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-700 cursor-pointer shadow-xs">
+              📥 ${i18n.bi('تنزيل اسكريبت SQL لكل البارامترات (English .SQL)', 'Download All Parameters SQL Script (.SQL)')}
+            </button>
             <button id="prm-sync-global-btn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer">
-              🌍 ${i18n.bi('استعادة البارامترات العالمية المعتمدة', 'Restore Global Reference Parameters')}
+              🌍 ${i18n.bi('مزامنة واستعادة البارامترات الإنجليزية المعتمدة', 'Sync English Reference Parameters')}
             </button>
             ${canPrint ? `<button id="prm-print-btn" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
             ${canAdd ? `<button id="prm-add-btn" type="button" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">+ ${i18n.dict.actions.add}</button>` : ''}
@@ -201,7 +203,7 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
           </div>
           <div class="flex items-center gap-2 text-xs">
             <span class="rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5 font-bold text-indigo-900">
-              ${params.length} ${i18n.bi('بارامتر مسجل لهذا التحليل', 'Parameters in this Test')}
+              ${params.length} ${i18n.bi('بارامتر مسجل لهذا التحليل (English)', 'English Parameters in this Test')}
             </span>
             <span class="text-slate-500 font-semibold">
               ${currentTest ? `${currentTest.department} · ${currentTest.sampleType} (${currentTest.tubeType})` : ''}
@@ -215,10 +217,10 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <th class="py-3 px-3 text-start">#</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.code}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('اسم البارامتر (عربي / إنجليزي)', 'Parameter Name')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('اسم البارامتر (Parameter Name - English)', 'Parameter Name (English)')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('النوع / المعادلة', 'Type / Formula')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('الوحدة', 'Unit')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('المعدل الطبيعي المعتمد (Reference Range)', 'Normal Reference Range')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('الوحدة (Unit)', 'Unit')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('المعدل الطبيعي المعتمد (Normal Reference Range)', 'Normal Reference Range')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('الحد الحرج (Critical Limits)', 'Critical Low / High')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.actions}</th>
               </tr>
@@ -229,10 +231,10 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
                   const isNumeric = p.resultType === 'numeric';
                   const typeBadge =
                     p.resultType === 'numeric'
-                      ? `<span class="rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-[10px] font-bold text-sky-800">رقمي Numeric</span>`
+                      ? `<span class="rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-[10px] font-bold text-sky-800">Numeric</span>`
                       : p.resultType === 'select'
-                      ? `<span class="rounded bg-purple-50 border border-purple-200 px-1.5 py-0.5 text-[10px] font-bold text-purple-800">اختياري Select</span>`
-                      : `<span class="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">نصي Text</span>`;
+                      ? `<span class="rounded bg-purple-50 border border-purple-200 px-1.5 py-0.5 text-[10px] font-bold text-purple-800">Select</span>`
+                      : `<span class="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">Text</span>`;
                   const formulaBadge =
                     p.isCalculated && p.formula
                       ? `<div class="mt-1"><span class="inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-300 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-900" dir="ltr">ƒx = ${p.formula}${p.formulaCondition ? ` [${p.formulaCondition}]` : ''}</span></div>`
@@ -240,16 +242,15 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
                   return `
                   <tr class="hover:bg-slate-50">
                     <td class="py-2.5 px-3 font-mono tabular-nums">${p.sortOrder}</td>
-                    <td class="py-2.5 px-3 font-mono font-bold text-slate-800">${p.code}</td>
-                    <td class="py-2.5 px-3">
-                      <div class="font-bold text-slate-900">${p.nameAr}</div>
-                      <div class="text-[11px] text-slate-500" dir="ltr">${p.nameEn}</div>
+                    <td class="py-2.5 px-3 font-mono font-bold text-slate-800" dir="ltr">${p.code}</td>
+                    <td class="py-2.5 px-3" dir="ltr">
+                      <div class="font-bold text-slate-900">${p.nameEn || p.nameAr}</div>
                       ${p.formulaNoteAr ? `<div class="text-[10px] text-amber-800 font-semibold mt-0.5">${p.formulaNoteAr}</div>` : ''}
                     </td>
                     <td class="py-2.5 px-3">${typeBadge}${formulaBadge}</td>
-                    <td class="py-2.5 px-3 font-mono text-slate-600">${p.unit}</td>
-                    <td class="py-2.5 px-3 font-mono text-emerald-700 font-semibold tabular-nums">${p.normalRangeText}</td>
-                    <td class="py-2.5 px-3 font-mono text-rose-700 tabular-nums">
+                    <td class="py-2.5 px-3 font-mono text-slate-600" dir="ltr">${p.unit}</td>
+                    <td class="py-2.5 px-3 font-mono text-emerald-700 font-semibold tabular-nums" dir="ltr">${p.normalRangeText}</td>
+                    <td class="py-2.5 px-3 font-mono text-rose-700 tabular-nums" dir="ltr">
                       ${isNumeric ? `&lt; ${p.criticalLow} | &gt; ${p.criticalHigh}` : '<span class="text-slate-400">Qualitative</span>'}
                     </td>
                     <td class="py-2.5 px-3">
@@ -275,13 +276,17 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
       renderView();
     });
 
+    document.getElementById('prm-dl-sql-btn')?.addEventListener('click', () => {
+      void mysqlSyncService.downloadTestParametersSQLDump();
+    });
+
     document.getElementById('prm-sync-global-btn')?.addEventListener('click', async () => {
       await syncGlobalMedicalCatalog(true);
       tests = await testsRepository.getAllTests();
       params = await testsRepository.getParametersByTestId(getSelectedTestForParams());
       renderView();
       showToast(
-        i18n.bi('تمت استعادة وتحديث كافة البارامترات العالمية بنجاح', 'Global reference parameters restored'),
+        i18n.bi('تمت استعادة وتحديث كافة البارامترات العالمية باللغة الإنجليزية بنجاح', 'Global English reference parameters restored'),
         'success'
       );
     });

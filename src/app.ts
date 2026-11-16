@@ -1,18 +1,38 @@
 import { authService } from './auth/auth.service';
-import { openCustomModal, showToast } from './components/common';
+import { openCustomModal, openDeleteConfirmModal, showToast } from './components/common';
 import { pwaManager } from './components/pwa-install';
 import { can } from './guards/permission.guard';
 import { i18n } from './i18n';
+import { usersRepository } from './repositories';
 import { router, type RouteId } from './router';
 import { advancedSearchService } from './services/advanced-search.service';
 import { mysqlSyncService } from './services/mysql-sync.service';
 import { themeService } from './services/theme.service';
 import type { ResourceScreen } from './types';
 
+export interface CustomMainGroup {
+  id: string;
+  icon: string;
+  titleAr: string;
+  titleEn: string;
+}
+
+export interface CustomSubmenuItem {
+  id: string;
+  parentGroupId: string;
+  route: RouteId;
+  titleAr: string;
+  titleEn: string;
+}
+
 export interface NavItem {
+  id?: string;
   route: RouteId;
   resource?: ResourceScreen;
   labelKey: keyof typeof i18n.dict.nav;
+  customTitleAr?: string;
+  customTitleEn?: string;
+  isCustomSubmenu?: boolean;
 }
 
 export interface NavGroup {
@@ -21,6 +41,7 @@ export interface NavGroup {
   titleAr: string;
   titleEn: string;
   items: NavItem[];
+  isCustomGroup?: boolean;
 }
 
 export type MenuLayoutMode = 'grouped_expanded' | 'grouped_accordion' | 'flat_classic';
@@ -32,10 +53,15 @@ export interface UserMenuPreferences {
   hiddenRoutes: string[];
   groupOrder: string[];
   customGroupTitlesAr: Record<string, string>;
+  customGroupIcons: Record<string, string>;
   routeGroupOverrides: Record<string, string>;
+  customRouteTitlesAr: Record<string, string>;
+  customGroups: CustomMainGroup[];
+  customSubmenus: CustomSubmenuItem[];
 }
 
-const MENU_PREFS_STORAGE_KEY = 'tlab_menu_preferences_v2';
+const MENU_PREFS_STORAGE_PREFIX = 'tlab_menu_preferences_v3_user_';
+const LEGACY_MENU_PREFS_STORAGE_KEY = 'tlab_menu_preferences_v2';
 
 export const DEFAULT_SIDEBAR_GROUPS: NavGroup[] = [
   {
@@ -155,7 +181,13 @@ const SIDEBAR_ITEMS: NavItem[] = [
  */
 export const DEVELOPER_ONLY_ROUTES: RouteId[] = ['settings', 'auditLogs', 'testPlan'];
 
-function loadMenuPreferences(): UserMenuPreferences {
+function getUserMenuStorageKey(username?: string): string {
+  const activeUsername =
+    username || authService.getCurrentUser()?.username || 'default_user';
+  return `${MENU_PREFS_STORAGE_PREFIX}${activeUsername.toLowerCase()}`;
+}
+
+function loadMenuPreferences(username?: string): UserMenuPreferences {
   const defaultPrefs: UserMenuPreferences = {
     layoutMode: 'grouped_expanded',
     showAllScreensRegardlessOfRole: true,
@@ -163,56 +195,129 @@ function loadMenuPreferences(): UserMenuPreferences {
     hiddenRoutes: [],
     groupOrder: DEFAULT_SIDEBAR_GROUPS.map((g) => g.id),
     customGroupTitlesAr: {},
+    customGroupIcons: {},
     routeGroupOverrides: {},
+    customRouteTitlesAr: {},
+    customGroups: [],
+    customSubmenus: [],
   };
   try {
-    const raw = localStorage.getItem(MENU_PREFS_STORAGE_KEY);
+    const userKey = getUserMenuStorageKey(username);
+    const raw = localStorage.getItem(userKey) || localStorage.getItem(LEGACY_MENU_PREFS_STORAGE_KEY);
     if (!raw) return defaultPrefs;
     const parsed = JSON.parse(raw) as Partial<UserMenuPreferences>;
+    const customGroups = Array.isArray(parsed.customGroups) ? parsed.customGroups : [];
+    const customSubmenus = Array.isArray(parsed.customSubmenus) ? parsed.customSubmenus : [];
+    const baseOrder =
+      Array.isArray(parsed.groupOrder) && parsed.groupOrder.length > 0
+        ? [...parsed.groupOrder]
+        : [...defaultPrefs.groupOrder];
+
+    for (const cg of customGroups) {
+      if (!baseOrder.includes(cg.id)) {
+        baseOrder.unshift(cg.id);
+      }
+    }
+    for (const dg of DEFAULT_SIDEBAR_GROUPS) {
+      if (!baseOrder.includes(dg.id)) {
+        baseOrder.push(dg.id);
+      }
+    }
+
     return {
       layoutMode: parsed.layoutMode || defaultPrefs.layoutMode,
       showAllScreensRegardlessOfRole: parsed.showAllScreensRegardlessOfRole ?? true,
       hiddenGroups: Array.isArray(parsed.hiddenGroups) ? parsed.hiddenGroups : [],
       hiddenRoutes: Array.isArray(parsed.hiddenRoutes) ? parsed.hiddenRoutes : [],
-      groupOrder:
-        Array.isArray(parsed.groupOrder) && parsed.groupOrder.length > 0
-          ? parsed.groupOrder
-          : defaultPrefs.groupOrder,
+      groupOrder: baseOrder,
       customGroupTitlesAr: parsed.customGroupTitlesAr || {},
+      customGroupIcons: parsed.customGroupIcons || {},
       routeGroupOverrides: parsed.routeGroupOverrides || {},
+      customRouteTitlesAr: parsed.customRouteTitlesAr || {},
+      customGroups,
+      customSubmenus,
     };
   } catch {
     return defaultPrefs;
   }
 }
 
-function saveMenuPreferences(prefs: UserMenuPreferences): void {
+function saveMenuPreferences(prefs: UserMenuPreferences, username?: string): void {
   try {
-    localStorage.setItem(MENU_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+    const userKey = getUserMenuStorageKey(username);
+    localStorage.setItem(userKey, JSON.stringify(prefs));
   } catch {
     // ignore storage quota errors
   }
 }
 
 function getResolvedSidebarGroups(prefs: UserMenuPreferences): NavGroup[] {
-  const validGroupIds = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
+  const customNavGroups: NavGroup[] = (prefs.customGroups || []).map((cg) => ({
+    id: cg.id,
+    icon: prefs.customGroupIcons?.[cg.id] || cg.icon || '⭐',
+    titleAr: prefs.customGroupTitlesAr?.[cg.id] || cg.titleAr,
+    titleEn: cg.titleEn || cg.titleAr,
+    items: [],
+    isCustomGroup: true,
+  }));
+
+  const allGroups: NavGroup[] = [
+    ...customNavGroups,
+    ...DEFAULT_SIDEBAR_GROUPS.map((g) => ({
+      ...g,
+      icon: prefs.customGroupIcons?.[g.id] || g.icon,
+      titleAr: prefs.customGroupTitlesAr?.[g.id] || g.titleAr,
+      isCustomGroup: false,
+    })),
+  ];
+
+  const validGroupIds = new Set(allGroups.map((g) => g.id));
   const itemsByGroup = new Map<string, NavItem[]>();
-  for (const grp of DEFAULT_SIDEBAR_GROUPS) {
+  for (const grp of allGroups) {
     itemsByGroup.set(grp.id, []);
   }
 
+  // 1. Place standard routes (respecting routeGroupOverrides)
   for (const grp of DEFAULT_SIDEBAR_GROUPS) {
     for (const item of grp.items) {
       const overrideGrpId = prefs.routeGroupOverrides?.[item.route];
       const targetGrpId =
         overrideGrpId && validGroupIds.has(overrideGrpId) ? overrideGrpId : grp.id;
-      itemsByGroup.get(targetGrpId)?.push(item);
+      itemsByGroup.get(targetGrpId)?.push({
+        ...item,
+        id: item.route,
+        customTitleAr: prefs.customRouteTitlesAr?.[item.route],
+        isCustomSubmenu: false,
+      });
     }
   }
 
-  const resolvedGroups = DEFAULT_SIDEBAR_GROUPS.map((grp) => ({
+  // 2. Place user-created custom submenus under their chosen parent group
+  for (const sub of prefs.customSubmenus || []) {
+    const overrideGrpId = prefs.routeGroupOverrides?.[sub.id];
+    const targetGrpId =
+      overrideGrpId && validGroupIds.has(overrideGrpId)
+        ? overrideGrpId
+        : validGroupIds.has(sub.parentGroupId)
+          ? sub.parentGroupId
+          : allGroups[0]?.id || 'grp_patients';
+
+    const baseNav = SIDEBAR_ITEMS.find((i) => i.route === sub.route);
+    itemsByGroup.get(targetGrpId)?.push({
+      id: sub.id,
+      route: sub.route,
+      resource: baseNav?.resource,
+      labelKey: baseNav?.labelKey || 'dashboard',
+      customTitleAr: prefs.customRouteTitlesAr?.[sub.id] || sub.titleAr,
+      customTitleEn: sub.titleEn || sub.titleAr,
+      isCustomSubmenu: true,
+    });
+  }
+
+  const resolvedGroups = allGroups.map((grp) => ({
     ...grp,
-    titleAr: prefs.customGroupTitlesAr[grp.id] || grp.titleAr,
+    icon: prefs.customGroupIcons?.[grp.id] || grp.icon,
+    titleAr: prefs.customGroupTitlesAr?.[grp.id] || grp.titleAr,
     items: itemsByGroup.get(grp.id) || [],
   }));
 
@@ -404,19 +509,145 @@ export class MedicalLabApp {
     });
   }
 
-  public openMenuSettingsModal(): void {
-    const prefs = loadMenuPreferences();
-    const d = i18n.dict;
+  public async openMenuSettingsModal(targetUsername?: string): Promise<void> {
     const currentUser = authService.getCurrentUser();
     const isDeveloper = currentUser?.role === 'Developer';
+    const allUsers = await usersRepository.getAllUsers();
+    const activeTargetUsername = targetUsername || currentUser?.username || 'developer';
+    const targetUserObj =
+      allUsers.find((u) => u.username.toLowerCase() === activeTargetUsername.toLowerCase()) ||
+      currentUser;
 
+    const prefs = loadMenuPreferences(activeTargetUsername);
+    const d = i18n.dict;
     const orderedGroups = getResolvedSidebarGroups(prefs);
+
+    const availableScreens = SIDEBAR_ITEMS.filter(
+      (item) => isDeveloper || !DEVELOPER_ONLY_ROUTES.includes(item.route)
+    );
+
+    const iconChoices = ['⭐', '🏥', '🧬', '🔬', '📋', '🧾', '📊', '🩺', '👥', '🧪', '⚡', '📌', '🗂️', '💼', '⚙️'];
+
+    // Helper to collect current form state before performing an in-modal action (like adding a group or submenu)
+    const collectCurrentFormPrefs = (form: HTMLFormElement): UserMenuPreferences => {
+      const fd = new FormData(form);
+      const layoutMode = (fd.get('layoutMode') as MenuLayoutMode) || prefs.layoutMode || 'grouped_expanded';
+      const showAllScreensRegardlessOfRole = Boolean(fd.get('showAllScreensRegardlessOfRole'));
+      const hiddenGroups: string[] = [];
+      const hiddenRoutes: string[] = [];
+      const customGroupTitlesAr: Record<string, string> = { ...prefs.customGroupTitlesAr };
+      const customGroupIcons: Record<string, string> = { ...prefs.customGroupIcons };
+      const routeGroupOverrides: Record<string, string> = { ...prefs.routeGroupOverrides };
+      const customRouteTitlesAr: Record<string, string> = { ...prefs.customRouteTitlesAr };
+      const orderPairs: Array<{ id: string; ord: number }> = [];
+
+      const currentResolved = getResolvedSidebarGroups(prefs);
+      for (const grp of currentResolved) {
+        if (!fd.get(`grp_vis_${grp.id}`)) {
+          hiddenGroups.push(grp.id);
+        }
+        const tAr = String(fd.get(`grp_title_${grp.id}`) || '').trim();
+        if (tAr) {
+          customGroupTitlesAr[grp.id] = tAr;
+        }
+        const ic = String(fd.get(`grp_icon_${grp.id}`) || '').trim();
+        if (ic) {
+          customGroupIcons[grp.id] = ic;
+        }
+        const ord = Number(fd.get(`grp_order_${grp.id}`)) || 99;
+        orderPairs.push({ id: grp.id, ord });
+
+        for (const item of grp.items) {
+          if (!isDeveloper && DEVELOPER_ONLY_ROUTES.includes(item.route)) {
+            continue;
+          }
+          const itemKey = item.id || item.route;
+          if (!fd.get(`route_vis_${itemKey}`)) {
+            hiddenRoutes.push(itemKey);
+          }
+          const customSubTitle = String(fd.get(`route_title_${itemKey}`) || '').trim();
+          if (customSubTitle) {
+            customRouteTitlesAr[itemKey] = customSubTitle;
+          }
+          const selectedGrp = String(fd.get(`route_grp_${itemKey}`) || '').trim();
+          if (selectedGrp) {
+            routeGroupOverrides[itemKey] = selectedGrp;
+          }
+        }
+      }
+
+      orderPairs.sort((a, b) => a.ord - b.ord);
+      const groupOrder = orderPairs.map((p) => p.id);
+
+      const updatedCustomGroups = (prefs.customGroups || []).map((cg) => ({
+        ...cg,
+        titleAr: customGroupTitlesAr[cg.id] || cg.titleAr,
+        titleEn: customGroupTitlesAr[cg.id] || cg.titleEn,
+        icon: customGroupIcons[cg.id] || cg.icon,
+      }));
+
+      const updatedCustomSubmenus = (prefs.customSubmenus || []).map((sub) => ({
+        ...sub,
+        parentGroupId: routeGroupOverrides[sub.id] || sub.parentGroupId,
+        titleAr: customRouteTitlesAr[sub.id] || sub.titleAr,
+        titleEn: customRouteTitlesAr[sub.id] || sub.titleEn,
+      }));
+
+      return {
+        layoutMode,
+        showAllScreensRegardlessOfRole,
+        hiddenGroups,
+        hiddenRoutes,
+        groupOrder,
+        customGroupTitlesAr,
+        customGroupIcons,
+        routeGroupOverrides,
+        customRouteTitlesAr,
+        customGroups: updatedCustomGroups,
+        customSubmenus: updatedCustomSubmenus,
+      };
+    };
 
     openCustomModal(
       i18n.bi('⚙️ إعدادات وتنسيق القوائم الجانبية (Menu Settings & Customization)', 'Sidebar Menu Settings & Customization'),
       `
         <form id="menu-prefs-form" class="space-y-4 text-xs">
-          <div class="rounded-xl border border-sky-200 bg-sky-50/70 p-3.5 space-y-3">
+          <!-- Per-User Profile Selector Bar -->
+          <div class="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <span class="text-base">👤</span>
+              <div>
+                <div class="font-bold text-indigo-950 text-xs">
+                  ${i18n.bi('القوائم الشخصية الخاصة بالمستخدم (لكل مستخدم قوائمه المستقلة)', 'Per-User Custom Menus (Each user has independent menus & submenus)')}
+                </div>
+                <div class="text-[11px] text-indigo-700">
+                  ${i18n.bi(
+                    `أنت تقوم الآن بتخصيص قوائم المستخدم: ${targetUserObj?.fullNameAr || activeTargetUsername} (${activeTargetUsername})`,
+                    `Currently customizing menus for user: ${activeTargetUsername}`
+                  )}
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="font-bold text-indigo-900 text-[11px]">${i18n.bi('المستخدم:', 'User:')}</label>
+              <select
+                id="menu-target-user-select"
+                class="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-bold text-indigo-950 cursor-pointer"
+              >
+                ${allUsers
+                  .map(
+                    (u) =>
+                      `<option value="${u.username}" ${
+                        u.username.toLowerCase() === activeTargetUsername.toLowerCase() ? 'selected' : ''
+                      }>👤 ${u.fullNameAr} (${u.username} - ${d.roles[u.role] || u.role})</option>`
+                  )
+                  .join('')}
+              </select>
+            </div>
+          </div>
+
+          <!-- 1. Display Mode -->
+          <div class="rounded-xl border border-sky-200 bg-sky-50/70 p-3.5 space-y-2.5">
             <div class="font-bold text-sky-950 text-sm">${i18n.bi('1. نظام عرض وتنسيق القوائم', '1. Menu Display Style')}</div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <label class="flex items-center gap-2 rounded-lg border border-sky-300 bg-white p-2.5 font-bold text-slate-800 cursor-pointer">
@@ -438,74 +669,277 @@ export class MedicalLabApp {
             </label>
           </div>
 
+          <!-- 2. Create Custom Main Menu & Add Custom Submenu -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <!-- Box A: Add Custom Main Menu -->
+            <div class="rounded-xl border-2 border-emerald-300 bg-emerald-50/50 p-3.5 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div class="font-bold text-emerald-950 text-xs">
+                  ➕ ${i18n.bi('إضافة قائمة رئيسية جديدة من عندك (Main Menu)', 'Create Your Own Custom Main Menu')}
+                </div>
+                <span class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">قائمة مخصصة</span>
+              </div>
+              <div class="grid grid-cols-12 gap-2 items-end">
+                <div class="col-span-3">
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('الأيقونة', 'Icon')}</label>
+                  <select id="new-custom-grp-icon" class="w-full rounded-lg border border-emerald-300 bg-white px-2 py-1.5 text-xs font-bold">
+                    ${iconChoices.map((ic) => `<option value="${ic}">${ic}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="col-span-6">
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('اسم القائمة الرئيسية *', 'Main Menu Title *')}</label>
+                  <input
+                    id="new-custom-grp-title"
+                    type="text"
+                    placeholder="مثال: قائمتي الخاصة / قائمة الاستقبال"
+                    class="w-full rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900"
+                  />
+                </div>
+                <div class="col-span-3">
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('الترتيب', 'Order')}</label>
+                  <input
+                    id="new-custom-grp-order"
+                    type="number"
+                    min="1"
+                    max="30"
+                    value="1"
+                    class="w-full rounded-lg border border-emerald-300 bg-white px-2 py-1.5 text-xs font-mono font-bold text-center"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                id="btn-add-custom-main-group"
+                class="w-full rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer shadow-2xs"
+              >
+                + ${i18n.bi('إنشاء القائمة الرئيسية وإضافتها للقوائم الآن', 'Add Custom Main Menu Now')}
+              </button>
+            </div>
+
+            <!-- Box B: Add Submenu under ANY Main Menu -->
+            <div class="rounded-xl border-2 border-indigo-300 bg-indigo-50/50 p-3.5 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div class="font-bold text-indigo-950 text-xs">
+                  📑 ${i18n.bi('إضافة قائمة فرعية (Submenu) تحت أي قائمة رئيسية', 'Add Submenu Under Any Main Menu')}
+                </div>
+                <span class="rounded bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-800">Submenu</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('1) القائمة الرئيسية التابع لها *', '1) Parent Main Menu *')}</label>
+                  <select id="new-sub-parent-grp" class="w-full rounded-lg border border-indigo-300 bg-white px-2 py-1.5 text-xs font-bold text-indigo-950">
+                    ${orderedGroups
+                      .map((g) => {
+                        const gTitle = prefs.customGroupTitlesAr[g.id] || g.titleAr;
+                        return `<option value="${g.id}">${g.icon} ${gTitle}${g.isCustomGroup ? ' (قائمتي)' : ''}</option>`;
+                      })
+                      .join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('2) الشاشة التي يفتحها *', '2) Target Screen *')}</label>
+                  <select id="new-sub-route" class="w-full rounded-lg border border-indigo-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-900">
+                    ${availableScreens
+                      .map((sc) => `<option value="${sc.route}" data-default-label="${d.nav[sc.labelKey]}">${d.nav[sc.labelKey]}</option>`)
+                      .join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">${i18n.bi('3) اسم الـ Submenu *', '3) Submenu Name *')}</label>
+                  <input
+                    id="new-sub-title"
+                    type="text"
+                    value="${availableScreens[0] ? d.nav[availableScreens[0].labelKey] : ''}"
+                    placeholder="اكتب اسم الـ Submenu..."
+                    class="w-full rounded-lg border border-indigo-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                id="btn-add-custom-submenu"
+                class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 cursor-pointer shadow-2xs"
+              >
+                + ${i18n.bi('إضافة هذا الـ Submenu داخل القائمة الرئيسية المختارة', 'Add Submenu Under Selected Main Menu')}
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. List of All Main Menus & Submenus -->
           <div class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="font-bold text-slate-900 text-sm">${i18n.bi('2. تخصيص القوائم الرئيسية والشاشات الفرعية (تعديل الاسم / نقل الشاشة الفرعية لأي قائمة رئيسية / إظهار أو إخفاء)', '2. Customize Main Menus & Move Any Sub-Screen to Any Main Group')}</div>
+              <div class="font-bold text-slate-900 text-sm">
+                ${i18n.bi(
+                  `2. القوائم الرئيسية (${orderedGroups.length}) والشاشات الفرعية (Submenus) — تعديل الاسم أو نقل أو إضافة أو حذف`,
+                  `2. Main Menus (${orderedGroups.length}) & Submenus — Rename, Move, Add, or Delete`
+                )}
+              </div>
               <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-800">
-                🔀 ${i18n.bi('يمكنك نقل أي شاشة فرعية إلى أي قائمة رئيسية من القائمة المنسدلة بجانب كل شاشة', 'Select target main group next to any submenu item')}
+                🔀 ${i18n.bi('يمكنك نقل أي Submenu لأي قائمة رئيسية أو الضغط على (+ إضافة Submenu هنا) داخل أي قائمة', 'Move any submenu or click (+ Add Submenu Here) on any menu card')}
               </span>
             </div>
             ${orderedGroups
               .map((grp, gIdx) => {
                 const isGrpVisible = !prefs.hiddenGroups.includes(grp.id);
                 const customTitle = prefs.customGroupTitlesAr[grp.id] || grp.titleAr;
+                const currentIcon = prefs.customGroupIcons?.[grp.id] || grp.icon;
+                const visibleGrpItems = grp.items.filter(
+                  (item) => isDeveloper || !DEVELOPER_ONLY_ROUTES.includes(item.route)
+                );
+
                 return `
-                  <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2" data-group-card="${grp.id}">
+                  <div class="rounded-xl border ${
+                    grp.isCustomGroup ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-200 bg-slate-50'
+                  } p-3 space-y-2" data-group-card="${grp.id}">
                     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
-                      <label class="flex items-center gap-2 font-bold text-slate-900 cursor-pointer">
-                        <input type="checkbox" name="grp_vis_${grp.id}" value="1" ${isGrpVisible ? 'checked' : ''} class="w-4 h-4 accent-sky-600 rounded" />
-                        <span>${grp.icon}</span>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <input type="checkbox" name="grp_vis_${grp.id}" value="1" ${isGrpVisible ? 'checked' : ''} class="w-4 h-4 accent-sky-600 rounded cursor-pointer" title="إظهار / إخفاء القائمة" />
+                        <select name="grp_icon_${grp.id}" class="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs">
+                          ${Array.from(new Set([currentIcon, ...iconChoices]))
+                            .map((ic) => `<option value="${ic}" ${ic === currentIcon ? 'selected' : ''}>${ic}</option>`)
+                            .join('')}
+                        </select>
                         <input
                           type="text"
                           name="grp_title_${grp.id}"
                           value="${customTitle}"
                           class="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-bold text-slate-900 w-56"
                         />
-                      </label>
-                      <div class="flex items-center gap-1">
+                        ${
+                          grp.isCustomGroup
+                            ? `<span class="rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold text-emerald-800">⭐ قائمة مخصصة</span>`
+                            : ''
+                        }
+                      </div>
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          data-toggle-inline-sub="${grp.id}"
+                          class="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-indigo-700 cursor-pointer"
+                        >
+                          + ${i18n.bi('إضافة Submenu هنا', 'Add Submenu Here')}
+                        </button>
                         <span class="text-[11px] text-slate-500 font-semibold">${i18n.bi('الترتيب:', 'Order:')}</span>
                         <input
                           type="number"
                           name="grp_order_${grp.id}"
                           min="1"
-                          max="10"
+                          max="30"
                           value="${gIdx + 1}"
                           class="w-14 rounded border border-slate-300 bg-white px-2 py-1 text-center font-mono font-bold"
                         />
+                        ${
+                          grp.isCustomGroup
+                            ? `<button
+                                type="button"
+                                data-del-custom-grp="${grp.id}"
+                                class="rounded-lg border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                                title="حذف هذه القائمة الرئيسية"
+                              >
+                                🗑️ ${i18n.bi('حذف القائمة', 'Delete Menu')}
+                              </button>`
+                            : ''
+                        }
                       </div>
                     </div>
+
+                    <!-- Inline Quick Add Submenu Bar for this specific Main Menu -->
+                    <div id="inline-sub-adder-${grp.id}" class="hidden rounded-lg border border-indigo-200 bg-indigo-50/80 p-2.5">
+                      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                        <div>
+                          <label class="block text-[10px] font-bold text-indigo-950 mb-1">اختر الشاشة الفرعية (Submenu):</label>
+                          <select id="inline-sub-route-${grp.id}" data-inline-route-select="${grp.id}" class="w-full rounded border border-indigo-300 bg-white px-2 py-1 text-xs font-bold">
+                            ${availableScreens
+                              .map(
+                                (sc) =>
+                                  `<option value="${sc.route}" data-default-label="${d.nav[sc.labelKey]}">${d.nav[sc.labelKey]}</option>`
+                              )
+                              .join('')}
+                          </select>
+                        </div>
+                        <div>
+                          <label class="block text-[10px] font-bold text-indigo-950 mb-1">اسم الـ Submenu داخل (${customTitle}):</label>
+                          <input
+                            id="inline-sub-title-${grp.id}"
+                            type="text"
+                            value="${availableScreens[0] ? d.nav[availableScreens[0].labelKey] : ''}"
+                            class="w-full rounded border border-indigo-300 bg-white px-2 py-1 text-xs font-bold"
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            data-confirm-inline-sub="${grp.id}"
+                            class="w-full rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer"
+                          >
+                            ✅ حفظ وإضافة الـ Submenu الآن
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
                     <div id="grp-items-grid-${grp.id}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-                      ${grp.items
-                        .filter((item) => isDeveloper || !DEVELOPER_ONLY_ROUTES.includes(item.route))
-                        .map((item) => {
-                          const isItemVis = !prefs.hiddenRoutes.includes(item.route);
-                          const currentGrpId = prefs.routeGroupOverrides?.[item.route] || grp.id;
-                          return `
-                            <div data-submenu-card="${item.route}" class="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 text-[11px] font-semibold text-slate-700 shadow-2xs transition-colors">
-                              <label class="flex items-center gap-1.5 cursor-pointer hover:text-sky-700">
-                                <input type="checkbox" name="route_vis_${item.route}" value="1" ${isItemVis ? 'checked' : ''} class="accent-sky-600 rounded" />
-                                <span class="font-bold text-slate-800">${d.nav[item.labelKey]}</span>
-                              </label>
-                              <div class="flex items-center gap-1 border-t border-slate-100 pt-1">
-                                <span class="text-[10px] text-slate-400 shrink-0">${i18n.bi('القائمة:', 'Group:')}</span>
-                                <select
-                                  name="route_grp_${item.route}"
-                                  data-route-group-select="${item.route}"
-                                  class="w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-900 focus:border-sky-500 focus:bg-white outline-none cursor-pointer"
-                                  title="${i18n.bi('نقل هذه الشاشة الفرعية إلى قائمة رئيسية أخرى', 'Move this submenu to another main menu group')}"
-                                >
-                                  ${orderedGroups
-                                    .map((gOpt) => {
-                                      const gOptTitle = prefs.customGroupTitlesAr[gOpt.id] || gOpt.titleAr;
-                                      return `<option value="${gOpt.id}" ${gOpt.id === currentGrpId ? 'selected' : ''}>${gOpt.icon} ${gOptTitle}</option>`;
-                                    })
-                                    .join('')}
-                                </select>
-                              </div>
-                            </div>
-                          `;
-                        })
-                        .join('')}
+                      ${
+                        visibleGrpItems.length === 0
+                          ? `<div class="col-span-full rounded-lg border border-dashed border-slate-300 bg-white/70 p-3 text-center text-[11px] text-slate-500">
+                              لا توجد قوائم فرعية (Submenus) داخل هذه القائمة حتى الآن — اضغط على <strong>(+ إضافة Submenu هنا)</strong> بالأعلى لإضافة شاشات فرعية تحتها.
+                            </div>`
+                          : visibleGrpItems
+                              .map((item) => {
+                                const itemKey = item.id || item.route;
+                                const isItemVis = !prefs.hiddenRoutes.includes(itemKey);
+                                const currentGrpId =
+                                  prefs.routeGroupOverrides?.[itemKey] || grp.id;
+                                const displayTitle =
+                                  item.customTitleAr ||
+                                  prefs.customRouteTitlesAr?.[itemKey] ||
+                                  d.nav[item.labelKey];
+
+                                return `
+                                  <div data-submenu-card="${itemKey}" class="flex flex-col gap-1.5 rounded-lg border ${
+                                    item.isCustomSubmenu ? 'border-indigo-300 bg-indigo-50/20' : 'border-slate-200 bg-white'
+                                  } p-2 text-[11px] font-semibold text-slate-700 shadow-2xs transition-colors">
+                                    <div class="flex items-center justify-between gap-1.5">
+                                      <input type="checkbox" name="route_vis_${itemKey}" value="1" ${isItemVis ? 'checked' : ''} class="accent-sky-600 rounded shrink-0 cursor-pointer" title="إظهار / إخفاء" />
+                                      <input
+                                        type="text"
+                                        name="route_title_${itemKey}"
+                                        value="${displayTitle}"
+                                        class="w-full rounded border border-slate-200 bg-slate-50/70 px-1.5 py-0.5 text-[11px] font-bold text-slate-900 focus:border-sky-500 focus:bg-white outline-none"
+                                        title="يمكنك تعديل اسم الشاشة الفرعية (Submenu)"
+                                      />
+                                      ${
+                                        item.isCustomSubmenu
+                                          ? `<button
+                                              type="button"
+                                              data-del-custom-sub="${itemKey}"
+                                              class="text-rose-600 hover:text-rose-800 font-bold px-1 cursor-pointer shrink-0"
+                                              title="حذف هذا الـ Submenu المخصص"
+                                            >🗑️</button>`
+                                          : ''
+                                      }
+                                    </div>
+                                    <div class="flex items-center gap-1 border-t border-slate-100 pt-1">
+                                      <span class="text-[10px] text-slate-400 shrink-0">${i18n.bi('القائمة:', 'Group:')}</span>
+                                      <select
+                                        name="route_grp_${itemKey}"
+                                        data-route-group-select="${itemKey}"
+                                        class="w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-900 focus:border-sky-500 focus:bg-white outline-none cursor-pointer"
+                                        title="${i18n.bi('نقل هذه الشاشة الفرعية إلى قائمة رئيسية أخرى', 'Move this submenu to another main menu group')}"
+                                      >
+                                        ${orderedGroups
+                                          .map((gOpt) => {
+                                            const gOptTitle = prefs.customGroupTitlesAr[gOpt.id] || gOpt.titleAr;
+                                            return `<option value="${gOpt.id}" ${gOpt.id === currentGrpId ? 'selected' : ''}>${gOpt.icon} ${gOptTitle}</option>`;
+                                          })
+                                          .join('')}
+                                      </select>
+                                    </div>
+                                  </div>
+                                `;
+                              })
+                              .join('')
+                      }
                     </div>
                   </div>
                 `;
@@ -519,7 +953,7 @@ export class MedicalLabApp {
               id="menu-prefs-reset-btn"
               class="rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 cursor-pointer"
             >
-              🔄 ${i18n.bi('استعادة الإعدادات القياسية وإظهار جميع القوائم', 'Reset to Default & Show All Menus')}
+              🔄 ${i18n.bi('استعادة الإعدادات القياسية وإظهار جميع القوائم لهذا المستخدم', 'Reset to Default & Show All Menus for This User')}
             </button>
             <button
               type="submit"
@@ -533,13 +967,218 @@ export class MedicalLabApp {
       (close) => {
         const form = document.getElementById('menu-prefs-form') as HTMLFormElement | null;
 
-        // Live DOM move when user changes the target main group of any submenu item
+        // 0. Switch target user dropdown
+        const userSelect = document.getElementById('menu-target-user-select') as HTMLSelectElement | null;
+        userSelect?.addEventListener('change', () => {
+          const chosenUser = userSelect.value;
+          close();
+          this.openMenuSettingsModal(chosenUser);
+        });
+
+        // Auto-fill submenu title when changing target screen in top Box B
+        const topSubRouteSelect = document.getElementById('new-sub-route') as HTMLSelectElement | null;
+        const topSubTitleInput = document.getElementById('new-sub-title') as HTMLInputElement | null;
+        topSubRouteSelect?.addEventListener('change', () => {
+          const opt = topSubRouteSelect.selectedOptions[0];
+          const lbl = opt?.getAttribute('data-default-label') || '';
+          if (topSubTitleInput && lbl) {
+            topSubTitleInput.value = lbl;
+          }
+        });
+
+        // 1. Add Custom Main Menu Button
+        document.getElementById('btn-add-custom-main-group')?.addEventListener('click', () => {
+          if (!form) return;
+          const titleInp = document.getElementById('new-custom-grp-title') as HTMLInputElement | null;
+          const iconSel = document.getElementById('new-custom-grp-icon') as HTMLSelectElement | null;
+          const ordInp = document.getElementById('new-custom-grp-order') as HTMLInputElement | null;
+
+          const titleAr = String(titleInp?.value || '').trim();
+          if (!titleAr) {
+            showToast('يرجى كتابة اسم القائمة الرئيسية الجديدة أولاً', 'warning');
+            titleInp?.focus();
+            return;
+          }
+          const icon = String(iconSel?.value || '⭐');
+          const desiredOrder = Math.max(1, Number(ordInp?.value) || 1);
+
+          const currentPrefs = collectCurrentFormPrefs(form);
+          const newGrpId = `grp_custom_${Date.now()}`;
+          const newCustomGrp: CustomMainGroup = {
+            id: newGrpId,
+            icon,
+            titleAr,
+            titleEn: titleAr,
+          };
+
+          currentPrefs.customGroups.push(newCustomGrp);
+          currentPrefs.customGroupTitlesAr[newGrpId] = titleAr;
+          currentPrefs.customGroupIcons[newGrpId] = icon;
+
+          const newOrderList = currentPrefs.groupOrder.filter((id) => id !== newGrpId);
+          newOrderList.splice(desiredOrder - 1, 0, newGrpId);
+          currentPrefs.groupOrder = newOrderList;
+
+          saveMenuPreferences(currentPrefs, activeTargetUsername);
+          this.expandedGroups.add(newGrpId);
+          showToast(`تم إنشاء القائمة الرئيسية (${icon} ${titleAr}) بنجاح — يمكنك الآن وضع Submenus بداخلها`, 'success');
+          close();
+          this.render();
+          this.openMenuSettingsModal(activeTargetUsername);
+        });
+
+        // 2. Add Custom Submenu from top Box B
+        document.getElementById('btn-add-custom-submenu')?.addEventListener('click', () => {
+          if (!form) return;
+          const parentSel = document.getElementById('new-sub-parent-grp') as HTMLSelectElement | null;
+          const routeSel = document.getElementById('new-sub-route') as HTMLSelectElement | null;
+          const titleInp = document.getElementById('new-sub-title') as HTMLInputElement | null;
+
+          const parentGroupId = String(parentSel?.value || '').trim();
+          const route = (routeSel?.value || 'patients') as RouteId;
+          const titleAr = String(titleInp?.value || '').trim();
+
+          if (!parentGroupId || !titleAr) {
+            showToast('يرجى اختيار القائمة الرئيسية وكتابة اسم الـ Submenu', 'warning');
+            return;
+          }
+
+          const currentPrefs = collectCurrentFormPrefs(form);
+          const newSubId = `sub_custom_${Date.now()}`;
+          currentPrefs.customSubmenus.push({
+            id: newSubId,
+            parentGroupId,
+            route,
+            titleAr,
+            titleEn: titleAr,
+          });
+          currentPrefs.customRouteTitlesAr[newSubId] = titleAr;
+          currentPrefs.routeGroupOverrides[newSubId] = parentGroupId;
+
+          saveMenuPreferences(currentPrefs, activeTargetUsername);
+          this.expandedGroups.add(parentGroupId);
+          showToast(`تمت إضافة الـ Submenu (${titleAr}) داخل القائمة المختارة بنجاح`, 'success');
+          close();
+          this.render();
+          this.openMenuSettingsModal(activeTargetUsername);
+        });
+
+        // 3. Inline "+ إضافة Submenu هنا" inside each Main Menu card
+        form?.querySelectorAll<HTMLButtonElement>('[data-toggle-inline-sub]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const grpId = btn.dataset.toggleInlineSub!;
+            const panel = document.getElementById(`inline-sub-adder-${grpId}`);
+            panel?.classList.toggle('hidden');
+          });
+        });
+
+        form?.querySelectorAll<HTMLSelectElement>('[data-inline-route-select]').forEach((sel) => {
+          sel.addEventListener('change', () => {
+            const grpId = sel.dataset.inlineRouteSelect!;
+            const lbl = sel.selectedOptions[0]?.getAttribute('data-default-label') || '';
+            const inp = document.getElementById(`inline-sub-title-${grpId}`) as HTMLInputElement | null;
+            if (inp && lbl) inp.value = lbl;
+          });
+        });
+
+        form?.querySelectorAll<HTMLButtonElement>('[data-confirm-inline-sub]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (!form) return;
+            const grpId = btn.dataset.confirmInlineSub!;
+            const routeSel = document.getElementById(`inline-sub-route-${grpId}`) as HTMLSelectElement | null;
+            const titleInp = document.getElementById(`inline-sub-title-${grpId}`) as HTMLInputElement | null;
+            const route = (routeSel?.value || 'patients') as RouteId;
+            const titleAr = String(titleInp?.value || '').trim();
+            if (!titleAr) {
+              showToast('يرجى إدخال اسم الـ Submenu', 'warning');
+              return;
+            }
+
+            const currentPrefs = collectCurrentFormPrefs(form);
+            const newSubId = `sub_custom_${Date.now()}`;
+            currentPrefs.customSubmenus.push({
+              id: newSubId,
+              parentGroupId: grpId,
+              route,
+              titleAr,
+              titleEn: titleAr,
+            });
+            currentPrefs.customRouteTitlesAr[newSubId] = titleAr;
+            currentPrefs.routeGroupOverrides[newSubId] = grpId;
+
+            saveMenuPreferences(currentPrefs, activeTargetUsername);
+            this.expandedGroups.add(grpId);
+            showToast(`تمت إضافة الـ Submenu (${titleAr}) بنجاح`, 'success');
+            close();
+            this.render();
+            this.openMenuSettingsModal(activeTargetUsername);
+          });
+        });
+
+        // 4. Delete Custom Main Group with Confirmation
+        form?.querySelectorAll<HTMLButtonElement>('[data-del-custom-grp]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (!form) return;
+            const grpId = btn.dataset.delCustomGrp!;
+            const currentPrefs = collectCurrentFormPrefs(form);
+            const targetGrp = currentPrefs.customGroups.find((g) => g.id === grpId);
+            if (!targetGrp) return;
+
+            openDeleteConfirmModal({
+              recordLabel: `القائمة الرئيسية المخصصة: ${targetGrp.titleAr}`,
+              onConfirm: async () => {
+                currentPrefs.customGroups = currentPrefs.customGroups.filter((g) => g.id !== grpId);
+                currentPrefs.groupOrder = currentPrefs.groupOrder.filter((id) => id !== grpId);
+                currentPrefs.customSubmenus = currentPrefs.customSubmenus.filter(
+                  (s) => s.parentGroupId !== grpId
+                );
+                for (const [k, v] of Object.entries(currentPrefs.routeGroupOverrides)) {
+                  if (v === grpId) {
+                    delete currentPrefs.routeGroupOverrides[k];
+                  }
+                }
+                saveMenuPreferences(currentPrefs, activeTargetUsername);
+                showToast(`تم حذف القائمة (${targetGrp.titleAr}) بنجاح`, 'success');
+                close();
+                this.render();
+                this.openMenuSettingsModal(activeTargetUsername);
+              },
+            });
+          });
+        });
+
+        // 5. Delete Custom Submenu with Confirmation
+        form?.querySelectorAll<HTMLButtonElement>('[data-del-custom-sub]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (!form) return;
+            const subId = btn.dataset.delCustomSub!;
+            const currentPrefs = collectCurrentFormPrefs(form);
+            const targetSub = currentPrefs.customSubmenus.find((s) => s.id === subId);
+            if (!targetSub) return;
+
+            openDeleteConfirmModal({
+              recordLabel: `القائمة الفرعية (Submenu): ${targetSub.titleAr}`,
+              onConfirm: async () => {
+                currentPrefs.customSubmenus = currentPrefs.customSubmenus.filter((s) => s.id !== subId);
+                delete currentPrefs.routeGroupOverrides[subId];
+                delete currentPrefs.customRouteTitlesAr[subId];
+                saveMenuPreferences(currentPrefs, activeTargetUsername);
+                showToast(`تم حذف الـ Submenu (${targetSub.titleAr}) بنجاح`, 'success');
+                close();
+                this.render();
+                this.openMenuSettingsModal(activeTargetUsername);
+              },
+            });
+          });
+        });
+
+        // 6. Live DOM move when user changes the target main group of any submenu item
         form?.querySelectorAll<HTMLSelectElement>('select[data-route-group-select]').forEach((selectEl) => {
           selectEl.addEventListener('change', () => {
-            const routeId = selectEl.dataset.routeGroupSelect;
+            const routeKey = selectEl.dataset.routeGroupSelect;
             const targetGroupId = selectEl.value;
-            if (!routeId || !targetGroupId) return;
-            const cardEl = form.querySelector<HTMLElement>(`[data-submenu-card="${routeId}"]`);
+            if (!routeKey || !targetGroupId) return;
+            const cardEl = form.querySelector<HTMLElement>(`[data-submenu-card="${routeKey}"]`);
             const targetGrid = document.getElementById(`grp-items-grid-${targetGroupId}`);
             if (cardEl && targetGrid) {
               targetGrid.appendChild(cardEl);
@@ -552,76 +1191,43 @@ export class MedicalLabApp {
         });
 
         document.getElementById('menu-prefs-reset-btn')?.addEventListener('click', () => {
-          localStorage.removeItem(MENU_PREFS_STORAGE_KEY);
+          localStorage.removeItem(getUserMenuStorageKey(activeTargetUsername));
+          localStorage.removeItem(LEGACY_MENU_PREFS_STORAGE_KEY);
           this.expandedGroups = new Set(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
           close();
           this.render();
-          showToast(i18n.bi('تمت استعادة جميع القوائم والشاشات بنجاح', 'Default menus restored'), 'success');
+          showToast(
+            i18n.bi(
+              `تمت استعادة القوائم القياسية للمستخدم (${activeTargetUsername}) بنجاح`,
+              'Default menus restored for user'
+            ),
+            'success'
+          );
         });
 
         form?.addEventListener('submit', (e) => {
           e.preventDefault();
-          const fd = new FormData(form);
-          const layoutMode = (fd.get('layoutMode') as MenuLayoutMode) || 'grouped_expanded';
-          const showAllScreensRegardlessOfRole = Boolean(fd.get('showAllScreensRegardlessOfRole'));
-          const hiddenGroups: string[] = [];
-          const hiddenRoutes: string[] = [];
-          const customGroupTitlesAr: Record<string, string> = {};
-          const routeGroupOverrides: Record<string, string> = {};
-          const orderPairs: Array<{ id: string; ord: number }> = [];
-
-          for (const grp of DEFAULT_SIDEBAR_GROUPS) {
-            if (!fd.get(`grp_vis_${grp.id}`)) {
-              hiddenGroups.push(grp.id);
-            }
-            const tAr = String(fd.get(`grp_title_${grp.id}`) || '').trim();
-            if (tAr) {
-              customGroupTitlesAr[grp.id] = tAr;
-            }
-            const ord = Number(fd.get(`grp_order_${grp.id}`)) || 99;
-            orderPairs.push({ id: grp.id, ord });
-
-            for (const item of grp.items) {
-              if (!isDeveloper && DEVELOPER_ONLY_ROUTES.includes(item.route)) {
-                continue;
-              }
-              if (!fd.get(`route_vis_${item.route}`)) {
-                hiddenRoutes.push(item.route);
-              }
-              const selectedGrp = String(fd.get(`route_grp_${item.route}`) || '').trim();
-              if (selectedGrp && selectedGrp !== grp.id) {
-                routeGroupOverrides[item.route] = selectedGrp;
-              }
-            }
-          }
-
-          orderPairs.sort((a, b) => a.ord - b.ord);
-          const groupOrder = orderPairs.map((p) => p.id);
-
-          const updatedPrefs: UserMenuPreferences = {
-            layoutMode,
-            showAllScreensRegardlessOfRole,
-            hiddenGroups,
-            hiddenRoutes,
-            groupOrder,
-            customGroupTitlesAr,
-            routeGroupOverrides,
-          };
-
-          saveMenuPreferences(updatedPrefs);
+          const updatedPrefs = collectCurrentFormPrefs(form);
+          saveMenuPreferences(updatedPrefs, activeTargetUsername);
 
           const resolvedGroups = getResolvedSidebarGroups(updatedPrefs);
-          if (layoutMode === 'grouped_expanded') {
+          if (updatedPrefs.layoutMode === 'grouped_expanded') {
             this.expandedGroups = new Set(resolvedGroups.map((g) => g.id));
-          } else if (layoutMode === 'grouped_accordion') {
+          } else if (updatedPrefs.layoutMode === 'grouped_accordion') {
             const currentRoute = router.getRoute();
             const activeGrp = resolvedGroups.find((g) => g.items.some((i) => i.route === currentRoute));
-            this.expandedGroups = new Set(activeGrp ? [activeGrp.id] : [resolvedGroups[0].id]);
+            this.expandedGroups = new Set(activeGrp ? [activeGrp.id] : [resolvedGroups[0]?.id || 'grp_patients']);
           }
 
           close();
           this.render();
-          showToast(i18n.bi('تم حفظ وتحديث إعدادات القوائم بنجاح', 'Menu settings saved'), 'success');
+          showToast(
+            i18n.bi(
+              `تم حفظ وتطبيق القوائم المخصصة للمستخدم (${activeTargetUsername}) بنجاح`,
+              'Custom user menu settings saved'
+            ),
+            'success'
+          );
         });
       }
     );
@@ -642,10 +1248,15 @@ export class MedicalLabApp {
       return;
     }
 
-    const prefs = loadMenuPreferences();
+    const prefs = loadMenuPreferences(user.username);
     const orderedGroups = getResolvedSidebarGroups(prefs);
 
-    // Ensure the group containing the active route is expanded automatically
+    // Ensure custom groups and the group containing the active route are expanded
+    for (const cg of prefs.customGroups || []) {
+      if (prefs.layoutMode === 'grouped_expanded') {
+        this.expandedGroups.add(cg.id);
+      }
+    }
     const activeGroup = orderedGroups.find((g) => g.items.some((i) => i.route === currentRoute));
     if (activeGroup) {
       this.expandedGroups.add(activeGroup.id);
@@ -657,18 +1268,20 @@ export class MedicalLabApp {
       .filter((grp) => !prefs.hiddenGroups.includes(grp.id))
       .map((grp) => ({
         ...grp,
+        icon: prefs.customGroupIcons?.[grp.id] || grp.icon,
         titleAr: prefs.customGroupTitlesAr[grp.id] || grp.titleAr,
         items: grp.items.filter((item) => {
+          const itemKey = item.id || item.route;
           // Developer-only screens (settings, auditLogs, testPlan) are strictly hidden from all other roles
           if (DEVELOPER_ONLY_ROUTES.includes(item.route) && !isDeveloper) {
             return false;
           }
-          if (prefs.hiddenRoutes.includes(item.route)) return false;
+          if (prefs.hiddenRoutes.includes(itemKey)) return false;
           if (prefs.showAllScreensRegardlessOfRole) return true;
           return !item.resource || can(user, 'view', item.resource);
         }),
       }))
-      .filter((grp) => grp.items.length > 0);
+      .filter((grp) => grp.items.length > 0 || grp.isCustomGroup);
 
     const d = i18n.dict;
     const totalVisibleItems = visibleGroups.reduce((acc, g) => acc + g.items.length, 0) + (canViewDashboard ? 1 : 0);
@@ -811,6 +1424,9 @@ export class MedicalLabApp {
                         .flatMap((g) => g.items)
                         .map((item) => {
                           const isActive = currentRoute === item.route;
+                          const itemLabel = item.customTitleAr
+                            ? i18n.bi(item.customTitleAr, item.customTitleEn || d.nav[item.labelKey])
+                            : d.nav[item.labelKey];
                           return `
                             <a
                               href="#/${item.route}"
@@ -821,7 +1437,7 @@ export class MedicalLabApp {
                               }"
                             >
                               <span class="text-[10px] ${isActive ? 'text-white' : 'text-slate-400'}">●</span>
-                              <span>${d.nav[item.labelKey]}</span>
+                              <span>${itemLabel}</span>
                             </a>
                           `;
                         })
@@ -858,24 +1474,31 @@ export class MedicalLabApp {
                                 id="nav-grp-body-${grp.id}"
                                 class="${isExpanded ? 'block' : 'hidden'} px-2 py-1.5 space-y-0.5 bg-white border-t border-slate-100"
                               >
-                                ${grp.items
-                                  .map((item) => {
-                                    const isActive = currentRoute === item.route;
-                                    return `
-                                      <a
-                                        href="#/${item.route}"
-                                        class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold leading-snug transition-colors ${
-                                          isActive
-                                            ? 'skin-nav-active text-white shadow-xs'
-                                            : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                                        }"
-                                      >
-                                        <span class="text-[10px] shrink-0 ${isActive ? 'text-white' : 'text-sky-500'}">●</span>
-                                        <span>${d.nav[item.labelKey]}</span>
-                                      </a>
-                                    `;
-                                  })
-                                  .join('')}
+                                ${
+                                  grp.items.length === 0
+                                    ? `<div class="px-2.5 py-1.5 text-[11px] text-slate-400 italic">قائمة مخصصة فارغة — اضغط ⚙️ إعدادات القوائم لإضافة Submenu</div>`
+                                    : grp.items
+                                        .map((item) => {
+                                          const isActive = currentRoute === item.route;
+                                          const itemLabel = item.customTitleAr
+                                            ? i18n.bi(item.customTitleAr, item.customTitleEn || d.nav[item.labelKey])
+                                            : d.nav[item.labelKey];
+                                          return `
+                                            <a
+                                              href="#/${item.route}"
+                                              class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold leading-snug transition-colors ${
+                                                isActive
+                                                  ? 'skin-nav-active text-white shadow-xs'
+                                                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                                              }"
+                                            >
+                                              <span class="text-[10px] shrink-0 ${isActive ? 'text-white' : 'text-sky-500'}">●</span>
+                                              <span>${itemLabel}</span>
+                                            </a>
+                                          `;
+                                        })
+                                        .join('')
+                                }
                               </div>
                             </div>
                           `;

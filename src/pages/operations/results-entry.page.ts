@@ -55,6 +55,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
     const tst = tstMap.get(res.testId);
     const req = reqMap.get(res.requestId);
     const smp = sampleByReqId.get(res.requestId);
+    const testParams = allParameters.filter((p) => p.testId === res.testId);
     const deltaAlerts = evaluateDeltaChecksForResult(res, results);
 
     openCustomModal(
@@ -73,10 +74,19 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                 </div>`
               : ''
           }
+          <div class="rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 grid grid-cols-12 items-center gap-2 text-[11px] font-extrabold text-slate-700" dir="ltr">
+            <div class="col-span-4 text-left">Parameter Name (English)</div>
+            <div class="col-span-3 text-left">Result Value</div>
+            <div class="col-span-2 text-left">Unit</div>
+            <div class="col-span-3 text-left text-emerald-800">Normal Range (النورمال)</div>
+          </div>
           <div class="max-h-96 overflow-y-auto space-y-2.5 pr-1">
             ${res.values
               .map((v, idx) => {
-                const prmDef = paramMap.get(v.parameterId);
+                const prmDef =
+                  paramMap.get(v.parameterId) ||
+                  testParams.find((p) => p.nameEn.toLowerCase() === (v.parameterNameEn || '').toLowerCase()) ||
+                  testParams[idx];
                 const fallbackFormula = prmDef?.code ? getDefaultFormulaMetadata(prmDef.code) : { isCalculated: false };
                 const isCalcParam = Boolean((prmDef?.isCalculated && prmDef?.formula) || (fallbackFormula.isCalculated && fallbackFormula.formula));
                 const formulaExpr = prmDef?.formula || fallbackFormula.formula || '';
@@ -84,10 +94,24 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                 const isSelect = prmDef?.resultType === 'select' && prmDef.options && prmDef.options.length > 0;
                 const isText = prmDef?.resultType === 'text' || prmDef?.resultType === 'boolean';
 
+                const isFemale = pat?.gender === 'female';
+                const normMin = Number(isFemale && Number(prmDef?.normalFemaleMax) > 0 ? prmDef?.normalFemaleMin : prmDef?.normalMaleMin) || 0;
+                const normMax = Number(isFemale && Number(prmDef?.normalFemaleMax) > 0 ? prmDef?.normalFemaleMax : prmDef?.normalMaleMax) || 0;
+                const resolvedNormalRange =
+                  normMax > 0
+                    ? normMin > 0
+                      ? `${normMin} - ${normMax}`
+                      : `Up to ${normMax}`
+                    : prmDef?.normalRangeText && prmDef.normalRangeText !== 'Normal'
+                    ? prmDef.normalRangeText
+                    : v.normalRange || 'Normal';
+                const resolvedUnit = v.unit && v.unit !== '-' ? v.unit : prmDef?.unit && prmDef.unit !== '-' ? prmDef.unit : '';
+                const englishParamName = prmDef?.nameEn || v.parameterNameEn || v.parameterNameAr;
+
                 let inputHtml = '';
                 if (isSelect) {
                   inputHtml = `
-                    <select id="res_input_${idx}" name="val_${idx}" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
+                    <select id="res_input_${idx}" name="val_${idx}" dir="ltr" class="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
                       ${prmDef!
                         .options!.map(
                           (opt) =>
@@ -101,6 +125,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                     <input
                       id="res_input_${idx}"
                       name="val_${idx}"
+                      dir="ltr"
                       type="text"
                       value="${escapeHtml(String(v.value))}"
                       class="w-full rounded border border-slate-300 px-2.5 py-1.5 font-mono font-bold text-slate-900"
@@ -111,6 +136,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                     <input
                       id="res_input_${idx}"
                       name="val_${idx}"
+                      dir="ltr"
                       data-param-code="${escapeHtml(prmDef?.code || '')}"
                       data-is-calc="${isCalcParam ? '1' : '0'}"
                       type="number"
@@ -122,25 +148,30 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                 }
 
                 return `
-                <div class="border-b border-slate-100 pb-2 space-y-1">
+                <div class="border-b border-slate-100 pb-2 space-y-1" dir="ltr">
                   <div class="grid grid-cols-12 items-center gap-2">
-                    <div class="col-span-5">
-                      <div class="font-semibold text-slate-800">${v.parameterNameAr} / <span class="text-slate-500">${v.parameterNameEn}</span></div>
+                    <div class="col-span-4 text-left">
+                      <div class="font-bold text-slate-900">${escapeHtml(englishParamName)}</div>
+                      <div class="text-[10px] font-mono text-emerald-700 font-semibold">Normal: ${escapeHtml(resolvedNormalRange)} ${escapeHtml(resolvedUnit)}</div>
                       ${
                         isCalcParam
                           ? `<div class="flex flex-wrap items-center gap-2 mt-0.5">
                               <span class="rounded bg-amber-100 border border-amber-300 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-900" title="${escapeHtml(formulaNote)}" dir="ltr">ƒx ${escapeHtml(formulaExpr)}</span>
                               <label class="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 cursor-pointer">
                                 <input type="checkbox" data-manual-override="${idx}" class="rounded border-slate-300" />
-                                <span>🔓 ${i18n.bi('تعديل يدوي', 'Manual Override')}</span>
+                                <span>🔓 Manual</span>
                               </label>
                             </div>`
                           : ''
                       }
                     </div>
                     <div class="col-span-3">${inputHtml}</div>
-                    <div class="col-span-2 font-mono text-slate-500">${v.unit}</div>
-                    <div class="col-span-2 font-mono text-emerald-700 text-[11px]">${v.normalRange}</div>
+                    <div class="col-span-2 font-mono text-slate-600 font-semibold text-left">${escapeHtml(resolvedUnit)}</div>
+                    <div class="col-span-3 text-left">
+                      <span class="inline-flex items-center rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 font-mono font-bold text-emerald-800 text-[11px]">
+                        Normal: ${escapeHtml(resolvedNormalRange)}
+                      </span>
+                    </div>
                   </div>
                   <div id="formula_warn_${idx}" class="hidden rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-800"></div>
                 </div>
@@ -257,11 +288,16 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
 
             let hasCritical = false;
             const isFemale = pat?.gender === 'female';
+            const testParamsForCurrentTest = allParameters.filter((p) => p.testId === res.testId);
 
             res.values = res.values.map((v, idx) => {
               const inputEl = document.getElementById(`res_input_${idx}`) as HTMLInputElement | HTMLSelectElement | null;
               const rawVal = inputEl ? inputEl.value : v.value;
-              const prmDef = paramMap.get(v.parameterId);
+              const prmDef =
+                paramMap.get(v.parameterId) ||
+                testParamsForCurrentTest.find((p) => p.nameEn.toLowerCase() === v.parameterNameEn.toLowerCase()) ||
+                testParamsForCurrentTest[idx] ||
+                testParamsForCurrentTest[0];
 
               if (prmDef && prmDef.resultType !== 'numeric') {
                 const strVal = String(rawVal ?? '').trim();
@@ -280,24 +316,26 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                     flag = 'high';
                   }
                 }
-                return { ...v, value: strVal, flag };
+                return {
+                  ...v,
+                  value: strVal,
+                  unit: v.unit || (prmDef.unit && prmDef.unit !== '-' ? prmDef.unit : ''),
+                  normalRange: v.normalRange && v.normalRange !== 'Normal' ? v.normalRange : prmDef.normalRangeText || 'Negative',
+                  flag,
+                };
               }
 
               const parsedNum = Number(rawVal);
               const num = Number.isFinite(parsedNum) ? parsedNum : 0;
               let flag: typeof v.flag = 'normal';
               const minNorm = prmDef
-                ? isFemale
-                  ? prmDef.normalFemaleMin
-                  : prmDef.normalMaleMin
-                : 4;
+                ? Number(isFemale && Number(prmDef.normalFemaleMax) > 0 ? prmDef.normalFemaleMin : prmDef.normalMaleMin) || 0
+                : 0;
               const maxNorm = prmDef
-                ? isFemale
-                  ? prmDef.normalFemaleMax
-                  : prmDef.normalMaleMax
-                : 15;
-              const critLow = prmDef ? prmDef.criticalLow : 2;
-              const critHigh = prmDef ? prmDef.criticalHigh : 30;
+                ? Number(isFemale && Number(prmDef.normalFemaleMax) > 0 ? prmDef.normalFemaleMax : prmDef.normalMaleMax) || 0
+                : 0;
+              const critLow = prmDef ? Number(prmDef.criticalLow) || 0 : 0;
+              const critHigh = prmDef ? Number(prmDef.criticalHigh) || 0 : 0;
 
               if (critHigh > 0 && num >= critHigh) {
                 flag = 'critical_high';
@@ -310,7 +348,24 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
               } else if (minNorm > 0 && num < minNorm) {
                 flag = 'low';
               }
-              return { ...v, value: num, flag };
+
+              const resolvedUnit = v.unit || (prmDef?.unit && prmDef.unit !== '-' ? prmDef.unit : '');
+              const resolvedRange =
+                v.normalRange && v.normalRange !== 'Normal'
+                  ? v.normalRange
+                  : maxNorm > 0
+                  ? minNorm > 0
+                    ? `${minNorm} - ${maxNorm}`
+                    : `Up to ${maxNorm}`
+                  : prmDef?.normalRangeText || 'Normal';
+
+              return {
+                ...v,
+                value: num,
+                unit: resolvedUnit,
+                normalRange: resolvedRange,
+                flag,
+              };
             });
 
             const notesEl = document.getElementById('res_notes_input') as HTMLInputElement | null;
@@ -468,7 +523,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                         const smp = sampleByReqId.get(r.requestId);
                         const valSummary = r.values
                           .slice(0, 4)
-                          .map((v) => `${v.parameterNameEn}: ${v.value} ${v.unit} (${v.flag})`)
+                          .map((v) => `${v.parameterNameEn}: ${v.value} ${v.unit} [Normal: ${v.normalRange}]`)
                           .join(' · ');
                         const extraCount = r.values.length > 4 ? ` +${r.values.length - 4}` : '';
                         const isCrit = r.values.some((v) => v.flag.startsWith('critical'));
@@ -637,6 +692,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
         });
         void printService.printA4('Official Laboratory Results Report', html, subtitle, {
           forceEnglishLtr: true,
+          customReportLayout: true,
         });
       });
     });

@@ -144,8 +144,8 @@ export const MYSQL_TABLES_CONFIG: MySQLTableMapping[] = [
       { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
       { name: 'test_id', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.testId, 64) },
       { name: 'code', sqlType: 'VARCHAR(64)', extract: (r) => str(r.code, 64) },
-      { name: 'name_ar', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameAr, 191) },
-      { name: 'name_en', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameEn, 191) },
+      { name: 'name_ar', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameEn || r.nameAr, 191) },
+      { name: 'name_en', sqlType: 'VARCHAR(191)', extract: (r) => str(r.nameEn || r.nameAr, 191) },
       { name: 'unit', sqlType: 'VARCHAR(64)', extract: (r) => str(r.unit, 64) },
       { name: 'normal_male_min', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalMaleMin ?? r.normalMin) },
       { name: 'normal_male_max', sqlType: 'DECIMAL(12,4) DEFAULT 0', extract: (r) => num(r.normalMaleMax ?? r.normalMax) },
@@ -949,12 +949,14 @@ export function buildEmptyExceptUsersMySQLDump(
     'sampleTubes',
     'tests',
     'testParameters',
+    'antibioticsCatalog',
+    'chartOfAccounts',
   ]);
 
   const lines: string[] = [
     '-- ============================================================================',
-    '-- T-Lab Medical Laboratory & ERP System - CLEAN DATABASE + FULL MEDICAL CATALOG',
-    '-- اسكريبت قاعدة بيانات جاهزة للتشغيل (تضم المستخدمين + الأقسام العلمية + أنابيب السحب + التحاليل + البارامترات)',
+    '-- T-Lab Medical Laboratory & ERP System - FINAL COMPLETE DATABASE + EGYPTIAN COA + MEDICAL CATALOG',
+    '-- اسكريبت قاعدة البيانات النهائي (المستخدمين + شجرة الحسابات المصرية + الأقسام العلمية + أنابيب السحب + التحاليل + البارامترات الإنجليزية + المضادات الحيوية)',
     '-- Compatible with: MySQL 5.5, 5.6, 5.7, and MySQL 8.0.28+ (Community Server)',
     `-- Generated At: ${new Date().toISOString()}`,
     `-- Target Database: ${safeDb}`,
@@ -1011,4 +1013,81 @@ export function buildEmptyExceptUsersMySQLDump(
   lines.push('-- End of T-Lab Clean Database + Full Medical Catalog SQL Script');
   return lines.join('\n');
 }
+
+/**
+ * Generates a dedicated MySQL SQL script for `lab_tests` and `test_parameters`
+ * containing all 106+ tests and 415+ English-only test parameters with reference ranges, units, and formulas.
+ */
+export function buildTestParametersSQLDump(
+  databaseName: string,
+  testsRows: Record<string, unknown>[],
+  paramsRows: Record<string, unknown>[]
+): string {
+  const safeDb = (databaseName || 'tlab_enterprise').replace(/[^a-zA-Z0-9_]/g, '') || 'tlab_enterprise';
+  const lines: string[] = [
+    '-- ============================================================================',
+    '-- T-Lab Medical Laboratory LIMS & ERP - Test Parameters SQL Script (English Only)',
+    `-- Generated at: ${new Date().toISOString()}`,
+    `-- Target Database: ${safeDb}`,
+    `-- Total Medical Tests: ${testsRows.length} | Total English Parameters: ${paramsRows.length}`,
+    '-- ============================================================================',
+    '',
+    'SET NAMES utf8;',
+    'SET CHARACTER SET utf8;',
+    'SET foreign_key_checks = 0;',
+    'SET sql_mode = "NO_AUTO_VALUE_ON_ZERO";',
+    '',
+    `CREATE DATABASE IF NOT EXISTS \`${safeDb}\` DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;`,
+    `USE \`${safeDb}\`;`,
+    '',
+  ];
+
+  const targetTables = MYSQL_TABLES_CONFIG.filter(
+    (m) => m.dexieTable === 'tests' || m.dexieTable === 'testParameters'
+  );
+
+  for (const mapping of targetTables) {
+    const rowsToInsert = mapping.dexieTable === 'tests' ? testsRows : paramsRows;
+    lines.push(`-- --------------------------------------------------------`);
+    lines.push(`-- Table structure for table \`${mapping.mysqlTable}\` (${mapping.titleAr})`);
+    lines.push(`-- --------------------------------------------------------`);
+    lines.push(`DROP TABLE IF EXISTS \`${mapping.mysqlTable}\`;`);
+    lines.push(buildCreateTableSQL(mapping));
+    lines.push(`TRUNCATE TABLE \`${mapping.mysqlTable}\`;`);
+    lines.push('');
+
+    if (rowsToInsert.length > 0) {
+      const colNames = [...mapping.columns.map((c) => `\`${c.name}\``), '`raw_json`'].join(', ');
+      lines.push(`-- Dumping data for table \`${mapping.mysqlTable}\` (${rowsToInsert.length} rows)`);
+      const chunkSize = 100;
+      for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
+        const chunk = rowsToInsert.slice(i, i + chunkSize);
+        const valuesList = chunk.map((row) => {
+          const normalizedRow =
+            mapping.dexieTable === 'testParameters'
+              ? {
+                  ...row,
+                  nameAr: String(row.nameEn || row.nameAr || ''),
+                  nameEn: String(row.nameEn || row.nameAr || ''),
+                }
+              : row;
+          const vals = [
+            ...mapping.columns.map((c) => escapeSqlValue(c.extract(normalizedRow))),
+            escapeSqlValue(JSON.stringify(normalizedRow)),
+          ];
+          return `(${vals.join(', ')})`;
+        });
+        lines.push(
+          `REPLACE INTO \`${mapping.mysqlTable}\` (${colNames}) VALUES\n${valuesList.join(',\n')};`
+        );
+      }
+      lines.push('');
+    }
+  }
+
+  lines.push('SET foreign_key_checks = 1;');
+  lines.push('-- End of T-Lab Test Parameters (English) SQL Script');
+  return lines.join('\n');
+}
+
 

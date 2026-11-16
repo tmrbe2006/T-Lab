@@ -1,13 +1,39 @@
 import { db } from '../db/database';
+import { buildGlobalCatalogRecords } from '../db/global-medical-tests';
 import type { LabRequest, LabResult, ParameterResultValue, RequestItem, Sample, TestParameter } from '../types';
 
-function buildInitialResultValues(prms: TestParameter[], fallbackNameAr: string, fallbackNameEn: string, testId: string): ParameterResultValue[] {
+export function formatNumericRefRange(p: TestParameter, isFemale = false): string {
+  const minVal = Number(isFemale && Number(p.normalFemaleMax) > 0 ? p.normalFemaleMin : p.normalMaleMin);
+  const maxVal = Number(isFemale && Number(p.normalFemaleMax) > 0 ? p.normalFemaleMax : p.normalMaleMax);
+  if (Number.isFinite(maxVal) && maxVal > 0) {
+    if (!Number.isFinite(minVal) || minVal <= 0) {
+      return `Up to ${maxVal}`;
+    }
+    const dec = p.decimalPlaces ?? (String(minVal).includes('.') || String(maxVal).includes('.') ? 2 : 0);
+    const minStr = dec > 0 ? minVal.toFixed(dec) : String(minVal);
+    const maxStr = dec > 0 ? maxVal.toFixed(dec) : String(maxVal);
+    return `${minStr} - ${maxStr}`;
+  }
+  if (p.normalRangeText && p.normalRangeText.trim() !== '' && p.normalRangeText !== 'Normal') {
+    return p.normalRangeText;
+  }
+  return 'Normal';
+}
+
+function buildInitialResultValues(
+  prms: TestParameter[],
+  _fallbackNameAr: string,
+  fallbackNameEn: string,
+  testId: string,
+  isFemale = false
+): ParameterResultValue[] {
+  const cleanFallbackEn = (fallbackNameEn || 'Test Result').trim();
   if (prms.length === 0) {
     return [
       {
         parameterId: `prm_auto_${testId}`,
-        parameterNameAr: fallbackNameAr,
-        parameterNameEn: fallbackNameEn,
+        parameterNameAr: cleanFallbackEn,
+        parameterNameEn: cleanFallbackEn,
         value: 'Normal',
         unit: '',
         normalRange: 'Normal',
@@ -20,29 +46,32 @@ function buildInitialResultValues(prms: TestParameter[], fallbackNameAr: string,
     .slice()
     .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
     .map((p) => {
+      const cleanParamEn = (p.nameEn || p.nameAr || cleanFallbackEn).trim();
       if (p.resultType === 'select' || p.resultType === 'text' || p.resultType === 'boolean') {
-        const textVal = p.options && p.options.length > 0 ? p.options[0] : p.normalRangeText || 'Normal';
+        const textVal = p.options && p.options.length > 0 ? p.options[0] : p.normalRangeText || 'Negative';
         return {
           parameterId: p.id,
-          parameterNameAr: p.nameAr,
-          parameterNameEn: p.nameEn,
+          parameterNameAr: cleanParamEn,
+          parameterNameEn: cleanParamEn,
           value: textVal,
-          unit: p.unit || '',
-          normalRange: p.normalRangeText || 'Normal',
+          unit: p.unit && p.unit !== '-' ? p.unit : '',
+          normalRange: p.normalRangeText || 'Negative',
           flag: 'normal' as const,
         };
       }
+      const minVal = Number(isFemale && Number(p.normalFemaleMax) > 0 ? p.normalFemaleMin : p.normalMaleMin) || 0;
+      const maxVal = Number(isFemale && Number(p.normalFemaleMax) > 0 ? p.normalFemaleMax : p.normalMaleMax) || 0;
       const midVal =
-        p.normalMaleMin !== undefined && p.normalMaleMax !== undefined && p.normalMaleMax > 0
-          ? Number(((p.normalMaleMin + p.normalMaleMax) / 2).toFixed(p.decimalPlaces ?? 1))
+        maxVal > 0
+          ? Number(((minVal + maxVal) / 2).toFixed(p.decimalPlaces ?? 1))
           : 0;
       return {
         parameterId: p.id,
-        parameterNameAr: p.nameAr,
-        parameterNameEn: p.nameEn,
+        parameterNameAr: cleanParamEn,
+        parameterNameEn: cleanParamEn,
         value: midVal,
         unit: p.unit || '',
-        normalRange: p.normalRangeText || `${p.normalMaleMin} - ${p.normalMaleMax}`,
+        normalRange: formatNumericRefRange(p, isFemale),
         flag: 'normal' as const,
       };
     });
@@ -76,20 +105,22 @@ export class RequestsRepository {
   /**
    * Ensures every active LabRequest that has a received Sample (or newly created request)
    * has corresponding LabResult rows in `db.results` for each requested test (`RequestItem`),
-   * so that patients whose samples are received always appear in Results Entry (`#/results`).
+   * and heals any results that were created with missing units or 'Normal' placeholder ranges.
    */
   async ensureDraftResultsForAllRequests(): Promise<void> {
-    const [requests, allRequestItems, allSamples, existingResults, allTests, allParams] = await Promise.all([
+    const [requests, allRequestItems, allSamples, existingResults, allTests, allParams, allPatients] = await Promise.all([
       db.requests.toArray(),
       db.requestItems.toArray(),
       db.samples.toArray(),
       db.results.toArray(),
       db.tests.toArray(),
       db.testParameters.toArray(),
+      db.patients.toArray(),
     ]);
 
-    if (requests.length === 0) return;
+    if (requests.length === 0 && existingResults.length === 0) return;
 
+    const patientMap = new Map(allPatients.map((pt) => [pt.id, pt]));
     const testMap = new Map(allTests.map((t) => [t.id, t]));
     const paramsByTestId = new Map<string, TestParameter[]>();
     for (const p of allParams) {
@@ -98,6 +129,43 @@ export class RequestsRepository {
       list.push(p);
       paramsByTestId.set(p.testId, list);
     }
+
+    // Build global catalog fallback by test ID and test Code (e.g. 'FBS', 'CBC', 'UREA', 'CREAT', 'AST', 'ALT')
+    const { tests: globalTests, testParameters: globalParams } = buildGlobalCatalogRecords();
+    const globalTestByCode = new Map(globalTests.map((gt) => [gt.code.toUpperCase(), gt]));
+    const globalParamsByTestId = new Map<string, TestParameter[]>();
+    for (const gp of globalParams) {
+      const list = globalParamsByTestId.get(gp.testId) || [];
+      list.push(gp);
+      globalParamsByTestId.set(gp.testId, list);
+    }
+
+    const paramsToPersist: TestParameter[] = [];
+    const resolveParamsForTest = (testId: string): TestParameter[] => {
+      const existing = paramsByTestId.get(testId);
+      if (existing && existing.length > 0) return existing;
+
+      const tst = testMap.get(testId);
+      const codeUpper = tst?.code?.toUpperCase() || '';
+      const matchedGlobalTest =
+        globalTests.find((gt) => gt.id === testId) ||
+        (codeUpper ? globalTestByCode.get(codeUpper) : undefined);
+
+      if (matchedGlobalTest) {
+        const gList = globalParamsByTestId.get(matchedGlobalTest.id) || [];
+        if (gList.length > 0) {
+          const cloned = gList.map((gp, idx) => ({
+            ...gp,
+            id: `${testId}_prm_${idx + 1}`,
+            testId,
+          }));
+          paramsByTestId.set(testId, cloned);
+          paramsToPersist.push(...cloned);
+          return cloned;
+        }
+      }
+      return [];
+    };
 
     const itemsByReqId = new Map<string, RequestItem[]>();
     for (const it of allRequestItems) {
@@ -117,6 +185,75 @@ export class RequestsRepository {
     const newResultsToInsert: LabResult[] = [];
     const newSamplesToInsert: Sample[] = [];
     const requestsToUpdate: LabRequest[] = [];
+    const resultsToHeal: LabResult[] = [];
+
+    // Heal any existing results that had placeholder 'Normal' or missing unit or wrong critical flag
+    for (const res of existingResults) {
+      const prms = resolveParamsForTest(res.testId);
+      if (prms.length === 0) continue;
+      const pat = patientMap.get(res.patientId);
+      const isFemale = pat?.gender === 'female';
+      let changed = false;
+
+      const updatedValues = res.values.map((v, idx) => {
+        const matchedParam =
+          prms.find((p) => p.id === v.parameterId) ||
+          prms.find((p) => p.nameEn.toLowerCase() === v.parameterNameEn.toLowerCase()) ||
+          prms[idx] ||
+          prms[0];
+        if (!matchedParam) return v;
+
+        const hasArabicName = /[\u0600-\u06FF]/.test(v.parameterNameAr || '');
+        const isPlaceholder =
+          v.parameterId.startsWith('prm_auto_') ||
+          hasArabicName ||
+          !v.unit ||
+          v.normalRange === 'Normal' ||
+          v.normalRange === '';
+
+        if (!isPlaceholder) return v;
+
+        const cleanParamEn = (matchedParam.nameEn || v.parameterNameEn || matchedParam.code).trim();
+        const nextUnit = matchedParam.unit && matchedParam.unit !== '-' ? matchedParam.unit : v.unit;
+        const nextRange =
+          matchedParam.resultType === 'numeric' || Number(matchedParam.normalMaleMax) > 0
+            ? formatNumericRefRange(matchedParam, isFemale)
+            : matchedParam.normalRangeText || v.normalRange;
+
+        let nextFlag = v.flag;
+        const parsedNum = Number(v.value);
+        if (Number.isFinite(parsedNum) && (matchedParam.resultType === 'numeric' || Number(matchedParam.normalMaleMax) > 0)) {
+          const minNorm = Number(isFemale && Number(matchedParam.normalFemaleMax) > 0 ? matchedParam.normalFemaleMin : matchedParam.normalMaleMin) || 0;
+          const maxNorm = Number(isFemale && Number(matchedParam.normalFemaleMax) > 0 ? matchedParam.normalFemaleMax : matchedParam.normalMaleMax) || 0;
+          const critLow = Number(matchedParam.criticalLow) || 0;
+          const critHigh = Number(matchedParam.criticalHigh) || 0;
+
+          if (critHigh > 0 && parsedNum >= critHigh) nextFlag = 'critical_high';
+          else if (critLow > 0 && parsedNum <= critLow) nextFlag = 'critical_low';
+          else if (maxNorm > 0 && parsedNum > maxNorm) nextFlag = 'high';
+          else if (minNorm > 0 && parsedNum < minNorm) nextFlag = 'low';
+          else nextFlag = 'normal';
+        }
+
+        changed = true;
+        return {
+          ...v,
+          parameterId: matchedParam.id,
+          parameterNameAr: cleanParamEn,
+          parameterNameEn: cleanParamEn,
+          unit: nextUnit,
+          normalRange: nextRange,
+          flag: nextFlag,
+        };
+      });
+
+      if (changed) {
+        resultsToHeal.push({
+          ...res,
+          values: updatedValues,
+        });
+      }
+    }
 
     for (const req of requests) {
       if (req.status === 'cancelled' || req.status === 'rejected') continue;
@@ -151,18 +288,22 @@ export class RequestsRepository {
         requestsToUpdate.push(req);
       }
 
+      const pat = patientMap.get(req.patientId);
+      const isFemale = pat?.gender === 'female';
+
       // Create missing LabResult records for each RequestItem in this request
       for (const item of reqItems) {
         const key = `${req.id}_${item.testId}`;
         if (existingResultKeys.has(key)) continue;
 
         const tst = testMap.get(item.testId);
-        const prms = paramsByTestId.get(item.testId) || [];
+        const prms = resolveParamsForTest(item.testId);
         const initialValues = buildInitialResultValues(
           prms,
           tst?.nameAr || 'نتيجة التحليل',
           tst?.nameEn || 'Test Result',
-          item.testId
+          item.testId,
+          isFemale
         );
 
         const newResult: LabResult = {
@@ -181,13 +322,25 @@ export class RequestsRepository {
       }
     }
 
-    if (newSamplesToInsert.length > 0 || newResultsToInsert.length > 0 || requestsToUpdate.length > 0) {
-      await db.transaction('rw', [db.samples, db.results, db.requests], async () => {
+    if (
+      paramsToPersist.length > 0 ||
+      newSamplesToInsert.length > 0 ||
+      newResultsToInsert.length > 0 ||
+      resultsToHeal.length > 0 ||
+      requestsToUpdate.length > 0
+    ) {
+      await db.transaction('rw', [db.testParameters, db.samples, db.results, db.requests], async () => {
+        if (paramsToPersist.length > 0) {
+          await db.testParameters.bulkPut(paramsToPersist);
+        }
         if (newSamplesToInsert.length > 0) {
           await db.samples.bulkPut(newSamplesToInsert);
         }
         if (newResultsToInsert.length > 0) {
           await db.results.bulkPut(newResultsToInsert);
+        }
+        if (resultsToHeal.length > 0) {
+          await db.results.bulkPut(resultsToHeal);
         }
         if (requestsToUpdate.length > 0) {
           await db.requests.bulkPut(requestsToUpdate);

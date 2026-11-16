@@ -4,6 +4,7 @@ import { buildGlobalCatalogRecords, syncGlobalMedicalCatalog } from '../db/globa
 import {
   buildEmptyExceptUsersMySQLDump,
   buildFullMySQLDump,
+  buildTestParametersSQLDump,
   MYSQL_TABLES_CONFIG,
 } from '../db/mysql-schema';
 import { resetToEmptyExceptUsers } from '../db/seed';
@@ -141,11 +142,13 @@ class MySQLSyncService {
    */
   public async collectAllTablesData(): Promise<Record<string, Record<string, unknown>[]>> {
     try {
+      const { accountingRepository } = await import('../repositories/accounting.repository');
       await Promise.all([
         syncGlobalMedicalCatalog(false),
         lookupsRepository.getScientificDepartments(),
         lookupsRepository.getSampleTubes(),
         lookupsRepository.getDoctorSpecialties(),
+        accountingRepository.ensureEgyptianChartOfAccounts(false),
       ]);
     } catch {
       // proceed with fallback defaults if needed
@@ -174,6 +177,10 @@ class MySQLSyncService {
     }
     if (!data.testParameters || data.testParameters.length < globalParams.length) {
       data.testParameters = globalParams as unknown as Record<string, unknown>[];
+    }
+    if (!data.chartOfAccounts || data.chartOfAccounts.length === 0) {
+      const { EGYPTIAN_STANDARD_ACCOUNTS } = await import('../repositories/accounting.repository');
+      data.chartOfAccounts = EGYPTIAN_STANDARD_ACCOUNTS as unknown as Record<string, unknown>[];
     }
 
     return data;
@@ -239,6 +246,41 @@ class MySQLSyncService {
       i18n.bi(
         'تم تنزيل اسكريبت قاعدة البيانات الجاهزة (المستخدمين + الأقسام العلمية + أنابيب السحب + التحاليل + البارامترات) بنجاح',
         'Clean Database with Full Medical Catalog SQL Script downloaded successfully'
+      ),
+      'success'
+    );
+  }
+
+  /**
+   * Generates and downloads a dedicated MySQL .sql script for `lab_tests` and `test_parameters`
+   * containing all 106+ tests and 415+ English-only test parameters with reference ranges and units.
+   */
+  public async downloadTestParametersSQLDump(): Promise<void> {
+    const cfg = this.getConfig();
+    await syncGlobalMedicalCatalog(true);
+    const allData = await this.collectAllTablesData();
+    const testsRows = (allData.tests || []) as Record<string, unknown>[];
+    const paramsRows = (allData.testParameters || []) as Record<string, unknown>[];
+
+    const sqlContent = buildTestParametersSQLDump(
+      cfg.database || 'tlab_db',
+      testsRows,
+      paramsRows
+    );
+
+    const blob = new Blob([sqlContent], { type: 'application/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const datePart = new Date().toISOString().slice(0, 10);
+    a.download = `tlab_test_parameters_english_${datePart}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast(
+      i18n.bi(
+        `تم تنزيل اسكريبت بارامترات التحاليل بالكامل (${paramsRows.length} بارامتر باللغة الإنجليزية لـ ${testsRows.length} تحليل) بنجاح`,
+        `Downloaded English Test Parameters SQL Script (${paramsRows.length} parameters for ${testsRows.length} tests)`
       ),
       'success'
     );
@@ -406,6 +448,9 @@ class MySQLSyncService {
         } catch {
           // ignore
         }
+        // Always ensure all 106+ medical tests have their complete English-only parameters
+        // even if the MySQL server had an older or incomplete test_parameters table
+        await syncGlobalMedicalCatalog(true);
         CacheService.clear();
       } finally {
         this.isPulling = false;
@@ -597,6 +642,13 @@ class MySQLSyncService {
               </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+              <button
+                id="${prefix}-dl-test-params-sql"
+                type="button"
+                class="rounded-lg bg-sky-400 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-sky-300 cursor-pointer shadow-xs"
+              >
+                🧬 ${i18n.bi('تنزيل اسكريبت بارامترات التحاليل (English .SQL)', 'Download English Test Parameters (.SQL)')}
+              </button>
               <button
                 id="${prefix}-dl-empty-users-sql"
                 type="button"
@@ -893,6 +945,12 @@ class MySQLSyncService {
       setTimeout(() => {
         window.location.reload();
       }, 600);
+    });
+
+    container.querySelector(`#${prefix}-dl-test-params-sql`)?.addEventListener('click', () => {
+      const cfg = readFormConfig();
+      this.saveConfig(cfg);
+      void this.downloadTestParametersSQLDump();
     });
 
     container.querySelector(`#${prefix}-dl-full-sql`)?.addEventListener('click', () => {

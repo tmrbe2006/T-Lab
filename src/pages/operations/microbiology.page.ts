@@ -7,7 +7,7 @@ import {
   showToast,
 } from '../../components/common';
 import { db } from '../../db/database';
-import { enforcePermission } from '../../guards/permission.guard';
+import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
 import { patientsRepository, requestsRepository } from '../../repositories';
@@ -197,6 +197,9 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
       return { code, name };
     });
 
+    const currentUser = authService.getCurrentUser();
+    const canEnterCultureResults = can(currentUser, 'edit', 'microbiology');
+
     container.innerHTML = `
       ${renderPageHeader(
         i18n.bi(
@@ -204,18 +207,21 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
           '🦠 Microbiology Culture & Sensitivity (CLSI/EUCAST MIC) & Antibiotics Catalog'
         ),
         i18n.bi(
-          'عزل وتصنيف البكتيريا، إدارة جدول المضادات الحيوية في قاعدة البيانات، قياس التركيز المثبط الأدنى (MIC)، وإصدار خريطة الحساسية للأطباء',
-          'Organism isolation, Antibiotics database catalog, CLSI/EUCAST MIC breakpoints, and cumulative empiric therapy antibiogram'
+          'تسجيل طلبات المزارع البكتيرية للاستقبال، وعزل البكتيريا وقياس التركيز المثبط الأدنى (MIC) لأخصائيي المعمل',
+          'Register new culture requests at reception, and enter organism isolation & CLSI/EUCAST MIC results by lab specialists'
         ),
         `
-          <div class="flex flex-wrap gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button id="micro-tab-cultures" class="rounded-lg px-3.5 py-2 text-xs font-bold cursor-pointer ${
               activeTab === 'cultures'
                 ? 'bg-sky-600 text-white shadow-xs'
                 : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
             }">
-              🧫 ${i18n.bi('تقارير المزارع والحساسية (C&S + MIC)', 'Culture & Sensitivity Reports')}
+              🧫 ${i18n.bi('طلبات وتقارير المزارع (C&S + MIC)', 'Culture Requests & Reports')}
             </button>
+            ${
+              canEnterCultureResults
+                ? `
             <button id="micro-tab-antibiotics" class="rounded-lg px-3.5 py-2 text-xs font-bold cursor-pointer ${
               activeTab === 'antibiotics'
                 ? 'bg-teal-600 text-white shadow-xs'
@@ -236,8 +242,19 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
             <button id="micro-add-antibiotic-btn" class="rounded-lg bg-teal-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-teal-600 cursor-pointer">
               + 💊 ${i18n.bi('إضافة مضاد حيوي للقاعدة', 'New Antibiotic')}
             </button>
-            <button id="micro-new-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
-              + ${i18n.bi('تسجيل مزرعة جديدة (C&S)', 'New Culture Report')}
+            `
+                : `
+            <span class="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900">
+              🔒 ${i18n.bi('وضع الاستقبال: متاح تسجيل طلب مزرعة جديد فقط (إضافة النتيجة مقفولة)', 'Reception Mode: New Culture Request Only (Result Entry Locked)')}
+            </span>
+            `
+            }
+            <button id="micro-new-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer shadow-xs">
+              + ${
+                canEnterCultureResults
+                  ? i18n.bi('طلب مزرعة جديد / إدخال نتيجة (C&S)', 'New Culture Request / Result')
+                  : i18n.bi('تسجيل طلب مزرعة جديد (استقبال)', 'New Culture Request (Reception)')
+              }
             </button>
           </div>
         `
@@ -305,6 +322,7 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
               <tbody class="divide-y divide-slate-200">
                 ${filteredCultures
                   .map((c) => {
+                    const isPending = c.status === 'draft' || c.organismCode === 'PENDING';
                     const topS = c.antibiotics
                       .filter((a) => a.sensitivity === 'S')
                       .slice(0, 3)
@@ -312,7 +330,7 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                       .join(' ، ');
                     const hasMdr = c.resistanceMechanisms.some((m) => m !== 'None');
                     return `
-                      <tr class="hover:bg-slate-50">
+                      <tr class="hover:bg-slate-50 ${isPending ? 'bg-amber-50/30' : ''}">
                         <td class="px-4 py-3 font-mono font-bold text-sky-700">
                           ${escapeHtml(c.reportNumber)}
                           <div class="text-[10px] text-slate-400 font-normal">${escapeHtml(formatDate(c.createdAt))}</div>
@@ -327,7 +345,9 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                         </td>
                         <td class="px-4 py-3">
                           ${
-                            c.growthStatus === 'no_growth_48h'
+                            isPending
+                              ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-900 font-bold text-[11px]">⏳ ${i18n.bi('قيد التحضين (بانتظار النتيجة)', 'Pending Result (Incubating)')}</span>`
+                              : c.growthStatus === 'no_growth_48h'
                               ? `<span class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold">${i18n.bi('لا يوجد نمو بكتيري بعد 48 ساعة', 'No Growth after 48h')}</span>`
                               : `<div class="font-bold text-slate-900 italic">${escapeHtml(c.organismNameEn)}</div>
                                  <div class="text-[11px] text-slate-600">${escapeHtml(c.organismNameAr)}</div>`
@@ -335,7 +355,9 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                         </td>
                         <td class="px-4 py-3">
                           ${
-                            hasMdr
+                            isPending
+                              ? `<span class="text-slate-400 font-mono text-[11px]">—</span>`
+                              : hasMdr
                               ? c.resistanceMechanisms
                                   .filter((m) => m !== 'None')
                                   .map(
@@ -347,19 +369,41 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                           }
                         </td>
                         <td class="px-4 py-3 font-mono text-[11px] text-emerald-700 font-semibold max-w-xs">
-                          ${escapeHtml(topS || '-')}
+                          ${escapeHtml(topS || (isPending ? i18n.bi('لم تُدخل النتيجة بعد', 'Result not entered yet') : '-'))}
                         </td>
                         <td class="px-4 py-3 text-end">
-                          <div class="flex flex-wrap justify-end gap-1.5">
-                            <button data-view-culture="${c.id}" class="rounded-lg bg-slate-800 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-700 cursor-pointer">
-                              🔍 ${i18n.bi('جدول MIC', 'MIC Panel')}
-                            </button>
-                            <button data-print-culture="${c.id}" class="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-500 cursor-pointer">
-                              🖨️ ${i18n.bi('طباعة A4', 'Print A4')}
-                            </button>
-                            <button data-wa-culture="${c.id}" class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-500 cursor-pointer">
-                              💬 واتساب
-                            </button>
+                          <div class="flex flex-wrap justify-end items-center gap-1.5">
+                            ${
+                              canEnterCultureResults
+                                ? `
+                              <button data-view-culture="${c.id}" class="rounded-lg ${
+                                  isPending ? 'bg-amber-600 hover:bg-amber-500' : 'bg-slate-800 hover:bg-slate-700'
+                                } px-2.5 py-1.5 text-[11px] font-semibold text-white cursor-pointer">
+                                ${
+                                  isPending
+                                    ? `✏️ ${i18n.bi('إدخال النتيجة وجدول MIC', 'Enter Result & MIC')}`
+                                    : `🔍 ${i18n.bi('جدول MIC وتعديل النتيجة', 'MIC Panel & Edit')}`
+                                }
+                              </button>
+                            `
+                                : `
+                              <span class="rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 select-none" title="${i18n.bi('إضافة وتعديل نتيجة المزرعة مقفول لموظف الاستقبال', 'Adding/editing culture results is locked for reception')}">
+                                🔒 ${i18n.bi('إضافة النتيجة مقفولة', 'Result Entry Locked')}
+                              </span>
+                            `
+                            }
+                            ${
+                              !isPending
+                                ? `
+                              <button data-print-culture="${c.id}" class="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-500 cursor-pointer">
+                                🖨️ ${i18n.bi('طباعة A4', 'Print A4')}
+                              </button>
+                              <button data-wa-culture="${c.id}" class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-500 cursor-pointer">
+                                💬 واتساب
+                              </button>
+                            `
+                                : ''
+                            }
                           </div>
                         </td>
                       </tr>
@@ -597,7 +641,7 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
 
     document.getElementById('micro-new-btn')?.addEventListener('click', async () => {
       if (!(await enforcePermission('add', 'microbiology'))) return;
-      openNewCultureModal(patients, requests, sortedAntibiotics, render);
+      openNewCultureModal(patients, requests, sortedAntibiotics, canEnterCultureResults, render);
     });
 
     document.getElementById('print-antibiogram-btn')?.addEventListener('click', async () => {
@@ -613,7 +657,8 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
     });
 
     container.querySelectorAll('[data-view-culture]').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
+        if (!(await enforcePermission('edit', 'microbiology'))) return;
         const id = btn.getAttribute('data-view-culture')!;
         const rec = sortedCultures.find((c) => c.id === id);
         if (rec) void openCultureDetailsModal(rec, render);
@@ -769,6 +814,39 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
   let showQuickCreateBox = false;
 
   const syncRowsFromDom = () => {
+    const orgEl = document.getElementById('cd-edit-organism') as HTMLSelectElement | null;
+    const colEl = document.getElementById('cd-edit-colony') as HTMLInputElement | null;
+    const pusEl = document.getElementById('cd-edit-pus') as HTMLInputElement | null;
+    const notesEl = document.getElementById('cd-edit-notes') as HTMLInputElement | null;
+    if (orgEl) {
+      const code = orgEl.value;
+      rec.organismCode = code;
+      if (code === 'NO_GROWTH') {
+        rec.growthStatus = 'no_growth_48h';
+        rec.organismNameEn = 'No Growth after 48h incubation';
+        rec.organismNameAr = 'لا يوجد نمو بكتيري بعد 48 ساعة من التحضين';
+        rec.gramStainAr = 'لا توجد بكتيريا بصبغة جرام';
+        rec.gramStainEn = 'No Bacteria Seen';
+        rec.resistanceMechanisms = ['None'];
+      } else {
+        const preset = ORGANISM_PRESETS.find((o) => o.code === code);
+        if (preset) {
+          rec.growthStatus = 'positive_growth';
+          rec.organismNameEn = preset.nameEn;
+          rec.organismNameAr = preset.nameAr;
+          rec.gramStainAr = preset.gramStainAr;
+          rec.gramStainEn = preset.gramStainEn;
+          rec.resistanceMechanisms = [...preset.defaultResistance];
+        }
+      }
+    }
+    if (colEl) rec.colonyCount = colEl.value.trim();
+    if (pusEl) rec.pusCellsCount = pusEl.value.trim();
+    if (notesEl) {
+      rec.clinicalNotesAr = notesEl.value.trim();
+      rec.clinicalNotesEn = notesEl.value.trim();
+    }
+
     rec.antibiotics.forEach((ab, idx) => {
       const codeEl = document.querySelector(`[data-edit-ab-select="${idx}"]`) as HTMLSelectElement | null;
       const clsEl = document.querySelector(`[data-edit-ab-class="${idx}"]`) as HTMLInputElement | null;
@@ -792,17 +870,31 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
   const renderModalContent = () => {
     const firstCatalogItem = catalog[0];
     openModal({
-      title: `${i18n.bi('تقرير مزرعة وحساسية تفصيلي (CLSI MIC):', 'Culture & Sensitivity MIC Report:')} ${rec.reportNumber}`,
+      title: `${i18n.bi('إدخال وتعديل نتيجة المزرعة والحساسية (CLSI MIC):', 'Culture & Sensitivity MIC Result Entry:')} ${rec.reportNumber}`,
       size: 'xl',
       content: `
         <div class="space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
             <div><span class="text-slate-500">${i18n.bi('المريض:', 'Patient:')}</span> <strong class="text-slate-900">${escapeHtml(rec.patientName)}</strong></div>
             <div><span class="text-slate-500">${i18n.bi('العينة:', 'Specimen:')}</span> <strong>${escapeHtml(i18n.bi(rec.specimenSourceAr, rec.specimenSourceEn))}</strong></div>
-            <div><span class="text-slate-500">${i18n.bi('العد البكتيري:', 'Colony Count:')}</span> <strong class="font-mono text-sky-700">${escapeHtml(rec.colonyCount)}</strong></div>
-            <div><span class="text-slate-500">${i18n.bi('صبغة جرام:', 'Gram Stain:')}</span> <strong>${escapeHtml(i18n.bi(rec.gramStainAr, rec.gramStainEn))}</strong></div>
-            <div><span class="text-slate-500">${i18n.bi('خلايا الصديد (Pus Cells):', 'Pus Cells:')}</span> <strong>${escapeHtml(rec.pusCellsCount)}</strong></div>
-            <div><span class="text-slate-500">${i18n.bi('الميكروب المعزول:', 'Isolated Organism:')}</span> <strong class="text-rose-700 italic">${escapeHtml(rec.organismNameEn)}</strong></div>
+            <div><span class="text-slate-500">${i18n.bi('حالة التقرير:', 'Status:')}</span> <strong class="${rec.status === 'draft' ? 'text-amber-700' : 'text-emerald-700'}">${rec.status === 'draft' ? i18n.bi('⏳ قيد التحضين (بانتظار النتيجة)', 'Pending Result') : i18n.bi('✅ معتمد', 'Approved')}</strong></div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('الكائن المجهري المعزول (Isolated Organism):', 'Isolated Organism:')}</label>
+              <select id="cd-edit-organism" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-rose-800">
+                ${ORGANISM_PRESETS.map(
+                  (o) => `<option value="${o.code}" ${rec.organismCode === o.code ? 'selected' : ''}>${escapeHtml(o.nameEn)} — ${escapeHtml(o.nameAr)}</option>`
+                ).join('')}
+                <option value="NO_GROWTH" ${rec.organismCode === 'NO_GROWTH' ? 'selected' : ''}>${i18n.bi('لا يوجد نمو بكتيري بعد 48 ساعة (No Growth)', 'No Growth after 48h')}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('العد البكتيري (Colony Count):', 'Colony Count:')}</label>
+              <input id="cd-edit-colony" type="text" value="${escapeHtml(rec.colonyCount === 'Under Incubation (48h)' ? '> 100,000 CFU/mL' : rec.colonyCount)}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('خلايا الصديد (Pus Cells):', 'Pus Cells:')}</label>
+              <input id="cd-edit-pus" type="text" value="${escapeHtml(rec.pusCellsCount || '25 - 35 / HPF')}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs" />
+            </div>
           </div>
 
           <!-- Select from Antibiotics DB Catalog or Add New Antibiotic to DB -->
@@ -969,17 +1061,31 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
           </div>
 
           <div class="rounded-xl bg-sky-50 border border-sky-200 p-3 text-xs text-sky-950">
-            <strong>${i18n.bi('التفسير الإكلينيكي وتوصيات العلاج:', 'Clinical Interpretation:')}</strong>
-            <p class="mt-1">${escapeHtml(i18n.bi(rec.clinicalNotesAr, rec.clinicalNotesEn))}</p>
+            <label class="block font-bold mb-1">${i18n.bi('التفسير الإكلينيكي وتوصيات العلاج:', 'Clinical Interpretation & Notes:')}</label>
+            <input id="cd-edit-notes" type="text" value="${escapeHtml(rec.clinicalNotesAr)}" class="w-full rounded border border-sky-300 bg-white px-2.5 py-1.5 text-xs text-slate-900" />
           </div>
 
           <div class="flex justify-end gap-2 pt-2 border-t border-slate-200">
             <button id="save-culture-edits-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
-              💾 ${i18n.bi('حفظ تعديلات المضادات والحساسية و MIC', 'Save Antibiotics, MIC & Sensitivity Changes')}
+              💾 ${i18n.bi('حفظ واعتماد نتيجة المزرعة وجدول الحساسية و MIC', 'Save & Approve Culture Result & MIC Panel')}
             </button>
           </div>
         </div>
       `,
+    });
+
+    // When changing organism dropdown in details modal, load default antibiotics if currently empty
+    const cdOrgSelect = document.getElementById('cd-edit-organism') as HTMLSelectElement | null;
+    cdOrgSelect?.addEventListener('change', () => {
+      syncRowsFromDom();
+      const code = cdOrgSelect.value;
+      if (code === 'NO_GROWTH') {
+        rec.antibiotics = [];
+      } else if (rec.antibiotics.length === 0) {
+        const preset = ORGANISM_PRESETS.find((o) => o.code === code) || ORGANISM_PRESETS[0];
+        rec.antibiotics = preset.antibiotics.map((a) => ({ ...a }));
+      }
+      renderModalContent();
     });
 
     // When changing dropdown of catalog antibiotic to add, auto-populate MIC & Breakpoint
@@ -1142,9 +1248,12 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
     // Save all changes to culture record
     document.getElementById('save-culture-edits-btn')?.addEventListener('click', async () => {
       syncRowsFromDom();
+      rec.status = 'approved';
+      const user = authService.getCurrentUser();
+      rec.approvedBy = user?.fullNameAr || rec.approvedBy || 'Lab Director';
       await db.cultureResults.put(rec);
       closeModal();
-      showToast(i18n.bi('تم تحديث جدول الحساسية و MIC بنجاح', 'Sensitivity & MIC panel updated'), 'success');
+      showToast(i18n.bi('تم حفظ واعتماد نتيجة المزرعة وجدول الحساسية و MIC بنجاح', 'Culture result & MIC panel saved and approved'), 'success');
       onUpdated();
     });
   };
@@ -1153,15 +1262,17 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
 }
 
 function openNewCultureModal(
-  patients: Array<{ id: string; name: string }>,
+  patients: Array<{ id: string; name: string; phone?: string; patientCode?: string }>,
   requests: Array<{ id: string; requestNumber: string; patientId: string }>,
   antibioticsCatalog: AntibioticCatalogItem[],
+  canEnterCultureResults: boolean,
   onSaved: () => void
 ): void {
   let workingAntibiotics: CultureAntibioticResult[] = ORGANISM_PRESETS[0].antibiotics.map((a) => ({
     ...a,
   }));
   let tableSearchFilter = '';
+  let requestOnlyMode = !canEnterCultureResults;
 
   const renderWorkingAntibioticsTable = () => {
     const tbody = document.getElementById('nc-ab-tbody');
@@ -1217,20 +1328,55 @@ function openNewCultureModal(
   };
 
   openModal({
-    title: i18n.bi('🧫 تسجيل مزرعة بكتيرية وحساسية جديدة (CLSI / EUCAST)', '🧫 New Culture & Sensitivity Report'),
+    title: canEnterCultureResults
+      ? i18n.bi('🧫 تسجيل طلب مزرعة بكتيرية جديد / إدخال النتيجة (CLSI / EUCAST)', '🧫 New Culture Request / Result Entry')
+      : i18n.bi('🧫 تسجيل طلب مزرعة بكتيرية جديد — استقبال العينات (إضافة النتيجة مقفولة)', '🧫 New Culture Request — Reception (Result Entry Locked)'),
     size: 'xl',
     content: `
       <form id="new-culture-form" class="space-y-4">
+        ${
+          canEnterCultureResults
+            ? `
+          <div class="flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50/70 p-3 text-xs">
+            <span class="font-extrabold text-sky-950">${i18n.bi('نوع التسجيل:', 'Registration Mode:')}</span>
+            <label class="inline-flex items-center gap-1.5 font-bold text-slate-800 cursor-pointer">
+              <input type="radio" name="nc-mode-radio" value="request_only" class="accent-sky-600" />
+              <span>📥 ${i18n.bi('تسجيل طلب مزرعة جديد فقط (استقبال عينة قيد التحضين - بدون نتيجة)', 'Register New Culture Request Only (Pending Result)')}</span>
+            </label>
+            <label class="inline-flex items-center gap-1.5 font-bold text-emerald-900 cursor-pointer">
+              <input type="radio" name="nc-mode-radio" value="full_result" checked class="accent-emerald-600" />
+              <span>✅ ${i18n.bi('إدخال النتيجة الكاملة وجدول المضادات الحيوية (C&S + MIC)', 'Full Culture Result & MIC Panel')}</span>
+            </label>
+          </div>
+        `
+            : `
+          <div class="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 flex items-center justify-between gap-2">
+            <div>
+              <strong class="font-extrabold">🔒 ${i18n.bi('صلاحية موظف الاستقبال — تسجيل طلب مزرعة جديد فقط:', 'Reception Permission — New Culture Request Only:')}</strong>
+              <p class="mt-0.5 text-amber-900">${i18n.bi('يمكنك اختيار المريض ونوع العينة لتسجيل طلب المزرعة وإرساله للمعمل. خانات إدخال النتيجة والمضادات الحيوية مقفولة للاستقبال ويقوم أخصائي المعمل بإدخالها بعد التحضين.', 'You can select the patient and specimen type to register a new culture request. Result and antibiotic fields are locked for reception.')}</p>
+            </div>
+            <span class="shrink-0 rounded-full bg-amber-200 px-3 py-1 font-extrabold text-amber-950">🔒 ${i18n.bi('النتيجة مقفولة', 'Result Locked')}</span>
+          </div>
+        `
+        }
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('المريض *', 'Patient *')}</label>
-            <select id="nc-patient" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              ${patients.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('المريض (ابحث بالاسم أو الكود أو الموبايل) *', 'Patient (Search by Name / Code / Phone) *')}</label>
+            <input
+              id="nc-patient-search"
+              type="search"
+              autocomplete="off"
+              placeholder="${i18n.bi('🔍 ابحث عن المريض بالاسم أو رقم الملف أو الهاتف...', '🔍 Search patient by name, code, or phone...')}"
+              class="w-full rounded-lg border border-sky-300 bg-sky-50/40 px-3 py-1.5 text-xs font-semibold text-slate-900 mb-1.5 focus:border-sky-600 focus:outline-none"
+            />
+            <select id="nc-patient" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold">
+              ${patients.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}${p.patientCode ? ` (${escapeHtml(p.patientCode)})` : ''}</option>`).join('')}
             </select>
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('نوع العينة (Specimen) *', 'Specimen Type *')}</label>
-            <select id="nc-specimen" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <select id="nc-specimen" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold">
               <option value="urine">مزرعة بول (Mid-Stream Urine Culture)</option>
               <option value="blood">مزرعة دم (Blood Culture - Aerobic/Anaerobic)</option>
               <option value="pus_wound">مسحة صديد / جرح (Pus / Wound Swab)</option>
@@ -1239,89 +1385,99 @@ function openNewCultureModal(
               <option value="csf">سائل نخاعي شوكي (CSF Culture)</option>
             </select>
           </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('الكائن المجهري المعزول (Isolated Organism) *', 'Isolated Organism *')}</label>
-            <select id="nc-organism" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              ${ORGANISM_PRESETS.map((o) => `<option value="${o.code}">${escapeHtml(o.nameEn)} — ${escapeHtml(o.nameAr)}</option>`).join('')}
-              <option value="NO_GROWTH">لا يوجد نمو بكتيري بعد 48 ساعة (No Growth after 48h)</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('العد البكتيري (Colony Count)', 'Colony Count')}</label>
-            <input id="nc-colony" type="text" value="> 100,000 CFU/mL (Significant Growth)" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('خلايا الصديد (Pus Cells)', 'Pus Cells')}</label>
-            <input id="nc-pus" type="text" value="35 - 45 / HPF" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('الخلايا الطلائية (Epithelial Cells)', 'Epithelial Cells')}</label>
-            <input id="nc-epi" type="text" value="3 - 5 / HPF" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-          </div>
         </div>
 
-        <!-- Select & Add Antibiotics from DB Catalog -->
-        <div id="nc-ab-section" class="rounded-xl border border-teal-300 bg-teal-50/40 p-3.5 space-y-2.5">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="text-xs font-extrabold text-teal-950">
-              💊 ${i18n.bi('قائمة المضادات الحيوية المختارة للتقرير (يمكنك البحث والإضافة من جدول قاعدة البيانات):', 'Selected Antibiotics for Report (Search & Pick from Database Catalog):')}
-            </div>
-            <span id="nc-ab-match-badge" class="text-[11px] font-mono font-bold text-teal-800">${antibioticsCatalog.length} ${i18n.bi('مضاد متاح بالقاعدة', 'antibiotics in DB')}</span>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-            <div class="sm:col-span-5">
-              <input
-                id="nc-ab-search"
-                type="search"
-                autocomplete="off"
-                placeholder="${i18n.bi('🔍 ابحث عن المضاد الحيوي بالاسم أو الكود أو المجموعة (مثال: MEM, Amikacin, Meropenem)...', '🔍 Search antibiotic by name, code, or drug class...')}"
-                class="w-full rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
-              />
-            </div>
-            <div class="sm:col-span-5">
-              <select id="nc-add-ab-select" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
-                ${antibioticsCatalog
-                  .map(
-                    (c) =>
-                      `<option value="${escapeHtml(c.code)}">${escapeHtml(c.nameEn)} (${escapeHtml(c.code)}) — ${escapeHtml(c.antibioticClass)}</option>`
-                  )
-                  .join('')}
+        <!-- Culture Result & Antibiotics Section (Locked & Hidden for Reception / Request-Only Mode) -->
+        <div id="nc-results-entry-wrapper" class="${requestOnlyMode ? 'hidden' : 'space-y-4'}">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('الكائن المجهري المعزول (Isolated Organism) *', 'Isolated Organism *')}</label>
+              <select id="nc-organism" ${!canEnterCultureResults ? 'disabled' : ''} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                ${ORGANISM_PRESETS.map((o) => `<option value="${o.code}">${escapeHtml(o.nameEn)} — ${escapeHtml(o.nameAr)}</option>`).join('')}
+                <option value="NO_GROWTH">لا يوجد نمو بكتيري بعد 48 ساعة (No Growth after 48h)</option>
               </select>
             </div>
-            <div class="sm:col-span-2">
-              <button type="button" id="nc-add-ab-btn" class="w-full rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-500 cursor-pointer">
-                + ${i18n.bi('إضافة المضاد للتقرير', 'Add Antibiotic')}
-              </button>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('العد البكتيري (Colony Count)', 'Colony Count')}</label>
+              <input id="nc-colony" ${!canEnterCultureResults ? 'disabled' : ''} type="text" value="> 100,000 CFU/mL (Significant Growth)" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('خلايا الصديد (Pus Cells)', 'Pus Cells')}</label>
+              <input id="nc-pus" ${!canEnterCultureResults ? 'disabled' : ''} type="text" value="35 - 45 / HPF" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('الخلايا الطلائية (Epithelial Cells)', 'Epithelial Cells')}</label>
+              <input id="nc-epi" ${!canEnterCultureResults ? 'disabled' : ''} type="text" value="3 - 5 / HPF" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </div>
           </div>
 
-          <div class="overflow-x-auto bg-white rounded-lg border border-slate-200 max-h-56 overflow-y-auto relative">
-            <table class="w-full text-xs text-start border-collapse">
-              <thead class="bg-slate-900 text-white sticky top-0 z-10 shadow-xs">
-                <tr>
-                  <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('المضاد الحيوي', 'Antibiotic')}</th>
-                  <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('المجموعة', 'Class')}</th>
-                  <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('الحساسية', 'Sensitivity')}</th>
-                  <th class="px-2.5 py-2 text-start bg-slate-900">MIC</th>
-                  <th class="px-2.5 py-2 text-start bg-slate-900">CLSI</th>
-                  <th class="px-2 py-2 text-center w-10 bg-slate-900">✕</th>
-                </tr>
-              </thead>
-              <tbody id="nc-ab-tbody"></tbody>
-            </table>
-          </div>
-        </div>
+          <!-- Select & Add Antibiotics from DB Catalog -->
+          <div id="nc-ab-section" class="rounded-xl border border-teal-300 bg-teal-50/40 p-3.5 space-y-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="text-xs font-extrabold text-teal-950">
+                💊 ${i18n.bi('قائمة المضادات الحيوية المختارة للتقرير (يمكنك البحث والإضافة من جدول قاعدة البيانات):', 'Selected Antibiotics for Report (Search & Pick from Database Catalog):')}
+              </div>
+              <span id="nc-ab-match-badge" class="text-[11px] font-mono font-bold text-teal-800">${antibioticsCatalog.length} ${i18n.bi('مضاد متاح بالقاعدة', 'antibiotics in DB')}</span>
+            </div>
 
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('ملاحظات وتوصيات الأخصائي', 'Clinical Recommendations')}</label>
-          <textarea id="nc-notes" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">يُنصح باختيار المضاد الحيوي ذو الحساسية (S) وأقل تركيز مثبط أدنى (MIC) مع مراعاة وظائف الكلى والكبد للمريض.</textarea>
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+              <div class="sm:col-span-5">
+                <input
+                  id="nc-ab-search"
+                  type="search"
+                  autocomplete="off"
+                  placeholder="${i18n.bi('🔍 ابحث عن المضاد الحيوي بالاسم أو الكود أو المجموعة (مثال: MEM, Amikacin, Meropenem)...', '🔍 Search antibiotic by name, code, or drug class...')}"
+                  class="w-full rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
+                />
+              </div>
+              <div class="sm:col-span-5">
+                <select id="nc-add-ab-select" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900">
+                  ${antibioticsCatalog
+                    .map(
+                      (c) =>
+                        `<option value="${escapeHtml(c.code)}">${escapeHtml(c.nameEn)} (${escapeHtml(c.code)}) — ${escapeHtml(c.antibioticClass)}</option>`
+                    )
+                    .join('')}
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <button type="button" id="nc-add-ab-btn" class="w-full rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-500 cursor-pointer">
+                  + ${i18n.bi('إضافة المضاد للتقرير', 'Add Antibiotic')}
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto bg-white rounded-lg border border-slate-200 max-h-56 overflow-y-auto relative">
+              <table class="w-full text-xs text-start border-collapse">
+                <thead class="bg-slate-900 text-white sticky top-0 z-10 shadow-xs">
+                  <tr>
+                    <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('المضاد الحيوي', 'Antibiotic')}</th>
+                    <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('المجموعة', 'Class')}</th>
+                    <th class="px-2.5 py-2 text-start bg-slate-900">${i18n.bi('الحساسية', 'Sensitivity')}</th>
+                    <th class="px-2.5 py-2 text-start bg-slate-900">MIC</th>
+                    <th class="px-2.5 py-2 text-start bg-slate-900">CLSI</th>
+                    <th class="px-2 py-2 text-center w-10 bg-slate-900">✕</th>
+                  </tr>
+                </thead>
+                <tbody id="nc-ab-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('ملاحظات وتوصيات الأخصائي', 'Clinical Recommendations')}</label>
+            <textarea id="nc-notes" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">يُنصح باختيار المضاد الحيوي ذو الحساسية (S) وأقل تركيز مثبط أدنى (MIC) مع مراعاة وظائف الكلى والكبد للمريض.</textarea>
+          </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
           <button type="button" id="nc-cancel" class="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 cursor-pointer">${i18n.dict.actions.cancelBtn}</button>
-          <button type="submit" class="rounded-lg bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
-            ✅ ${i18n.bi('حفظ المزرعة وتوليد جدول CLSI MIC', 'Save Culture & Generate MIC Panel')}
+          <button type="submit" id="nc-submit-btn" class="rounded-lg bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
+            ${
+              requestOnlyMode
+                ? `📥 ${i18n.bi('تسجيل طلب المزرعة وإرساله للمعمل (قيد التحضين)', 'Register Culture Request (Send to Lab)')}`
+                : `✅ ${i18n.bi('حفظ المزرعة وتوليد جدول CLSI MIC', 'Save Culture & Generate MIC Panel')}`
+            }
           </button>
         </div>
       </form>
@@ -1329,6 +1485,46 @@ function openNewCultureModal(
   });
 
   renderWorkingAntibioticsTable();
+
+  // Live patient search inside New Culture Modal
+  const ncPatSearch = document.getElementById('nc-patient-search') as HTMLInputElement | null;
+  const ncPatSelect = document.getElementById('nc-patient') as HTMLSelectElement | null;
+  ncPatSearch?.addEventListener('input', () => {
+    if (!ncPatSelect) return;
+    const q = ncPatSearch.value.trim().toLowerCase();
+    const matched = !q
+      ? patients
+      : patients.filter((p) =>
+          `${p.name} ${p.patientCode || ''} ${p.phone || ''}`.toLowerCase().includes(q)
+        );
+    if (matched.length === 0) {
+      ncPatSelect.innerHTML = `<option value="">${i18n.bi('— لا يوجد مريض مطابق —', '— No matching patient —')}</option>`;
+      return;
+    }
+    ncPatSelect.innerHTML = matched
+      .map(
+        (p) =>
+          `<option value="${p.id}">${escapeHtml(p.name)}${p.patientCode ? ` (${escapeHtml(p.patientCode)})` : ''}</option>`
+      )
+      .join('');
+  });
+
+  // Mode radio toggle for Lab Specialists
+  document.querySelectorAll<HTMLInputElement>('input[name="nc-mode-radio"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      requestOnlyMode = radio.value === 'request_only';
+      const wrapper = document.getElementById('nc-results-entry-wrapper');
+      const submitBtn = document.getElementById('nc-submit-btn');
+      if (wrapper) {
+        wrapper.className = requestOnlyMode ? 'hidden' : 'space-y-4';
+      }
+      if (submitBtn) {
+        submitBtn.innerHTML = requestOnlyMode
+          ? `📥 ${i18n.bi('تسجيل طلب المزرعة وإرساله للمعمل (قيد التحضين)', 'Register Culture Request (Send to Lab)')}`
+          : `✅ ${i18n.bi('حفظ المزرعة وتوليد جدول CLSI MIC', 'Save Culture & Generate MIC Panel')}`;
+      }
+    });
+  });
 
   const ncAbSearch = document.getElementById('nc-ab-search') as HTMLInputElement | null;
   const ncAbSelect = document.getElementById('nc-add-ab-select') as HTMLSelectElement | null;
@@ -1397,13 +1593,17 @@ function openNewCultureModal(
   document.getElementById('new-culture-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const patientId = (document.getElementById('nc-patient') as HTMLSelectElement).value;
+    if (!patientId) {
+      showToast(i18n.bi('يرجى اختيار المريض أولاً', 'Please select a patient first'), 'warning');
+      return;
+    }
     const pat = patients.find((p) => p.id === patientId);
     const specimenType = (document.getElementById('nc-specimen') as HTMLSelectElement).value as CultureSensitivityRecord['specimenType'];
-    const orgCode = (document.getElementById('nc-organism') as HTMLSelectElement).value;
-    const colony = (document.getElementById('nc-colony') as HTMLInputElement).value.trim();
-    const pus = (document.getElementById('nc-pus') as HTMLInputElement).value.trim();
-    const epi = (document.getElementById('nc-epi') as HTMLInputElement).value.trim();
-    const notes = (document.getElementById('nc-notes') as HTMLTextAreaElement).value.trim();
+    const orgCode = (document.getElementById('nc-organism') as HTMLSelectElement | null)?.value || 'ECOLI';
+    const colony = (document.getElementById('nc-colony') as HTMLInputElement | null)?.value.trim() || '> 100,000 CFU/mL';
+    const pus = (document.getElementById('nc-pus') as HTMLInputElement | null)?.value.trim() || '25 - 35 / HPF';
+    const epi = (document.getElementById('nc-epi') as HTMLInputElement | null)?.value.trim() || '3 - 5 / HPF';
+    const notes = (document.getElementById('nc-notes') as HTMLTextAreaElement | null)?.value.trim() || '';
 
     const preset = ORGANISM_PRESETS.find((o) => o.code === orgCode) || ORGANISM_PRESETS[0];
     const isNoGrowth = orgCode === 'NO_GROWTH';
@@ -1419,6 +1619,8 @@ function openNewCultureModal(
       csf: { ar: 'سائل نخاعي شوكي (CSF)', en: 'Cerebrospinal Fluid (CSF)' },
     };
 
+    const isPendingRequestOnly = !canEnterCultureResults || requestOnlyMode;
+
     const newRec: CultureSensitivityRecord = {
       id: generateId('CULT'),
       reportNumber: `CS-2025-${Math.floor(100 + Math.random() * 899)}`,
@@ -1429,30 +1631,59 @@ function openNewCultureModal(
       specimenType,
       specimenSourceAr: specimenLabels[specimenType]?.ar || specimenType,
       specimenSourceEn: specimenLabels[specimenType]?.en || specimenType,
-      growthStatus: isNoGrowth ? 'no_growth_48h' : 'positive_growth',
-      colonyCount: isNoGrowth ? 'No Bacterial Growth after 48 Hours' : colony,
+      growthStatus: isPendingRequestOnly ? 'positive_growth' : isNoGrowth ? 'no_growth_48h' : 'positive_growth',
+      colonyCount: isPendingRequestOnly
+        ? 'Under Incubation (48h)'
+        : isNoGrowth
+        ? 'No Bacterial Growth after 48 Hours'
+        : colony,
       incubationHours: 48,
-      gramStainAr: isNoGrowth ? 'لا توجد بكتيريا بصبغة جرام' : preset.gramStainAr,
-      gramStainEn: isNoGrowth ? 'No Bacteria Seen' : preset.gramStainEn,
-      pusCellsCount: pus,
-      epithelialCellsCount: epi,
-      organismCode: orgCode,
-      organismNameEn: isNoGrowth ? 'No Growth after 48h incubation' : preset.nameEn,
-      organismNameAr: isNoGrowth ? 'لا يوجد نمو بكتيري بعد 48 ساعة من التحضين' : preset.nameAr,
-      resistanceMechanisms: isNoGrowth ? ['None'] : [...preset.defaultResistance],
+      gramStainAr: isPendingRequestOnly
+        ? 'قيد الفحص والتحضين'
+        : isNoGrowth
+        ? 'لا توجد بكتيريا بصبغة جرام'
+        : preset.gramStainAr,
+      gramStainEn: isPendingRequestOnly
+        ? 'Pending Gram Stain & Incubation'
+        : isNoGrowth
+        ? 'No Bacteria Seen'
+        : preset.gramStainEn,
+      pusCellsCount: isPendingRequestOnly ? 'قيد الفحص' : pus,
+      epithelialCellsCount: isPendingRequestOnly ? 'قيد الفحص' : epi,
+      organismCode: isPendingRequestOnly ? 'PENDING' : orgCode,
+      organismNameEn: isPendingRequestOnly
+        ? 'Pending Culture Result (Under Incubation)'
+        : isNoGrowth
+        ? 'No Growth after 48h incubation'
+        : preset.nameEn,
+      organismNameAr: isPendingRequestOnly
+        ? 'قيد التحضين — بانتظار إدخال النتيجة من أخصائي المعمل'
+        : isNoGrowth
+        ? 'لا يوجد نمو بكتيري بعد 48 ساعة من التحضين'
+        : preset.nameAr,
+      resistanceMechanisms: isPendingRequestOnly || isNoGrowth ? ['None'] : [...preset.defaultResistance],
       standardGuideline: 'CLSI_2025',
-      antibiotics: isNoGrowth ? [] : workingAntibiotics.map((a) => ({ ...a })),
-      clinicalNotesAr: notes,
-      clinicalNotesEn: notes,
-      status: 'approved',
-      enteredBy: user?.fullNameAr || 'Lab Specialist',
-      approvedBy: user?.fullNameAr || 'Lab Director',
+      antibiotics: isPendingRequestOnly || isNoGrowth ? [] : workingAntibiotics.map((a) => ({ ...a })),
+      clinicalNotesAr: isPendingRequestOnly
+        ? 'تم تسجيل طلب المزرعة بالاستقبال والعينة قيد التحضين بالمعمل.'
+        : notes,
+      clinicalNotesEn: isPendingRequestOnly
+        ? 'Culture request registered at reception; specimen currently under laboratory incubation.'
+        : notes,
+      status: isPendingRequestOnly ? 'draft' : 'approved',
+      enteredBy: user?.fullNameAr || 'Reception / Lab',
+      approvedBy: isPendingRequestOnly ? '-' : user?.fullNameAr || 'Lab Director',
       createdAt: new Date().toISOString(),
     };
 
     await db.cultureResults.put(newRec);
     closeModal();
-    showToast(i18n.bi('تم تسجيل تقرير المزرعة والحساسية بنجاح', 'Culture & Sensitivity report saved'), 'success');
+    showToast(
+      isPendingRequestOnly
+        ? i18n.bi('✓ تم تسجيل طلب المزرعة بنجاح وإرساله للمعمل (قيد التحضين)', '✓ Culture request registered and sent to lab')
+        : i18n.bi('✓ تم تسجيل تقرير المزرعة والحساسية بنجاح', '✓ Culture & Sensitivity report saved'),
+      'success'
+    );
     onSaved();
   });
 }

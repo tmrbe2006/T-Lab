@@ -124,7 +124,7 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
       'Official Laboratory Results Report',
       html,
       subtitle,
-      { forceEnglishLtr: true }
+      { forceEnglishLtr: true, customReportLayout: true }
     );
   };
 

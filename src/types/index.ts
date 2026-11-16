@@ -565,7 +565,7 @@ export interface Expense {
   amount: number;
   date: string;
   paidBy: string;
-  paymentMethod: 'cash' | 'bank_transfer';
+  paymentMethod: string;
   description: string;
 }
 

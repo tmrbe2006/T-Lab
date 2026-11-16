@@ -87,22 +87,37 @@ export async function renderEmployeesPage(container: HTMLElement): Promise<void>
     );
   };
 
+  let searchTerm = '';
+
   const renderView = () => {
     const canAdd = can(user, 'add', 'employees');
     const canEdit = can(user, 'edit', 'employees');
     const canDelete = can(user, 'delete', 'employees');
     const canPrint = can(user, 'print', 'employees');
 
+    const filtered = employees.filter((e) => {
+      if (!searchTerm.trim()) return true;
+      const q = searchTerm.trim().toLowerCase();
+      return (
+        e.code.toLowerCase().includes(q) ||
+        e.nameAr.toLowerCase().includes(q) ||
+        e.nameEn.toLowerCase().includes(q) ||
+        e.department.toLowerCase().includes(q) ||
+        e.phone.toLowerCase().includes(q)
+      );
+    });
+
     container.innerHTML = `
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
-            <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.employees}</h1>
-            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إدارة فريق العمل والأقسام الطبية والإدارية', 'Manage laboratory staff, roles, and departments')}</p>
+            <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.employees} (${employees.length})</h1>
+            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إدارة فريق العمل والأقسام الطبية والإدارية (إضافة، تعديل، وحذف مع رسالة تأكيدية)', 'Manage laboratory staff, roles, and departments (Add, Edit & Delete with confirmation)')}</p>
           </div>
-          <div class="flex items-center gap-2">
-            ${canPrint ? `<button id="emp-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
-            ${canAdd ? `<button id="emp-add-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">+ ${i18n.dict.actions.add}</button>` : ''}
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="emp-search-input" type="search" value="${searchTerm}" placeholder="🔍 ابحث بالاسم أو الكود أو القسم..." class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs w-60" />
+            ${canPrint ? `<button id="emp-print-btn" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">🖨️ ${i18n.dict.actions.print}</button>` : ''}
+            ${canAdd ? `<button id="emp-add-btn" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">+ ${i18n.bi('إضافة موظف جديد', 'Add Employee')}</button>` : ''}
           </div>
         </div>
 
@@ -112,28 +127,28 @@ export async function renderEmployeesPage(container: HTMLElement): Promise<void>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <th class="py-3 px-3 text-start">${i18n.dict.common.code}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.name}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('الدور', 'Role')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('الدور الوظيفي', 'Role')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('القسم', 'Department')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.phone}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('الراتب', 'Salary')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('الراتب الأساسي', 'Salary')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.actions}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              ${employees
+              ${filtered
                 .map(
                   (e) => `
                   <tr class="hover:bg-slate-50">
                     <td class="py-2.5 px-3 font-mono font-semibold tabular-nums">${e.code}</td>
                     <td class="py-2.5 px-3 font-bold text-slate-900">${i18n.bi(e.nameAr, e.nameEn)}</td>
-                    <td class="py-2.5 px-3 text-slate-700">${i18n.dict.roles[e.role]}</td>
+                    <td class="py-2.5 px-3 text-slate-700">${i18n.dict.roles[e.role] || e.role}</td>
                     <td class="py-2.5 px-3 text-slate-600">${e.department}</td>
                     <td class="py-2.5 px-3 font-mono tabular-nums">${e.phone}</td>
-                    <td class="py-2.5 px-3 font-mono tabular-nums">${e.salary.toLocaleString()} EGP</td>
+                    <td class="py-2.5 px-3 font-mono font-bold text-emerald-700 tabular-nums">${e.salary.toLocaleString()} EGP</td>
                     <td class="py-2.5 px-3">
                       <div class="flex items-center gap-2">
-                        ${canEdit ? `<button data-edit="${e.id}" class="emp-edit-btn text-sky-700 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.edit}</button>` : ''}
-                        ${canDelete ? `<button data-del="${e.id}" class="emp-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>` : ''}
+                        ${canEdit ? `<button type="button" data-edit="${e.id}" class="emp-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">✏️ ${i18n.dict.actions.edit}</button>` : ''}
+                        ${canDelete ? `<button type="button" data-del="${e.id}" class="emp-del-btn rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">🗑️ ${i18n.dict.actions.delete}</button>` : ''}
                       </div>
                     </td>
                   </tr>
@@ -146,13 +161,19 @@ export async function renderEmployeesPage(container: HTMLElement): Promise<void>
       </div>
     `;
 
+    const searchInput = document.getElementById('emp-search-input') as HTMLInputElement | null;
+    searchInput?.addEventListener('input', () => {
+      searchTerm = searchInput.value;
+      renderView();
+    });
+
     document.getElementById('emp-add-btn')?.addEventListener('click', () => openEmpForm());
     document.getElementById('emp-print-btn')?.addEventListener('click', () => {
       const html = `
         <table class="print-table">
-          <thead><tr><th>Code</th><th>Name</th><th>Role</th><th>Department</th><th>Phone</th></tr></thead>
+          <thead><tr><th>Code</th><th>Name</th><th>Role</th><th>Department</th><th>Phone</th><th>Salary</th></tr></thead>
           <tbody>
-            ${employees.map((e) => `<tr><td class="tabular-nums">${e.code}</td><td>${i18n.bi(e.nameAr, e.nameEn)}</td><td>${e.role}</td><td>${e.department}</td><td class="tabular-nums">${e.phone}</td></tr>`).join('')}
+            ${filtered.map((e) => `<tr><td class="tabular-nums">${e.code}</td><td>${i18n.bi(e.nameAr, e.nameEn)}</td><td>${e.role}</td><td>${e.department}</td><td class="tabular-nums">${e.phone}</td><td class="tabular-nums">${e.salary.toLocaleString()} EGP</td></tr>`).join('')}
           </tbody>
         </table>
       `;
@@ -171,7 +192,7 @@ export async function renderEmployeesPage(container: HTMLElement): Promise<void>
         const target = employees.find((x) => x.id === btn.getAttribute('data-del'));
         if (!target) return;
         openDeleteConfirmModal({
-          recordLabel: `${i18n.bi('الموظف:', 'Employee:')} ${target.nameAr}`,
+          recordLabel: `${i18n.bi('الموظف:', 'Employee:')} ${target.nameAr} (${target.code})`,
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'employees'))) return;
             await usersRepository.deleteEmployee(target.id);

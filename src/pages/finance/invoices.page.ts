@@ -154,6 +154,85 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     );
   };
 
+  const markInvoicePaidImmediately = async (inv: Invoice) => {
+    if (!(await enforcePermission('addPayment', 'invoices'))) return;
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (inv.status === 'paid' && inv.remainingAmount <= 0) {
+      // Toggle back to unpaid if clicked when already paid
+      inv.paidAmount = 0;
+      inv.remainingAmount = inv.netTotal;
+      inv.status = 'unpaid';
+      await invoicesRepository.save(inv);
+      await authService.logAudit(
+        `تعديل حالة الفاتورة إلى غير مدفوعة: ${inv.invoiceNumber}`,
+        'invoices',
+        inv.id
+      );
+      showToast(
+        i18n.bi(`تم تعديل حالة الفاتورة (${inv.invoiceNumber}) إلى غير مدفوعة`, 'Invoice marked as unpaid'),
+        'info'
+      );
+      invoices = await invoicesRepository.getAll();
+      renderTable();
+      return;
+    }
+
+    const amt = Math.max(0, Math.round((inv.netTotal - inv.paidAmount) * 100) / 100);
+    inv.paidAmount = inv.netTotal;
+    inv.remainingAmount = 0;
+    inv.status = 'paid';
+    inv.paymentMethod = inv.paymentMethod || 'cash';
+    await invoicesRepository.save(inv);
+
+    if (amt > 0) {
+      const newPay: Payment = {
+        id: `pay_${Date.now()}`,
+        paymentNumber: `PAY-2026-${String(Date.now()).slice(-4)}`,
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        patientId: inv.patientId,
+        date: today,
+        amount: amt,
+        method: 'cash',
+        createdBy: user?.username || 'accountant',
+        status: 'active',
+        notes: 'سداد كامل للفاتورة (تم الدفع)',
+      };
+      await paymentsRepository.save(newPay);
+      await accountingService.recordPaymentJournal(newPay, user?.username || 'accountant');
+
+      const items = await invoicesRepository.getItemsByInvoiceId(inv.id);
+      const syncedComm = await commissionService.syncInvoiceCommission(inv, items);
+      if (syncedComm && inv.doctorId) {
+        const doc = docMap.get(inv.doctorId);
+        if (doc) {
+          await accountingService.recordCommissionAccrualJournal(
+            syncedComm,
+            doc.nameAr,
+            doc.nameEn,
+            user?.username || 'accountant'
+          );
+        }
+      }
+    }
+
+    await authService.logAudit(
+      `تأكيد سداد الفاتورة بالكامل (تم الدفع): ${inv.invoiceNumber}`,
+      'invoices',
+      inv.id
+    );
+    showToast(
+      i18n.bi(
+        `✅ تم تعديل حالة الفاتورة (${inv.invoiceNumber}) إلى مدفوعة بالكامل (${inv.netTotal} EGP)`,
+        `Invoice ${inv.invoiceNumber} marked as Paid in full!`
+      ),
+      'success'
+    );
+    invoices = await invoicesRepository.getAll();
+    renderTable();
+  };
+
   const renderTable = () => {
     const filteredRows = getFiltered();
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
@@ -242,24 +321,33 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                         ${i18n.dict.statuses[inv.status] || inv.status}
                       </td>
                       <td class="py-2.5 px-3">
-                        <div class="flex flex-wrap items-center gap-2">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          ${
+                            inv.status !== 'paid' || inv.remainingAmount > 0
+                              ? `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 cursor-pointer shadow-2xs">
+                                  ✅ ${i18n.bi('تم الدفع', 'Mark Paid')}
+                                </button>`
+                              : `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 hover:bg-amber-100 cursor-pointer" title="${i18n.bi('إرجاع الفاتورة إلى غير مدفوعة', 'Revert to Unpaid')}">
+                                  🔄 ${i18n.bi('إلغاء الدفع', 'Unpay')}
+                                </button>`
+                          }
                           ${
                             canAddPay && inv.remainingAmount > 0
-                              ? `<button data-pay="${inv.id}" class="inv-pay-btn text-emerald-700 hover:underline font-bold cursor-pointer">${i18n.dict.actions.addPayment}</button>`
+                              ? `<button type="button" data-pay="${inv.id}" class="inv-pay-btn rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800 hover:bg-emerald-100 font-bold cursor-pointer">
+                                  💰 ${i18n.bi('دفعة جزئية', 'Partial Pay')}
+                                </button>`
                               : ''
                           }
-                          <button data-wa-inv="${inv.id}" class="inv-wa-btn rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-emerald-500 cursor-pointer">💬 واتساب</button>
+                          <button type="button" data-wa-inv="${inv.id}" class="inv-wa-btn rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-emerald-500 cursor-pointer">💬 واتساب</button>
                           ${
                             canPrint
-                              ? `<button data-a4="${inv.id}" class="inv-a4-btn text-sky-700 hover:underline font-semibold cursor-pointer">A4</button>
-                                 <button data-th="${inv.id}" class="inv-th-btn text-indigo-700 hover:underline font-semibold cursor-pointer">80mm</button>`
+                              ? `<button type="button" data-a4="${inv.id}" class="inv-a4-btn rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700 hover:bg-sky-100 font-bold cursor-pointer">🖨️ A4</button>
+                                 <button type="button" data-th="${inv.id}" class="inv-th-btn rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-700 hover:bg-indigo-100 font-bold cursor-pointer">receipt 80mm</button>`
                               : ''
                           }
-                          ${
-                            canDelete
-                              ? `<button data-del="${inv.id}" class="inv-del-btn text-rose-600 hover:underline font-semibold cursor-pointer">${i18n.dict.actions.delete}</button>`
-                              : ''
-                          }
+                          <button type="button" data-del="${inv.id}" class="inv-del-btn rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                            🗑️ ${i18n.dict.actions.delete}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -330,6 +418,13 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
         </table>
       `;
       printService.printA4(i18n.dict.nav.invoices, html);
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.inv-mark-paid-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = invoices.find((x) => x.id === btn.getAttribute('data-mark-paid'));
+        if (target) void markInvoicePaidImmediately(target);
+      });
     });
 
     document.querySelectorAll<HTMLButtonElement>('.inv-pay-btn').forEach((btn) => {

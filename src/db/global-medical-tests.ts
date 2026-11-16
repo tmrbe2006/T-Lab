@@ -72,11 +72,11 @@ const pQual = (
   code: string,
   nameAr: string,
   nameEn: string,
-  normalText = 'Negative (سلبي)',
-  options: string[] = ['Negative (سلبي)', 'Positive (إيجابي)', 'Borderline (حدي)']
+  normalText = 'Negative',
+  options: string[] = ['Negative', 'Positive', 'Borderline']
 ): GlobalParamDef => ({
   code,
-  nameAr,
+  nameAr: nameEn,
   nameEn,
   unit: '-',
   minM: 0,
@@ -2141,6 +2141,17 @@ export const GLOBAL_MEDICAL_TESTS_DEFINITIONS: GlobalTestDef[] = [
   },
 ];
 
+function stripArabicFromParamText(text: string | undefined): string {
+  if (!text) return '';
+  // Remove parenthetical Arabic e.g. "Negative (سلبي)" -> "Negative" or any Arabic chars
+  const cleaned = text
+    .replace(/\(\s*[^\x00-\x7F]+\s*\)/g, '')
+    .replace(/[\u0600-\u06FF]+/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned || 'Normal';
+}
+
 export function buildGlobalCatalogRecords(): {
   tests: LabTest[];
   testParameters: TestParameter[];
@@ -2169,23 +2180,30 @@ export function buildGlobalCatalogRecords(): {
 
     def.parameters.forEach((prm, idx) => {
       const formulaMeta = getDefaultFormulaMetadata(prm.code);
+      const cleanNameEn = prm.nameEn.trim();
+      const rawRange = prm.rangeText || `${prm.minM} - ${prm.maxM} ${prm.unit}`.trim();
+      const cleanRange = stripArabicFromParamText(rawRange);
+      const cleanOptions = prm.options
+        ? prm.options.map((opt) => stripArabicFromParamText(opt)).filter(Boolean)
+        : undefined;
+
       testParameters.push({
         id: `${def.id}_prm_${idx + 1}`,
         testId: def.id,
         code: prm.code,
-        nameAr: prm.nameAr,
-        nameEn: prm.nameEn,
+        // Strictly English-only parameter names across the entire system
+        nameAr: cleanNameEn,
+        nameEn: cleanNameEn,
         unit: prm.unit,
         normalMaleMin: prm.minM,
         normalMaleMax: prm.maxM,
         normalFemaleMin: prm.minF ?? prm.minM,
         normalFemaleMax: prm.maxF ?? prm.maxM,
-        normalRangeText:
-          prm.rangeText || `${prm.minM} - ${prm.maxM} ${prm.unit}`.trim(),
+        normalRangeText: cleanRange,
         criticalLow: prm.critLow ?? 0,
         criticalHigh: prm.critHigh ?? 999,
         resultType: prm.type || 'numeric',
-        options: prm.options,
+        options: cleanOptions,
         decimalPlaces: prm.decimals ?? 1,
         sortOrder: idx + 1,
         active: true,
@@ -2201,7 +2219,7 @@ let catalogSyncPromise: Promise<{ testsAdded: number; parametersSynced: number }
 
 /**
  * Ensures the global medical tests encyclopedia and all its detailed parameters
- * are synchronized into IndexedDB (`db.tests` and `db.testParameters`).
+ * are synchronized into IndexedDB (`db.tests` and `db.testParameters`) in English-only format.
  */
 export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<{
   testsAdded: number;
@@ -2217,9 +2235,18 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
     const existingParams = await db.testParameters.toArray();
 
     const hasFormulasAttached = existingParams.some((p) => Boolean(p.isCalculated && p.formula));
+    const hasArabicInParams = existingParams.some((p) => /[\u0600-\u06FF]/.test(p.nameAr || ''));
+    const paramTestIds = new Set(existingParams.map((p) => p.testId));
+    const anyTestMissingParams = existingTests.some((t) => !paramTestIds.has(t.id));
 
-    // If we already have >= 85 tests and >= 300 parameters with formulas and not forceOverwrite, skip heavy write
-    if (!forceOverwrite && existingTests.length >= 85 && existingParams.length >= 300 && hasFormulasAttached) {
+    if (
+      !forceOverwrite &&
+      existingTests.length >= 100 &&
+      existingParams.length >= 400 &&
+      hasFormulasAttached &&
+      !hasArabicInParams &&
+      !anyTestMissingParams
+    ) {
       return { testsAdded: 0, parametersSynced: 0 };
     }
 
@@ -2229,10 +2256,12 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
     const testsToPut: LabTest[] = [];
     const paramsToPut: TestParameter[] = [];
     const testIdsWithUpgradedParams = new Set<string>();
+    const handledTestIds = new Set<string>();
 
     for (const gt of globalTests) {
       const matched = existingById.get(gt.id) || existingByCode.get(gt.code.toUpperCase());
       const targetTestId = matched ? matched.id : gt.id;
+      handledTestIds.add(targetTestId);
 
       testsToPut.push({
         ...gt,
@@ -2243,6 +2272,7 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
       const currentParamsForTest = existingParams.filter((p) => p.testId === targetTestId);
       const hasLegacySinglePlaceholder =
         currentParamsForTest.length === 1 && currentParamsForTest[0].code.endsWith('-VAL');
+      const currentHasArabic = currentParamsForTest.some((p) => /[\u0600-\u06FF]/.test(p.nameAr || ''));
 
       const defParams = globalParams.filter((p) => p.testId === gt.id);
 
@@ -2254,12 +2284,12 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
         forceOverwrite ||
         currentParamsForTest.length === 0 ||
         hasLegacySinglePlaceholder ||
+        currentHasArabic ||
         currentParamsForTest.length < defParams.length ||
         missingFormulas
       ) {
         testIdsWithUpgradedParams.add(targetTestId);
         defParams.forEach((dp, idx) => {
-          // Preserve prm_1..prm_9 IDs for tst_1 and tst_4 if they match index so existing demo results stay linked
           let paramId = `${targetTestId}_prm_${idx + 1}`;
           if (targetTestId === 'tst_1' && idx < 5 && currentParamsForTest[idx]) {
             paramId = currentParamsForTest[idx].id;
@@ -2272,6 +2302,46 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
             testId: targetTestId,
           });
         });
+      }
+    }
+
+    // Also ensure any custom user-added test in db.tests has English-only parameters
+    for (const customTest of existingTests) {
+      if (handledTestIds.has(customTest.id)) continue;
+      const customParams = existingParams.filter((p) => p.testId === customTest.id);
+      if (customParams.length === 0) {
+        const cleanEn = (customTest.nameEn || customTest.code || 'Test Parameter').trim();
+        paramsToPut.push({
+          id: `${customTest.id}_prm_1`,
+          testId: customTest.id,
+          code: `${customTest.code}-1`,
+          nameAr: cleanEn,
+          nameEn: cleanEn,
+          unit: 'mg/dL',
+          normalMaleMin: 0,
+          normalMaleMax: 100,
+          normalFemaleMin: 0,
+          normalFemaleMax: 100,
+          normalRangeText: '0 - 100',
+          criticalLow: 0,
+          criticalHigh: 500,
+          resultType: 'numeric',
+          decimalPlaces: 1,
+          sortOrder: 1,
+          active: true,
+        });
+      } else {
+        for (const cp of customParams) {
+          if (/[\u0600-\u06FF]/.test(cp.nameAr || '')) {
+            const cleanEn = (cp.nameEn || cp.code || 'Parameter').trim();
+            paramsToPut.push({
+              ...cp,
+              nameAr: cleanEn,
+              nameEn: cleanEn,
+              normalRangeText: stripArabicFromParamText(cp.normalRangeText),
+            });
+          }
+        }
       }
     }
 

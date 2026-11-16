@@ -182,25 +182,29 @@ export function buildRolePermissions(): RolePermission[] {
             allowedScreens.includes(resource) &&
             ['view', 'add', 'edit', 'print'].includes(act);
         } else if (role === 'Receptionist') {
-          const allowedScreens: ResourceScreen[] = [
-            'dashboard',
-            'patients',
-            'doctors',
-            'doctorSpecialties',
-            'tests',
-            'scientificDepartments',
-            'sampleTubes',
-            'requests',
-            'samples',
-            'homeVisits',
-            'corporateContracts',
-            'invoices',
-            'payments',
-            'printing',
-          ];
-          actions[act] =
-            allowedScreens.includes(resource) &&
-            ['view', 'add', 'edit', 'delete', 'print', 'discount', 'addPayment'].includes(act);
+          if (resource === 'microbiology') {
+            actions[act] = ['view', 'add', 'print'].includes(act);
+          } else {
+            const allowedScreens: ResourceScreen[] = [
+              'dashboard',
+              'patients',
+              'doctors',
+              'doctorSpecialties',
+              'tests',
+              'scientificDepartments',
+              'sampleTubes',
+              'requests',
+              'samples',
+              'homeVisits',
+              'corporateContracts',
+              'invoices',
+              'payments',
+              'printing',
+            ];
+            actions[act] =
+              allowedScreens.includes(resource) &&
+              ['view', 'add', 'edit', 'delete', 'print', 'discount', 'addPayment'].includes(act);
+          }
         } else if (role === 'Accountant') {
           const allowedScreens: ResourceScreen[] = [
             'dashboard',

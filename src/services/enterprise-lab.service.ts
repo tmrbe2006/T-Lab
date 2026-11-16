@@ -1,6 +1,7 @@
 import { authService } from '../auth/auth.service';
 import { closeModal, escapeHtml, openModal, showToast } from '../components/common';
 import { db } from '../db/database';
+import { buildGlobalCatalogRecords } from '../db/global-medical-tests';
 import { i18n } from '../i18n';
 import type {
   AntibioticCatalogItem,
@@ -18,6 +19,7 @@ import type {
   Patient,
   QcControlLot,
   QcRunRecord,
+  TestParameter,
   WestgardRuleCode,
 } from '../types';
 import { generateId } from '../utils/format';
@@ -704,38 +706,82 @@ export function openSmartPatientReportModal(params: {
 }
 
 function translateDepartmentToEnglish(deptRaw?: string): string {
-  if (!deptRaw) return 'Clinical Laboratory Department';
+  if (!deptRaw) return 'Clinical Chemistry Report';
   const map: Record<string, string> = {
-    'أمراض الدم': 'Hematology Department',
-    'تحاليل السيولة والتجلط': 'Coagulation & Hemostasis',
-    'الكيمياء الحيوية': 'Clinical Chemistry & Biochemistry',
-    'الهرمونات والغدد الصماء': 'Endocrinology & Hormones',
-    'المناعة والأمصال': 'Immunology & Serology',
-    'تحاليل الفيروسات': 'Virology & Infectious Diseases',
-    'دلالات الأورام': 'Oncology & Tumor Markers',
-    'الميكروبيولوجي والطفيليات': 'Microbiology & Parasitology',
-    'تحاليل البول والبراز وسوائل الجسم': 'Clinical Microscopy, Urinalysis & Body Fluids',
-    'البيولوجيا الجزيئية والجينات': 'Molecular Biology & Genetics (PCR)',
-    'السموم والأدوية العلاجية': 'Toxicology & Therapeutic Drug Monitoring (TDM)',
-    'الحساسية والمناعة الذاتية': 'Allergy & Autoimmune Diagnostics',
-    'الفيتامينات والمعادن النادرة': 'Vitamins & Trace Elements',
-    'أقسام طبية عامة': 'General Clinical Diagnostics',
+    'أمراض الدم': 'Hematology Report',
+    'تحاليل السيولة والتجلط': 'Coagulation & Hemostasis Report',
+    'الكيمياء الحيوية': 'Clinical Chemistry Report',
+    'الهرمونات والغدد الصماء': 'Endocrinology & Hormones Report',
+    'المناعة والأمصال': 'Immunology & Serology Report',
+    'تحاليل الفيروسات': 'Virology & Infectious Diseases Report',
+    'دلالات الأورام': 'Oncology & Tumor Markers Report',
+    'الميكروبيولوجي والطفيليات': 'Microbiology & Parasitology Report',
+    'تحاليل البول والبراز وسوائل الجسم': 'Clinical Microscopy & Urinalysis Report',
+    'البيولوجيا الجزيئية والجينات': 'Molecular Biology & Genetics (PCR) Report',
+    'السموم والأدوية العلاجية': 'Toxicology & Drug Monitoring Report',
+    'الحساسية والمناعة الذاتية': 'Allergy & Autoimmune Report',
+    'الفيتامينات والمعادن النادرة': 'Vitamins & Trace Elements Report',
+    'أقسام طبية عامة': 'General Clinical Laboratory Report',
   };
   if (map[deptRaw.trim()]) return map[deptRaw.trim()];
-  if (deptRaw.includes('دم') || deptRaw.toLowerCase().includes('hemato')) return 'Hematology Department';
-  if (deptRaw.includes('كيمياء') || deptRaw.toLowerCase().includes('chem')) return 'Clinical Chemistry Department';
-  if (deptRaw.includes('هرمون') || deptRaw.toLowerCase().includes('hormon') || deptRaw.toLowerCase().includes('endo')) return 'Endocrinology & Hormones';
-  if (deptRaw.includes('مناع') || deptRaw.toLowerCase().includes('immun')) return 'Immunology & Serology';
-  if (deptRaw.includes('ميكرو') || deptRaw.includes('مزارع') || deptRaw.toLowerCase().includes('micro')) return 'Microbiology & Parasitology';
-  if (deptRaw.includes('بول') || deptRaw.includes('براز')) return 'Clinical Microscopy & Urinalysis';
-  if (deptRaw.includes('أورام') || deptRaw.toLowerCase().includes('tumor')) return 'Oncology & Tumor Markers';
-  if (deptRaw.includes('جزيئ') || deptRaw.includes('جين')) return 'Molecular Biology & Genetics';
-  return deptRaw;
+  if (deptRaw.includes('دم') || deptRaw.toLowerCase().includes('hemato')) return 'Hematology Report';
+  if (deptRaw.includes('كيمياء') || deptRaw.toLowerCase().includes('chem')) return 'Clinical Chemistry Report';
+  if (deptRaw.includes('هرمون') || deptRaw.toLowerCase().includes('hormon') || deptRaw.toLowerCase().includes('endo')) return 'Endocrinology & Hormones Report';
+  if (deptRaw.includes('مناع') || deptRaw.toLowerCase().includes('immun')) return 'Immunology & Serology Report';
+  if (deptRaw.includes('ميكرو') || deptRaw.includes('مزارع') || deptRaw.toLowerCase().includes('micro')) return 'Microbiology & Parasitology Report';
+  if (deptRaw.includes('بول') || deptRaw.includes('براز')) return 'Clinical Microscopy & Urinalysis Report';
+  if (deptRaw.includes('أورام') || deptRaw.toLowerCase().includes('tumor')) return 'Oncology & Tumor Markers Report';
+  if (deptRaw.includes('جزيئ') || deptRaw.includes('جين')) return 'Molecular Biology & Genetics Report';
+  return deptRaw.endsWith('Report') ? deptRaw : `${deptRaw} Report`;
+}
+
+/**
+ * Formats a parameter's reference range into the exact parenthesized hospital style of Screenshot 2:
+ * e.g. `(  8   -   23  )` or `(  0.80  -  1.30  )` or `(    Up to 50    )`
+ */
+function formatRefRangeHospitalStyle(
+  v: ParameterResultValue,
+  fallbackParam?: TestParameter,
+  isFemale = false
+): string {
+  // 1. Check if fallbackParam provides numeric min/max
+  if (fallbackParam && (fallbackParam.resultType === 'numeric' || Number(fallbackParam.normalMaleMax) > 0)) {
+    const minVal = Number(isFemale && Number(fallbackParam.normalFemaleMax) > 0 ? fallbackParam.normalFemaleMin : fallbackParam.normalMaleMin) || 0;
+    const maxVal = Number(isFemale && Number(fallbackParam.normalFemaleMax) > 0 ? fallbackParam.normalFemaleMax : fallbackParam.normalMaleMax) || 0;
+    if (maxVal > 0) {
+      if (minVal <= 0) {
+        return `<div style="display:inline-flex; justify-content:space-between; align-items:center; width:170px; font-family:'JetBrains Mono', monospace;"><span>(</span><span>Up to ${escapeHtml(String(maxVal))}</span><span>)</span></div>`;
+      }
+      const dec = fallbackParam.decimalPlaces ?? (String(minVal).includes('.') || String(maxVal).includes('.') ? 2 : 0);
+      const minStr = dec > 0 ? minVal.toFixed(dec) : String(minVal);
+      const maxStr = dec > 0 ? maxVal.toFixed(dec) : String(maxVal);
+      return `<div style="display:inline-flex; justify-content:space-between; align-items:center; width:170px; font-family:'JetBrains Mono', monospace;"><span>(</span><span>${escapeHtml(minStr)}</span><span>-</span><span>${escapeHtml(maxStr)}</span><span>)</span></div>`;
+    }
+  }
+
+  // 2. Parse existing v.normalRange if it contains "min - max" or "Normal: min-max"
+  const rawRange = (v.normalRange && v.normalRange !== 'Normal' ? v.normalRange : fallbackParam?.normalRangeText || '').trim();
+  const rangeMatch = rawRange.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+  if (rangeMatch) {
+    const [, rMin, rMax] = rangeMatch;
+    if (Number(rMin) <= 0 && Number(rMax) > 0) {
+      return `<div style="display:inline-flex; justify-content:space-between; align-items:center; width:170px; font-family:'JetBrains Mono', monospace;"><span>(</span><span>Up to ${escapeHtml(rMax)}</span><span>)</span></div>`;
+    }
+    return `<div style="display:inline-flex; justify-content:space-between; align-items:center; width:170px; font-family:'JetBrains Mono', monospace;"><span>(</span><span>${escapeHtml(rMin)}</span><span>-</span><span>${escapeHtml(rMax)}</span><span>)</span></div>`;
+  }
+
+  if (rawRange.toLowerCase().startsWith('up to') || rawRange.startsWith('<')) {
+    const cleanUpTo = rawRange.replace(/^<\s*=?\s*/, 'Up to ');
+    return `<div style="display:inline-flex; justify-content:space-between; align-items:center; width:170px; font-family:'JetBrains Mono', monospace;"><span>(</span><span>${escapeHtml(cleanUpTo)}</span><span>)</span></div>`;
+  }
+
+  const displayStr = rawRange || 'Negative / Normal';
+  return `<div style="display:inline-flex; justify-content:space-between; align-items:center; width:170px; font-family:'JetBrains Mono', monospace;"><span>(</span><span>${escapeHtml(displayStr)}</span><span>)</span></div>`;
 }
 
 /**
  * Builds an official Consolidated Multi-Test A4 Medical Report HTML for a single patient,
- * ALWAYS formatted in 100% English LTR regardless of whether the UI language is Arabic or English.
+ * formatted in the Hospital / University Clinical Laboratory style (Screenshot 2).
  */
 export function buildConsolidatedPatientReportHtml(params: {
   results: LabResult[];
@@ -747,6 +793,16 @@ export function buildConsolidatedPatientReportHtml(params: {
 }): { html: string; subtitle: string; reportCode: string } {
   const { results, patient, testsMap, requestsMap, doctorsMap, pageBreakPerDepartment = false } = params;
 
+  // Build global catalog parameter lookup so every test parameter always has its real Unit and Ref.Range
+  const { tests: globalTests, testParameters: globalParams } = buildGlobalCatalogRecords();
+  const globalTestByCode = new Map(globalTests.map((gt) => [gt.code.toUpperCase(), gt]));
+  const globalParamsByTestId = new Map<string, TestParameter[]>();
+  for (const gp of globalParams) {
+    const list = globalParamsByTestId.get(gp.testId) || [];
+    list.push(gp);
+    globalParamsByTestId.set(gp.testId, list);
+  }
+
   const uniqueReqNumbers = Array.from(
     new Set(
       results.map((r) => {
@@ -756,14 +812,16 @@ export function buildConsolidatedPatientReportHtml(params: {
     )
   );
   const reportCode = uniqueReqNumbers.join(' / ');
+  const firstReq = results[0] ? requestsMap?.get(results[0].requestId) : undefined;
+  const barcodeNum = firstReq?.barcode || results[0]?.requestId || '261109242844';
 
-  // Find referring doctor if present on any request (prefer English name)
-  let doctorName = 'Outpatient / Walk-in';
+  // Find referring doctor / location
+  let locationOrDoctor = 'خدمات خارجية';
   for (const r of results) {
     const req = requestsMap?.get(r.requestId);
     if (req?.doctorId && doctorsMap?.has(req.doctorId)) {
       const doc = doctorsMap.get(req.doctorId)!;
-      doctorName = doc.nameEn || doc.nameAr || 'Referring Physician';
+      locationOrDoctor = doc.nameAr || doc.nameEn || 'خدمات خارجية';
       break;
     }
   }
@@ -771,13 +829,25 @@ export function buildConsolidatedPatientReportHtml(params: {
   const latestApprovedBy =
     results.find((r) => r.approvedBy)?.approvedBy ||
     results[0]?.enteredBy ||
-    'Authorized Lab Director';
+    'Dr. Lab Director';
   const latestApprovedAt =
     results.find((r) => r.approvedAt)?.approvedAt ||
     results[0]?.enteredAt ||
     new Date().toISOString().replace('T', ' ').slice(0, 16);
 
-  const patientDisplayName = patient?.nameEn || patient?.name || '-';
+  const reqDateRaw = firstReq?.createdAt || latestApprovedAt.slice(0, 10);
+  const reqDateFormatted = reqDateRaw.includes(':') ? reqDateRaw : `${reqDateRaw} 10:15 AM`;
+  const verDateFormatted = latestApprovedAt.includes('M') ? latestApprovedAt : `${latestApprovedAt} PM`;
+
+  const patientDisplayName = patient?.name || patient?.nameEn || '-';
+  const isFemale = patient?.gender === 'female';
+  const specimenTypes = Array.from(
+    new Set(
+      results
+        .map((r) => testsMap.get(r.testId)?.sampleType || 'Serum')
+        .map((s) => s.split('/')[0].trim())
+    )
+  ).join(', ');
 
   // Group selected results by English Scientific Department
   const deptGroups = new Map<string, Array<{ result: LabResult; test?: LabTest }>>();
@@ -789,92 +859,125 @@ export function buildConsolidatedPatientReportHtml(params: {
     deptGroups.set(deptNameEn, list);
   }
 
-  const formatFlagBadgeEn = (flag: ParameterResultValue['flag']) => {
-    if (flag === 'critical_high') return '↑↑ CRITICAL HIGH';
-    if (flag === 'critical_low') return '↓↓ CRITICAL LOW';
-    if (flag === 'high') return '↑ HIGH';
-    if (flag === 'low') return '↓ LOW';
-    return 'NORMAL';
-  };
-
   const departmentsHtml = Array.from(deptGroups.entries())
     .map(([deptNameEn, items], deptIdx) => {
       const pageBreakStyle =
         pageBreakPerDepartment && deptIdx > 0 ? 'page-break-before: always; break-before: page;' : '';
 
-      const testsInDeptHtml = items
+      const allRowsHtml = items
         .map(({ result: r, test: tst }) => {
-          const req = requestsMap?.get(r.requestId);
-          const reqNum = req?.requestNumber || r.requestId;
-          const statusLabel = r.status === 'approved' ? 'APPROVED ✓' : 'PENDING REVIEW';
+          const codeUpper = tst?.code?.toUpperCase() || '';
+          const matchedGlobalTest =
+            globalTests.find((gt) => gt.id === r.testId) ||
+            (codeUpper ? globalTestByCode.get(codeUpper) : undefined);
+          const catalogParams = matchedGlobalTest
+            ? globalParamsByTestId.get(matchedGlobalTest.id) || []
+            : [];
 
-          return `
-            <div dir="ltr" style="direction:ltr; text-align:left; margin-bottom:14px; border:1px solid #cbd5e1; border-radius:8px; overflow:hidden; page-break-inside:avoid; break-inside:avoid;">
-              <div style="background:#f8fafc; border-bottom:1px solid #cbd5e1; padding:7px 12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-                <div style="font-size:13px; font-weight:700; color:#0f172a;">
-                  🧪 ${escapeHtml(tst ? `${tst.code} — ${tst.nameEn || tst.nameAr}` : r.testId)}
-                </div>
-                <div style="font-size:11px; color:#475569; font-family:'JetBrains Mono', monospace;">
-                  <span>Specimen: ${escapeHtml(tst?.sampleType || 'Serum / Whole Blood')}</span> ·
-                  <span>${escapeHtml(reqNum)}</span> ·
-                  <strong style="color:${r.status === 'approved' ? '#047857' : '#b45309'};">${statusLabel}</strong>
-                </div>
-              </div>
-              <table class="print-table" dir="ltr" style="margin-top:0; border:0; width:100%; table-layout:fixed; direction:ltr; text-align:left;">
-                <colgroup>
-                  <col style="width:34%;" />
-                  <col style="width:18%;" />
-                  <col style="width:12%;" />
-                  <col style="width:22%;" />
-                  <col style="width:14%;" />
-                </colgroup>
-                <tbody>
-                  ${r.values
-                    .map((v) => {
-                      const isAbnormal = v.flag !== 'normal';
-                      const isCrit = v.flag === 'critical_high' || v.flag === 'critical_low';
-                      const rowBg = isCrit ? '#fff1f2' : isAbnormal ? '#fffbeb' : '#ffffff';
-                      const textColor = isCrit ? '#be123c' : isAbnormal ? '#b45309' : '#0f172a';
-                      return `
-                        <tr style="background:${rowBg};">
-                          <td style="width:34%; font-weight:600; color:#1e293b; text-align:left;">
-                            ${escapeHtml(v.parameterNameEn || v.parameterNameAr)}
-                          </td>
-                          <td class="tabular-nums" style="width:18%; font-weight:${isAbnormal ? '800' : '700'}; font-size:13px; color:${textColor}; text-align:left;">
-                            ${escapeHtml(String(v.value))}
-                          </td>
-                          <td class="tabular-nums" style="width:12%; color:#475569; text-align:left;">${escapeHtml(v.unit)}</td>
-                          <td class="tabular-nums" style="width:22%; color:#334155; font-size:11px; text-align:left;">${escapeHtml(v.normalRange)}</td>
-                          <td class="tabular-nums" style="width:14%; font-weight:${isAbnormal ? '700' : '600'}; font-size:11px; color:${textColor}; text-align:left;">
-                            ${escapeHtml(formatFlagBadgeEn(v.flag))}
-                          </td>
-                        </tr>
-                      `;
-                    })
-                    .join('')}
-                </tbody>
-              </table>
-              ${
-                r.notes
-                  ? `<div style="padding:6px 12px; background:#f8fafc; border-top:1px dashed #cbd5e1; font-size:11px; color:#334155; text-align:left;">
-                      <strong>Clinical Notes:</strong> ${escapeHtml(r.notes)}
-                    </div>`
-                  : ''
+          // If a test has only 1 numeric parameter and the rest are companion dipstick qualitative parameters that weren't modified, show all parameters clearly
+          const rowsForTest = r.values
+            .map((v, idx) => {
+              const prmDef =
+                catalogParams.find((p) => p.id === v.parameterId) ||
+                catalogParams.find((p) => p.nameEn.toLowerCase() === v.parameterNameEn.toLowerCase()) ||
+                catalogParams[idx] ||
+                catalogParams[0];
+
+              const resolvedUnit =
+                v.unit && v.unit !== '-'
+                  ? v.unit
+                  : prmDef?.unit && prmDef.unit !== '-'
+                  ? prmDef.unit
+                  : '';
+
+              const refRangeHtml = formatRefRangeHospitalStyle(v, prmDef, isFemale);
+
+              // Re-verify flag so placeholder 'Normal' never displays false CRITICAL HIGH
+              let resolvedFlag = v.flag;
+              const numVal = Number(v.value);
+              if (Number.isFinite(numVal) && prmDef && (prmDef.resultType === 'numeric' || Number(prmDef.normalMaleMax) > 0)) {
+                const minN = Number(isFemale && Number(prmDef.normalFemaleMax) > 0 ? prmDef.normalFemaleMin : prmDef.normalMaleMin) || 0;
+                const maxN = Number(isFemale && Number(prmDef.normalFemaleMax) > 0 ? prmDef.normalFemaleMax : prmDef.normalMaleMax) || 0;
+                const cLow = Number(prmDef.criticalLow) || 0;
+                const cHigh = Number(prmDef.criticalHigh) || 0;
+                if (cHigh > 0 && numVal >= cHigh) resolvedFlag = 'critical_high';
+                else if (cLow > 0 && numVal <= cLow) resolvedFlag = 'critical_low';
+                else if (maxN > 0 && numVal > maxN) resolvedFlag = 'high';
+                else if (minN > 0 && numVal < minN) resolvedFlag = 'low';
+                else resolvedFlag = 'normal';
               }
-            </div>
-          `;
+
+              const isAbnormal = resolvedFlag !== 'normal';
+              const flagSuffix =
+                resolvedFlag === 'critical_high'
+                  ? ' (H*)'
+                  : resolvedFlag === 'critical_low'
+                  ? ' (L*)'
+                  : resolvedFlag === 'high'
+                  ? ' (H)'
+                  : resolvedFlag === 'low'
+                  ? ' (L)'
+                  : '';
+
+              // Clean parameter label (e.g. BUN, Creatinine, AST, ALT, Fasting Blood Sugar (FBS))
+              const testDisplayName =
+                r.values.length === 1 && tst?.code
+                  ? `${tst.code} (${v.parameterNameEn || tst.nameEn})`
+                  : v.parameterNameEn || v.parameterNameAr;
+
+              return `
+                <tr style="border:0;">
+                  <td style="border:0; padding:5px 6px; font-size:13px; font-weight:600; color:#111827; text-align:left;">
+                    ${escapeHtml(testDisplayName)}
+                  </td>
+                  <td class="tabular-nums" style="border:0; padding:5px 6px; font-size:13.5px; font-weight:${isAbnormal ? '800' : '700'}; color:#000000; text-align:left;">
+                    ${escapeHtml(String(v.value))}${escapeHtml(flagSuffix)}
+                  </td>
+                  <td class="tabular-nums" style="border:0; padding:5px 6px; font-size:12.5px; font-weight:600; color:#1f2937; text-align:left;">
+                    ${escapeHtml(resolvedUnit)}
+                  </td>
+                  <td class="tabular-nums" style="border:0; padding:5px 6px; font-size:12.5px; font-weight:600; color:#111827; text-align:center;">
+                    ${refRangeHtml}
+                  </td>
+                </tr>
+              `;
+            })
+            .join('');
+
+          const notesRow = r.notes
+            ? `<tr style="border:0;"><td colspan="4" style="border:0; padding:4px 6px 8px 6px; font-size:11.5px; color:#374151; font-style:italic;">Comment: ${escapeHtml(r.notes)}</td></tr>`
+            : '';
+
+          return rowsForTest + notesRow;
         })
         .join('');
 
       return `
-        <div dir="ltr" style="direction:ltr; text-align:left; margin-bottom:18px; ${pageBreakStyle}">
-          <div style="background:#0f172a; color:#ffffff; padding:6px 12px; border-radius:6px; font-size:13px; font-weight:700; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
-            <span>🔬 Department: ${escapeHtml(deptNameEn)}</span>
-            <span style="font-size:11px; font-weight:600; color:#38bdf8;">
-              ${items.length} Test(s)
-            </span>
+        <div dir="ltr" style="direction:ltr; text-align:left; margin-bottom:20px; ${pageBreakStyle}">
+          <!-- Centered Underlined Department Title (Screenshot 2 Style) -->
+          <div style="text-align:center; font-size:15px; font-weight:800; color:#000000; text-decoration:underline; text-underline-offset:3px; margin:10px 0 12px 0;">
+            ${escapeHtml(deptNameEn)}
           </div>
-          ${testsInDeptHtml}
+
+          <table dir="ltr" style="width:100%; border-collapse:collapse; border:0; direction:ltr; text-align:left;">
+            <colgroup>
+              <col style="width:36%;" />
+              <col style="width:18%;" />
+              <col style="width:16%;" />
+              <col style="width:30%;" />
+            </colgroup>
+            <thead>
+              <tr style="border:0;">
+                <th style="border:0; background:transparent; padding:4px 6px 8px 6px; font-size:13px; font-weight:800; color:#000000; text-align:left;">Test</th>
+                <th style="border:0; background:transparent; padding:4px 6px 8px 6px; font-size:13px; font-weight:800; color:#000000; text-align:left;">Result</th>
+                <th style="border:0; background:transparent; padding:4px 6px 8px 6px; font-size:13px; font-weight:800; color:#000000; text-align:left;">Unit</th>
+                <th style="border:0; background:transparent; padding:4px 6px 8px 6px; font-size:13px; font-weight:800; color:#000000; text-align:center;">Ref.Range</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allRowsHtml}
+            </tbody>
+          </table>
         </div>
       `;
     })
@@ -882,89 +985,86 @@ export function buildConsolidatedPatientReportHtml(params: {
 
   const testCodesSummary = results
     .map((r) => testsMap.get(r.testId)?.code || r.testId)
-    .join(' + ');
+    .join(' , ');
 
-  const qrFooter = buildQrVerificationFooterHtml({
-    reportNumber: reportCode,
-    patientName: patientDisplayName,
-    testName: `${results.length} Tests (${testCodesSummary})`,
-    approvedAt: latestApprovedAt,
-  });
+  const boxStyle =
+    'border:1px solid #6b7280; padding:2px 8px; text-align:center; font-weight:700; color:#111827; background:#ffffff; font-size:12px;';
+  const labelStyle =
+    'font-size:12px; font-weight:700; color:#1f2937; white-space:nowrap; padding-right:6px;';
 
   const html = `
-    <div dir="ltr" style="direction:ltr; text-align:left;">
-      <!-- Unified Patient Demographic & Clinical Header (English) -->
-      <div style="margin-bottom:12px; padding:12px 14px; border:2px solid #0f172a; border-radius:8px; background:#f8fafc;">
-        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:8px 16px; font-size:12px; color:#0f172a;">
-          <div>
-            <strong>Patient Name:</strong>
-            <span style="font-size:13px; font-weight:700; margin-left:4px;">${escapeHtml(patientDisplayName)}</span>
-            ${patient?.code ? `<span style="font-family:monospace; color:#475569;">(${escapeHtml(patient.code)})</span>` : ''}
-          </div>
-          <div>
-            <strong>Request No:</strong>
-            <span style="font-family:'JetBrains Mono', monospace; font-weight:700; margin-left:4px;">${escapeHtml(reportCode)}</span>
-          </div>
-          <div>
-            <strong>Age &amp; Sex:</strong>
-            <span style="margin-left:4px;">
-              ${patient?.age ?? '-'} Yrs ·
-              ${patient?.gender === 'female' ? 'Female' : 'Male'}
-            </span>
-            ${patient?.phone ? ` · <span style="font-family:monospace;">${escapeHtml(patient.phone)}</span>` : ''}
-          </div>
-          <div>
-            <strong>Referring Physician:</strong>
-            <span style="margin-left:4px;">${escapeHtml(doctorName)}</span>
-          </div>
-          <div>
-            <strong>Included Tests:</strong>
-            <span style="font-weight:700; color:#0369a1; margin-left:4px;">
-              ${results.length} Test(s) (${escapeHtml(testCodesSummary)})
-            </span>
-          </div>
-          <div>
-            <strong>Approved At:</strong>
-            <span style="font-family:'JetBrains Mono', monospace; margin-left:4px;">${escapeHtml(latestApprovedAt)}</span>
-          </div>
-        </div>
+    <div dir="ltr" style="direction:ltr; text-align:left; color:#000; display:flex; flex-direction:column; min-height:210mm; justify-content:space-between;">
+      <div>
+        <!-- Patient & Specimen Framed Boxed Grid (Exact Screenshot 2 Layout) -->
+        <table dir="ltr" style="width:100%; border-collapse:separate; border-spacing:4px 4px; margin-bottom:4px;">
+          <colgroup>
+            <col style="width:11%;" />
+            <col style="width:18%;" />
+            <col style="width:5%;" />
+            <col style="width:16%;" />
+            <col style="width:12%;" />
+            <col style="width:38%;" />
+          </colgroup>
+          <tbody>
+            <!-- Row 1: Lab. No. | Box 1 | Box 2 | Patient No | Box -->
+            <tr>
+              <td style="${labelStyle}">Lab. No.</td>
+              <td style="${boxStyle} font-family:'JetBrains Mono',monospace;">${escapeHtml(reportCode)}</td>
+              <td colspan="2" style="${boxStyle} font-family:'JetBrains Mono',monospace;">${escapeHtml(barcodeNum)}</td>
+              <td style="${labelStyle} padding-left:10px;">Patient No</td>
+              <td style="${boxStyle} font-family:'JetBrains Mono',monospace;">${escapeHtml(patient?.code || patient?.id || '-')}</td>
+            </tr>
+            <!-- Row 2: Name | Box (spans 3 cols) | Req.Date | Box -->
+            <tr>
+              <td style="${labelStyle}">Name</td>
+              <td colspan="3" style="${boxStyle} font-family:'Cairo','Plus Jakarta Sans',sans-serif; font-size:12.5px;">${escapeHtml(patientDisplayName)}</td>
+              <td style="${labelStyle} padding-left:10px;">Req.Date</td>
+              <td style="${boxStyle} font-family:'JetBrains Mono',monospace;">${escapeHtml(reqDateFormatted)}</td>
+            </tr>
+            <!-- Row 3: Age | Box | Sex | Box | Sam.Type | Box -->
+            <tr>
+              <td style="${labelStyle}">Age</td>
+              <td style="${boxStyle}">${escapeHtml(String(patient?.age ?? '-'))} Y</td>
+              <td style="${labelStyle} text-align:center; padding:0 4px;">Sex</td>
+              <td style="${boxStyle}">${patient?.gender === 'female' ? 'Female' : 'Male'}</td>
+              <td style="${labelStyle} padding-left:10px;">Sam.Type</td>
+              <td style="${boxStyle}">*${escapeHtml(specimenTypes || 'Serum')}</td>
+            </tr>
+            <!-- Row 4: Location | Box (spans 3 cols) | Ver.Date | Box -->
+            <tr>
+              <td style="${labelStyle}">Location</td>
+              <td colspan="3" style="${boxStyle} font-family:'Cairo','Plus Jakarta Sans',sans-serif;">${escapeHtml(locationOrDoctor)}</td>
+              <td style="${labelStyle} padding-left:10px;">Ver.Date</td>
+              <td style="${boxStyle} font-family:'JetBrains Mono',monospace;">${escapeHtml(verDateFormatted)}</td>
+            </tr>
+            <!-- Row 5: National Id | Box (spans 3 cols) | Analyzer / Codes -->
+            <tr>
+              <td style="${labelStyle}">National Id</td>
+              <td colspan="3" style="${boxStyle} font-family:'JetBrains Mono',monospace;">${escapeHtml(patient?.nationalId || patient?.phone || '-')}</td>
+              <td colspan="2" style="padding-left:10px; font-size:11.5px; font-weight:700; color:#1f2937; font-family:'JetBrains Mono',monospace;">
+                C6000_1, AU680_1 (${escapeHtml(testCodesSummary)})
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Solid Horizontal Separator Line -->
+        <div style="border-bottom:2px solid #111827; margin-top:2px; margin-bottom:10px;"></div>
+
+        <!-- Grouped Departments & Test Tables -->
+        ${departmentsHtml}
       </div>
 
-      <!-- Single Unified Columns Header (Shown Once at the Top of the Report) -->
-      <table class="print-table" dir="ltr" style="margin-top:0; margin-bottom:12px; width:100%; table-layout:fixed; direction:ltr; text-align:left; border:1px solid #cbd5e1;">
-        <colgroup>
-          <col style="width:34%;" />
-          <col style="width:18%;" />
-          <col style="width:12%;" />
-          <col style="width:22%;" />
-          <col style="width:14%;" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th style="width:34%; text-align:left;">Parameter</th>
-            <th style="width:18%; text-align:left;">Result</th>
-            <th style="width:12%; text-align:left;">Unit</th>
-            <th style="width:22%; text-align:left;">Reference Interval</th>
-            <th style="width:14%; text-align:left;">Flag</th>
-          </tr>
-        </thead>
-      </table>
-
-      <!-- Grouped Departments & Test Tables -->
-      ${departmentsHtml}
-
-      <!-- Unified Medical Approval Signature -->
-      <div style="margin-top:16px; padding:10px 14px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; display:flex; justify-content:space-between; align-items:center; font-size:11px; page-break-inside:avoid;">
-        <div>
-          <strong>Approved By Laboratory Director:</strong>
-          <span style="font-weight:700; color:#0f172a; margin-left:6px;">${escapeHtml(latestApprovedBy)}</span>
+      <!-- Bottom Signature & Page Footer (Exact Screenshot 2 Layout) -->
+      <div style="margin-top:36px; padding-top:12px; display:flex; justify-content:space-between; align-items:flex-end; font-size:12px; color:#111827; page-break-inside:avoid;">
+        <div style="font-weight:700; font-size:11.5px;">
+          Page 1 of 1
         </div>
-        <div style="font-family:'JetBrains Mono', monospace; color:#475569;">
-          Digital Approval Timestamp: ${escapeHtml(latestApprovedAt)}
+        <div style="text-align:center; line-height:1.5;">
+          <div style="font-weight:800; font-size:12.5px;">Doctor's signature</div>
+          <div style="font-weight:700; font-size:12.5px;">${escapeHtml(latestApprovedBy.startsWith('Dr') ? latestApprovedBy : `Dr. ${latestApprovedBy}`)}</div>
         </div>
       </div>
-
-      ${qrFooter}
     </div>
   `;
 
@@ -1476,13 +1576,17 @@ export function generateLeveyJenningsSvg(lot: QcControlLot, runs: QcRunRecord[])
               ? '#d97706'
               : '#059669';
           return `
-            <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.run.status === 'rejected' ? '6' : '4.5'}" fill="${fill}" stroke="#ffffff" stroke-width="1.5" />
-            <text x="${p.x.toFixed(1)}" y="${(p.y - 9).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="${fill}">
-              ${p.run.measuredValue}${p.run.westgardRule !== 'in_control' ? ` (${p.run.westgardRule})` : ''}
-            </text>
-            <text x="${p.x.toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9" fill="#64748b">
-              #${i + 1} (${escapeHtml(p.run.runDate.slice(5, 10))})
-            </text>
+            <g class="qc-chart-point cursor-pointer" data-qc-point-id="${escapeHtml(p.run.id)}">
+              <title>#${i + 1} (${escapeHtml(p.run.runDate)}) — Value: ${p.run.measuredValue} (Z: ${p.run.zScore}) — Click to Edit or Delete Point</title>
+              <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="11" fill="transparent" />
+              <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.run.status === 'rejected' ? '6.5' : '5'}" fill="${fill}" stroke="#ffffff" stroke-width="1.5" />
+              <text x="${p.x.toFixed(1)}" y="${(p.y - 9).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="${fill}">
+                ${p.run.measuredValue}${p.run.westgardRule !== 'in_control' ? ` (${p.run.westgardRule})` : ''}
+              </text>
+              <text x="${p.x.toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="9" fill="#64748b">
+                #${i + 1} (${escapeHtml(p.run.runDate.slice(5, 10))})
+              </text>
+            </g>
           `;
         })
         .join('')}

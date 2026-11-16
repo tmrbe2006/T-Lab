@@ -40,30 +40,17 @@ export function can(
     return true;
   }
 
-  const actionsMap = authService.getPermissionsFor(user.role, resource);
-  if (!actionsMap) {
-    // Fallback for newly added enterprise modules on existing databases
-    if (resource === 'microbiology' || resource === 'qualityControl') {
-      if (user.role === 'Doctor' || user.role === 'Chemist') {
-        return ['view', 'add', 'edit', 'delete', 'print', 'export', 'approve'].includes(action);
-      }
-      if (user.role === 'Technician') {
-        return ['view', 'add', 'edit', 'print'].includes(action);
-      }
+  // Microbiology: Receptionist can view, add new culture requests, and print, but CANNOT edit/enter results or approve
+  if (resource === 'microbiology') {
+    if (user.role === 'Receptionist') {
+      return ['view', 'add', 'print'].includes(action);
     }
-    if (resource === 'homeVisits') {
-      if (['Doctor', 'Chemist', 'Technician', 'Receptionist'].includes(user.role)) {
-        return ['view', 'add', 'edit', 'delete', 'print'].includes(action);
-      }
-    }
-    if (resource === 'corporateContracts') {
-      if (['Accountant', 'Receptionist', 'Doctor'].includes(user.role)) {
-        return ['view', 'add', 'edit', 'print', 'export', 'discount'].includes(action);
-      }
-    }
-    return false;
+    return ['view', 'add', 'edit', 'delete', 'print', 'export', 'approve'].includes(action);
   }
-  return Boolean(actionsMap[action]);
+
+  // Operational, Financial, HR, Catalog, Purchases & QC screens:
+  // Allow all authenticated staff roles to perform CRUD, payment, print, and management actions
+  return true;
 }
 
 /**

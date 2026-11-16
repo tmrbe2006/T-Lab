@@ -221,26 +221,21 @@ export class PrintService {
     title: string,
     contentHtml: string,
     subtitle = '',
-    options?: { forceEnglishLtr?: boolean }
+    options?: { forceEnglishLtr?: boolean; customReportLayout?: boolean }
   ): Promise<void> {
     const forceEn = Boolean(options?.forceEnglishLtr);
+    const customLayout = Boolean(options?.customReportLayout);
     const settings = await permissionsRepository.getSettings();
     const user = authService.getCurrentUser();
     const nowStr = new Date().toLocaleString(
       forceEn ? 'en-US' : i18n.getLang() === 'ar' ? 'ar-EG' : 'en-US'
     );
-    const labName = forceEn
-      ? settings?.labNameEn || 'Al-Shifa Specialized Medical Laboratories'
-      : i18n.bi(
-          settings?.labNameAr || 'مختبرات الشفاء التخصصية',
-          settings?.labNameEn || 'Al-Shifa Specialized Medical Laboratories'
-        );
-    const branchName = forceEn
-      ? settings?.branchNameEn || 'Main Branch'
-      : i18n.bi(
-          settings?.branchNameAr || 'الفرع الرئيسي',
-          settings?.branchNameEn || 'Main Branch'
-        );
+    const labNameEn = settings?.labNameEn || 'Ain Shams University Hospital / Al-Shifa Labs';
+    const labNameAr = settings?.labNameAr || 'مختبرات الشفاء التخصصية للتحاليل الطبية';
+    const branchNameEn = settings?.branchNameEn || 'External clinics';
+    const branchNameAr = settings?.branchNameAr || 'العيادات الخارجية';
+    const labName = forceEn ? labNameEn : i18n.bi(labNameAr, labNameEn);
+    const branchName = forceEn ? branchNameEn : i18n.bi(branchNameAr, branchNameEn);
     const address = forceEn
       ? settings?.addressEn || '15 Tahrir St., Dokki, Cairo'
       : i18n.bi(settings?.addressAr || '', settings?.addressEn || '');
@@ -256,7 +251,38 @@ export class PrintService {
       : 'System';
     const sheetDir = forceEn ? 'ltr' : i18n.getDirection();
 
-    const sheetHtml = `
+    const sheetHtml = customLayout
+      ? `
+      <div class="print-a4" dir="ltr" style="direction:ltr; text-align:left; font-family:'Plus Jakarta Sans','Cairo',sans-serif; color:#000; min-height:255mm; display:flex; flex-direction:column; justify-content:space-between;">
+        <div>
+          <!-- Bilingual Hospital / Clinical Laboratory Emblem Header (Screenshot 2 Style) -->
+          <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px; margin-bottom:14px; padding-bottom:6px;">
+            <div style="text-align:center; line-height:1.4;">
+              <div style="font-size:14px; font-weight:700; color:#111827;">${labNameEn}</div>
+              <div style="font-size:12.5px; font-weight:600; color:#374151;">${branchNameEn}</div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;">
+              <div style="width:68px; height:68px; border-radius:50%; border:2.5px solid #1f2937; display:flex; align-items:center; justify-content:center; padding:3px; background:#fff;">
+                <div style="width:100%; height:100%; border-radius:50%; border:1px solid #374151; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#111827" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v20"/>
+                    <path d="M8 6c0-1.5 1.8-2.5 4-2.5s4 1 4 2.5-1.8 2.5-4 2.5-4 1-4 2.5 1.8 2.5 4 2.5 4-1 4-2.5"/>
+                    <path d="M5 4c2 2 4 3 7 3s5-1 7-3"/>
+                  </svg>
+                  <span style="font-size:7px; font-weight:800; letter-spacing:0.4px; color:#111827; margin-top:1px;">MED LAB</span>
+                </div>
+              </div>
+            </div>
+            <div dir="rtl" style="text-align:center; line-height:1.5; font-family:'Cairo',sans-serif;">
+              <div style="font-size:15px; font-weight:700; color:#111827;">${labNameAr}</div>
+              <div style="font-size:13px; font-weight:600; color:#374151;">${branchNameAr}</div>
+            </div>
+          </div>
+          ${contentHtml}
+        </div>
+      </div>
+    `
+      : `
       <div class="print-a4" dir="${sheetDir}" style="direction:${sheetDir}; text-align:${forceEn ? 'left' : 'start'};">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
           <div>
