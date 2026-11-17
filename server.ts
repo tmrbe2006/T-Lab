@@ -937,6 +937,7 @@ Return a strict JSON object with these exact keys:
   });
 
   const http = await import('http');
+  const os = await import('os');
   const httpServer = http.createServer(app);
 
   const distPath = path.join(__dirname, 'dist');
@@ -949,7 +950,11 @@ Return a strict JSON object with these exact keys:
     fs.existsSync(distIndexHtml);
 
   if (!useStaticDist) {
+    const isCloudPreview = process.cwd() === '/app/applet';
     const vite = await createViteServer({
+      ...(isCloudPreview
+        ? {}
+        : { cacheDir: path.join(os.tmpdir(), 'tlab-vite-cache-v6') }),
       server: {
         middlewareMode: true,
         hmr: false,
@@ -966,7 +971,7 @@ Return a strict JSON object with these exact keys:
 
   const startListening = (portToTry: number) => {
     const onError = (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && portToTry < 3015) {
+      if (err.code === 'EADDRINUSE' && portToTry < 3020) {
         console.warn(`⚠️ Port ${portToTry} is busy, trying port ${portToTry + 1}...`);
         httpServer.removeListener('error', onError);
         startListening(portToTry + 1);

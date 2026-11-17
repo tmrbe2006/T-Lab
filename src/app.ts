@@ -499,6 +499,22 @@ export class MedicalLabApp {
   private rootEl: HTMLElement;
   // All 8 groups expanded by default so no menu item is ever hidden!
   private expandedGroups = new Set<string>(DEFAULT_SIDEBAR_GROUPS.map((g) => g.id));
+  private pendingQuickActionTargetBtnId: string | null = null;
+
+  private triggerQuickAction(route: RouteId, targetBtnId?: string): void {
+    const currentRoute = router.getRoute();
+    if (currentRoute === route) {
+      if (targetBtnId) {
+        const btn = document.getElementById(targetBtnId) as HTMLButtonElement | null;
+        if (btn) {
+          btn.click();
+          return;
+        }
+      }
+    }
+    this.pendingQuickActionTargetBtnId = targetBtnId || null;
+    router.navigate(route);
+  }
 
   constructor(rootEl: HTMLElement) {
     this.rootEl = rootEl;
@@ -1741,6 +1757,58 @@ export class MedicalLabApp {
                   `
               }
 
+              <!-- QUICK ACTIONS BAR DIRECTLY BELOW INVENTORY ALERTS -->
+              <div
+                id="sidebar-quick-actions-bar"
+                class="rounded-xl border border-sky-200/90 bg-gradient-to-br from-sky-50/90 via-white to-indigo-50/60 p-2.5 shadow-2xs"
+              >
+                <div class="flex items-center justify-between mb-2">
+                  <span class="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-800">
+                    <span class="inline-flex h-4 w-4 items-center justify-center rounded bg-sky-600 text-[10px] text-white">⚡</span>
+                    <span>${i18n.bi('إجراءات الوصول السريع (Quick Actions)', 'Quick Actions')}</span>
+                  </span>
+                  <span class="text-[10px] font-medium text-slate-500">${i18n.bi('بنقرة واحدة', '1-Click')}</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                  <button
+                    id="qa-add-patient-btn"
+                    type="button"
+                    class="group flex items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-2.5 py-2 text-[11px] font-bold text-white shadow-2xs transition-all duration-200 hover:bg-sky-700 hover:shadow-xs active:scale-[0.98] cursor-pointer"
+                    title="${i18n.bi('إضافة مريض جديد فوراً من أي شاشة', 'Add a new patient immediately from anywhere')}"
+                  >
+                    <span class="transition-transform duration-200 group-hover:scale-115 group-hover:-rotate-6">👤+</span>
+                    <span class="truncate">${i18n.bi('إضافة مريض جديد', 'New Patient')}</span>
+                  </button>
+                  <button
+                    id="qa-add-request-btn"
+                    type="button"
+                    class="group flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-2 text-[11px] font-bold text-white shadow-2xs transition-all duration-200 hover:bg-emerald-700 hover:shadow-xs active:scale-[0.98] cursor-pointer"
+                    title="${i18n.bi('تسجيل طلب تحاليل جديد فوراً من أي شاشة', 'Register a new lab order immediately from anywhere')}"
+                  >
+                    <span class="transition-transform duration-200 group-hover:scale-115 group-hover:rotate-6">🧪+</span>
+                    <span class="truncate">${i18n.bi('تسجيل طلب جديد', 'New Order')}</span>
+                  </button>
+                  <button
+                    id="qa-home-visit-btn"
+                    type="button"
+                    class="group flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 transition-all duration-200 hover:border-sky-300 hover:bg-sky-50/70 hover:text-sky-900 active:scale-[0.98] cursor-pointer"
+                    title="${i18n.bi('حجز زيارة سحب منزلي جديدة', 'Schedule a new home visit')}"
+                  >
+                    <span class="transition-transform duration-200 group-hover:scale-115">🚐</span>
+                    <span class="truncate">${i18n.bi('حجز سحب منزلي', 'Home Visit')}</span>
+                  </button>
+                  <button
+                    id="qa-results-btn"
+                    type="button"
+                    class="group flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 transition-all duration-200 hover:border-indigo-300 hover:bg-indigo-50/70 hover:text-indigo-900 active:scale-[0.98] cursor-pointer"
+                    title="${i18n.bi('الانتقال السريع لإدخال نتائج التحاليل', 'Quickly jump to test results entry')}"
+                  >
+                    <span class="transition-transform duration-200 group-hover:scale-115">📝</span>
+                    <span class="truncate">${i18n.bi('إدخال النتائج', 'Enter Results')}</span>
+                  </button>
+                </div>
+              </div>
+
               <div class="flex items-center justify-between gap-2 rounded-xl bg-slate-100/90 border border-slate-200 px-3 py-2">
                 <div class="text-[11px] font-bold text-slate-700">
                   📑 ${i18n.bi(`القوائم (${visibleGroups.length} قوائم · ${totalVisibleItems} شاشة)`, `Menus (${visibleGroups.length} Groups · ${totalVisibleItems} Screens)`)}
@@ -1758,7 +1826,7 @@ export class MedicalLabApp {
                       ? `<button
                           id="sidebar-toggle-all-btn"
                           type="button"
-                          class="rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] font-bold text-sky-700 hover:bg-slate-50 cursor-pointer"
+                          class="rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] font-bold text-sky-700 hover:bg-slate-50 transition-colors cursor-pointer"
                         >
                           ${
                             this.expandedGroups.size >= visibleGroups.length
@@ -1776,14 +1844,14 @@ export class MedicalLabApp {
                   ? `
                     <a
                       href="#/dashboard"
-                      class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                      class="group flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 ${
                         currentRoute === 'dashboard'
                           ? 'skin-nav-active text-white shadow-xs'
                           : 'bg-slate-100/80 text-slate-800 hover:bg-slate-200/70'
                       }"
                     >
                       <span class="flex items-center gap-2">
-                        <span>🏠</span>
+                        <span class="inline-block transition-transform duration-200 group-hover:scale-115">🏠</span>
                         <span>${d.nav.dashboard}</span>
                       </span>
                       <span class="rounded bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-mono">D3.js</span>
@@ -1806,13 +1874,13 @@ export class MedicalLabApp {
                           return `
                             <a
                               href="#/${item.route}"
-                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                              class="group/sub flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
                                 isActive
                                   ? 'skin-nav-active text-white shadow-xs'
                                   : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                               }"
                             >
-                              <span class="text-[10px] ${isActive ? 'text-white' : 'text-slate-400'}">●</span>
+                              <span class="text-[10px] transition-transform duration-200 group-hover/sub:scale-125 ${isActive ? 'text-white' : 'text-slate-400'}">●</span>
                               <span>${itemLabel}</span>
                             </a>
                           `;
@@ -1827,24 +1895,50 @@ export class MedicalLabApp {
                           const isExpanded = this.expandedGroups.has(grp.id);
                           const hasActiveChild = grp.items.some((i) => i.route === currentRoute);
                           return `
-                            <div class="rounded-xl border ${hasActiveChild ? 'border-sky-300 bg-sky-50/30 shadow-2xs' : 'border-slate-200 bg-slate-50/50'} overflow-hidden">
-                              <div class="w-full flex items-center justify-between gap-1 px-2.5 py-2 ${
+                            <div
+                              data-nav-group-card="${grp.id}"
+                              class="rounded-xl border transition-all duration-300 ${
+                                hasActiveChild
+                                  ? 'border-sky-300 bg-sky-50/30 shadow-2xs'
+                                  : isExpanded
+                                    ? 'border-slate-200/90 bg-slate-50/60 shadow-2xs'
+                                    : 'border-slate-200 bg-slate-50/40'
+                              } overflow-hidden"
+                            >
+                              <div class="w-full flex items-center justify-between gap-1 px-2.5 py-2 transition-colors duration-200 ${
                                 hasActiveChild
                                   ? 'text-sky-950 bg-sky-100/70'
-                                  : 'text-slate-800 hover:bg-slate-100'
+                                  : 'text-slate-800 hover:bg-slate-100/90'
                               }">
                                 <button
                                   type="button"
                                   data-nav-group="${grp.id}"
-                                  class="flex-1 flex items-center justify-between gap-2 text-start text-xs font-bold transition-colors cursor-pointer"
+                                  aria-expanded="${isExpanded ? 'true' : 'false'}"
+                                  class="group flex-1 flex items-center justify-between gap-2 text-start text-xs font-bold transition-colors cursor-pointer"
                                 >
-                                  <span class="flex items-center gap-2">
-                                    <span>${grp.icon}</span>
-                                    <span>${i18n.bi(grp.titleAr, grp.titleEn)}</span>
+                                  <span class="flex items-center gap-2 min-w-0">
+                                    <span
+                                      class="nav-grp-icon inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-sm transition-all duration-300 ease-out group-hover:scale-115 group-hover:-rotate-6 ${
+                                        isExpanded
+                                          ? 'bg-sky-600/15 text-sky-700 scale-105 shadow-2xs'
+                                          : 'bg-white/80 text-slate-600'
+                                      }"
+                                    >${grp.icon}</span>
+                                    <span class="truncate transition-transform duration-200 group-hover:translate-x-[-2px] ltr:group-hover:translate-x-[2px]">${i18n.bi(grp.titleAr, grp.titleEn)}</span>
                                   </span>
                                   <span class="flex items-center gap-1.5 shrink-0">
                                     <span class="rounded-full bg-white border border-slate-200 px-1.5 py-0.2 text-[10px] font-mono text-slate-600">${grp.items.length}</span>
-                                    <span class="nav-grp-arrow text-[10px] text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}">▼</span>
+                                    <span
+                                      class="nav-grp-arrow inline-flex h-5 w-5 items-center justify-center rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                                        isExpanded
+                                          ? 'rotate-180 bg-sky-600 text-white shadow-2xs'
+                                          : 'rotate-0 bg-slate-200/80 text-slate-500 group-hover:bg-sky-100 group-hover:text-sky-700'
+                                      }"
+                                    >
+                                      <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                                      </svg>
+                                    </span>
                                   </span>
                                 </button>
                                 ${
@@ -1859,53 +1953,66 @@ export class MedicalLabApp {
                                 }
                               </div>
                               <div
-                                id="nav-grp-body-${grp.id}"
-                                class="${isExpanded ? 'block' : 'hidden'} px-2 py-1.5 space-y-0.5 bg-white border-t border-slate-100"
+                                id="nav-grp-wrapper-${grp.id}"
+                                class="grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                                  isExpanded
+                                    ? 'grid-rows-[1fr] opacity-100'
+                                    : 'grid-rows-[0fr] opacity-0 pointer-events-none'
+                                }"
                               >
-                                ${
-                                  grp.items.length === 0
-                                    ? `<div class="px-2.5 py-1.5 text-[11px] text-slate-400 italic">قائمة مخصصة فارغة — اضغط ⚙️ إعدادات القوائم لإضافة Submenu</div>`
-                                    : grp.items
-                                        .map((item) => {
-                                          const isActive = currentRoute === item.route;
-                                          const itemLabel = item.customTitleAr
-                                            ? i18n.bi(item.customTitleAr, item.customTitleEn || d.nav[item.labelKey])
-                                            : d.nav[item.labelKey];
-                                          return `
-                                            <div class="flex items-center gap-1">
-                                              <a
-                                                href="#/${item.route}"
-                                                class="flex-1 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold leading-snug transition-colors ${
-                                                  isActive
-                                                    ? 'skin-nav-active text-white shadow-xs'
-                                                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                                                }"
-                                              >
-                                                <span class="flex items-center gap-2">
-                                                  <span class="text-[10px] shrink-0 ${isActive ? 'text-white' : 'text-sky-500'}">●</span>
-                                                  <span>${itemLabel}</span>
-                                                </span>
-                                                ${
-                                                  item.route === 'inventory' && lowStockItems.length > 0
-                                                    ? `<span class="rounded-full bg-rose-600 text-white px-1.5 py-0.2 text-[10px] font-bold">${lowStockItems.length}</span>`
-                                                    : ''
-                                                }
-                                              </a>
-                                              ${
-                                                item.isCustomSubmenu && item.id
-                                                  ? `<button
-                                                      type="button"
-                                                      data-sidebar-del-custom-sub="${item.id}"
-                                                      class="rounded px-1.5 py-0.5 text-[10px] font-bold text-rose-500 hover:bg-rose-50 cursor-pointer shrink-0"
-                                                      title="حذف هذا الـ Submenu المضاف"
-                                                    >🗑️</button>`
-                                                  : ''
-                                              }
-                                            </div>
-                                          `;
-                                        })
-                                        .join('')
-                                }
+                                <div class="overflow-hidden">
+                                  <div
+                                    id="nav-grp-body-${grp.id}"
+                                    class="px-2 py-1.5 space-y-0.5 bg-white border-t border-slate-100 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                                      isExpanded ? 'translate-y-0' : '-translate-y-1.5'
+                                    }"
+                                  >
+                                    ${
+                                      grp.items.length === 0
+                                        ? `<div class="px-2.5 py-1.5 text-[11px] text-slate-400 italic">قائمة مخصصة فارغة — اضغط ⚙️ إعدادات القوائم لإضافة Submenu</div>`
+                                        : grp.items
+                                            .map((item) => {
+                                              const isActive = currentRoute === item.route;
+                                              const itemLabel = item.customTitleAr
+                                                ? i18n.bi(item.customTitleAr, item.customTitleEn || d.nav[item.labelKey])
+                                                : d.nav[item.labelKey];
+                                              return `
+                                                <div class="flex items-center gap-1">
+                                                  <a
+                                                    href="#/${item.route}"
+                                                    class="group/sub flex-1 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold leading-snug transition-all duration-200 ${
+                                                      isActive
+                                                        ? 'skin-nav-active text-white shadow-xs'
+                                                        : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900 hover:translate-x-[-2px] ltr:hover:translate-x-[2px]'
+                                                    }"
+                                                  >
+                                                    <span class="flex items-center gap-2">
+                                                      <span class="text-[10px] shrink-0 transition-transform duration-200 group-hover/sub:scale-125 ${isActive ? 'text-white' : 'text-sky-500'}">●</span>
+                                                      <span>${itemLabel}</span>
+                                                    </span>
+                                                    ${
+                                                      item.route === 'inventory' && lowStockItems.length > 0
+                                                        ? `<span class="rounded-full bg-rose-600 text-white px-1.5 py-0.2 text-[10px] font-bold">${lowStockItems.length}</span>`
+                                                        : ''
+                                                    }
+                                                  </a>
+                                                  ${
+                                                    item.isCustomSubmenu && item.id
+                                                      ? `<button
+                                                          type="button"
+                                                          data-sidebar-del-custom-sub="${item.id}"
+                                                          class="rounded px-1.5 py-0.5 text-[10px] font-bold text-rose-500 hover:bg-rose-50 cursor-pointer shrink-0"
+                                                          title="حذف هذا الـ Submenu المضاف"
+                                                        >🗑️</button>`
+                                                      : ''
+                                                  }
+                                                </div>
+                                              `;
+                                            })
+                                            .join('')
+                                    }
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           `;
@@ -1924,6 +2031,20 @@ export class MedicalLabApp {
     `;
 
     themeService.bindToolbarEvents();
+
+    // Quick Actions Bar bindings (1-click access from anywhere in the system)
+    document.getElementById('qa-add-patient-btn')?.addEventListener('click', () => {
+      this.triggerQuickAction('patients', 'pat-add-btn');
+    });
+    document.getElementById('qa-add-request-btn')?.addEventListener('click', () => {
+      this.triggerQuickAction('requests', 'req-add-btn');
+    });
+    document.getElementById('qa-home-visit-btn')?.addEventListener('click', () => {
+      this.triggerQuickAction('homeVisits', 'hv-new-btn');
+    });
+    document.getElementById('qa-results-btn')?.addEventListener('click', () => {
+      this.triggerQuickAction('results');
+    });
 
     document.getElementById('top-perf-benchmark-btn')?.addEventListener('click', () => {
       this.openPerformanceBenchmarkModal();
@@ -1976,44 +2097,74 @@ export class MedicalLabApp {
       });
     });
 
-    // Bind collapsible group headers
+    // Helper to smoothly animate accordion group open/close state in-place
+    const setGroupExpandedUI = (grpId: string, expand: boolean) => {
+      const btn = document.querySelector<HTMLButtonElement>(`button[data-nav-group="${grpId}"]`);
+      const wrapperEl = document.getElementById(`nav-grp-wrapper-${grpId}`);
+      const bodyEl = document.getElementById(`nav-grp-body-${grpId}`);
+      const arrowEl = btn?.querySelector('.nav-grp-arrow');
+      const iconEl = btn?.querySelector('.nav-grp-icon');
+
+      if (expand) {
+        this.expandedGroups.add(grpId);
+        btn?.setAttribute('aria-expanded', 'true');
+        wrapperEl?.classList.remove('grid-rows-[0fr]', 'opacity-0', 'pointer-events-none');
+        wrapperEl?.classList.add('grid-rows-[1fr]', 'opacity-100');
+        bodyEl?.classList.remove('-translate-y-1.5');
+        bodyEl?.classList.add('translate-y-0');
+        arrowEl?.classList.remove('rotate-0', 'bg-slate-200/80', 'text-slate-500');
+        arrowEl?.classList.add('rotate-180', 'bg-sky-600', 'text-white', 'shadow-2xs');
+        iconEl?.classList.remove('bg-white/80', 'text-slate-600');
+        iconEl?.classList.add('bg-sky-600/15', 'text-sky-700', 'scale-105', 'shadow-2xs');
+      } else {
+        this.expandedGroups.delete(grpId);
+        btn?.setAttribute('aria-expanded', 'false');
+        wrapperEl?.classList.remove('grid-rows-[1fr]', 'opacity-100');
+        wrapperEl?.classList.add('grid-rows-[0fr]', 'opacity-0', 'pointer-events-none');
+        bodyEl?.classList.remove('translate-y-0');
+        bodyEl?.classList.add('-translate-y-1.5');
+        arrowEl?.classList.remove('rotate-180', 'bg-sky-600', 'text-white', 'shadow-2xs');
+        arrowEl?.classList.add('rotate-0', 'bg-slate-200/80', 'text-slate-500');
+        iconEl?.classList.remove('bg-sky-600/15', 'text-sky-700', 'scale-105', 'shadow-2xs');
+        iconEl?.classList.add('bg-white/80', 'text-slate-600');
+      }
+    };
+
+    const syncToggleAllBtnLabel = () => {
+      const toggleAllBtn = document.getElementById('sidebar-toggle-all-btn');
+      if (toggleAllBtn) {
+        toggleAllBtn.textContent =
+          this.expandedGroups.size >= visibleGroups.length
+            ? i18n.bi('طي الكل −', 'Collapse −')
+            : i18n.bi('فتح الكل +', 'Expand +');
+      }
+    };
+
+    // Bind collapsible group headers with smooth accordion transitions
     document.querySelectorAll<HTMLButtonElement>('button[data-nav-group]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const grpId = btn.getAttribute('data-nav-group');
         if (!grpId) return;
-        const bodyEl = document.getElementById(`nav-grp-body-${grpId}`);
-        const arrowEl = btn.querySelector('.nav-grp-arrow');
         if (this.expandedGroups.has(grpId)) {
-          this.expandedGroups.delete(grpId);
-          bodyEl?.classList.add('hidden');
-          bodyEl?.classList.remove('block');
-          arrowEl?.classList.remove('rotate-180');
+          setGroupExpandedUI(grpId, false);
         } else {
           if (prefs.layoutMode === 'grouped_accordion') {
-            this.expandedGroups.clear();
-            document.querySelectorAll('[id^="nav-grp-body-"]').forEach((el) => {
-              el.classList.add('hidden');
-              el.classList.remove('block');
-            });
-            document.querySelectorAll('.nav-grp-arrow').forEach((el) => {
-              el.classList.remove('rotate-180');
+            visibleGroups.forEach((g) => {
+              if (g.id !== grpId) setGroupExpandedUI(g.id, false);
             });
           }
-          this.expandedGroups.add(grpId);
-          bodyEl?.classList.remove('hidden');
-          bodyEl?.classList.add('block');
-          arrowEl?.classList.add('rotate-180');
+          setGroupExpandedUI(grpId, true);
         }
+        syncToggleAllBtnLabel();
       });
     });
 
     document.getElementById('sidebar-toggle-all-btn')?.addEventListener('click', () => {
-      if (this.expandedGroups.size >= visibleGroups.length) {
-        this.expandedGroups.clear();
-      } else {
-        visibleGroups.forEach((g) => this.expandedGroups.add(g.id));
-      }
-      this.render();
+      const shouldCollapseAll = this.expandedGroups.size >= visibleGroups.length;
+      visibleGroups.forEach((g) => {
+        setGroupExpandedUI(g.id, !shouldCollapseAll);
+      });
+      syncToggleAllBtnLabel();
     });
 
     document.getElementById('top-mysql-btn')?.addEventListener('click', () => {
@@ -2083,5 +2234,14 @@ export class MedicalLabApp {
     const pageRenderer = await loadPage(currentRoute);
     await pageRenderer(viewport);
     advancedSearchService.mountInScreenAdvancedSearch(viewport, currentRoute);
+
+    if (this.pendingQuickActionTargetBtnId) {
+      const targetBtnId = this.pendingQuickActionTargetBtnId;
+      this.pendingQuickActionTargetBtnId = null;
+      requestAnimationFrame(() => {
+        const targetBtn = document.getElementById(targetBtnId) as HTMLButtonElement | null;
+        targetBtn?.click();
+      });
+    }
   }
 }
