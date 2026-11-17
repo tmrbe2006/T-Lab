@@ -43,8 +43,33 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
   const reqMap = new Map(allRequests.map((r) => [r.id, r]));
   const docMap = new Map(allDoctors.map((d) => [d.id, d]));
 
+  const getTodayIso = (): string => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+  const todayIso = getTodayIso();
+
+  const getResultDate = (r: LabResult): string => {
+    const req = reqMap.get(r.requestId);
+    const raw = r.approvedAt || r.enteredAt || req?.createdAt || todayIso;
+    const match = String(raw).match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+    return match ? match[1] : todayIso;
+  };
+
+  const matchesResultDate = (r: LabResult, targetDate: string): boolean => {
+    if (!targetDate) return true;
+    const req = reqMap.get(r.requestId);
+    const candidates = [r.approvedAt, r.enteredAt, req?.createdAt].filter(Boolean);
+    for (const c of candidates) {
+      const m = String(c).match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+      if (m && m[1] === targetDate) return true;
+    }
+    return getResultDate(r) === targetDate;
+  };
+
   let searchQuery = '';
   let statusFilter = 'all';
+  let dateFilter = todayIso; // تلقائياً يظهر اعتماد التحاليل في اليوم الحالي
 
   // Consolidated Multi-Test Report Selection State (Restricted to 1 Patient at a time)
   const selectedResultIds = new Set<string>();
@@ -69,7 +94,7 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
       const aIsNew = a.id.startsWith('res_req_') ? 1 : 0;
       const bIsNew = b.id.startsWith('res_req_') ? 1 : 0;
       if (aIsNew !== bIsNew) return bIsNew - aIsNew;
-      return (b.enteredAt || '').localeCompare(a.enteredAt || '');
+      return (b.approvedAt || b.enteredAt || '').localeCompare(a.approvedAt || a.enteredAt || '');
     });
   };
 
@@ -89,12 +114,14 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
   const getFilteredResults = () => {
     const q = searchQuery.trim().toLowerCase();
     return results.filter((r) => {
+      const rDate = getResultDate(r);
+      if (dateFilter && !matchesResultDate(r, dateFilter)) return false;
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (!q) return true;
       const pat = patMap.get(r.patientId);
       const tst = tstMap.get(r.testId);
       const req = reqMap.get(r.requestId);
-      const blob = `${pat?.name || ''} ${pat?.nameEn || ''} ${pat?.code || ''} ${pat?.phone || ''} ${tst?.code || ''} ${tst?.nameAr || ''} ${tst?.nameEn || ''} ${req?.requestNumber || ''} ${r.requestId || ''}`.toLowerCase();
+      const blob = `${pat?.name || ''} ${pat?.nameEn || ''} ${pat?.code || ''} ${pat?.phone || ''} ${tst?.code || ''} ${tst?.nameAr || ''} ${tst?.nameEn || ''} ${req?.requestNumber || ''} ${r.requestId || ''} ${rDate} ${r.approvedAt || ''}`.toLowerCase();
       return blob.includes(q);
     });
   };
@@ -259,9 +286,9 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
         `
         }
 
-        <!-- Search & Status Filter Bar -->
-        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 rounded-xl bg-white border border-slate-200 p-3">
-          <div class="sm:col-span-8">
+        <!-- Search, Date Filter (Defaults to Today), & Status Filter Bar -->
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 rounded-xl bg-white border border-slate-200 p-3 items-center">
+          <div class="sm:col-span-5">
             <input
               id="rev-search-input"
               type="search"
@@ -270,12 +297,45 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
               class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
             />
           </div>
-          <div class="sm:col-span-4">
+          <div class="sm:col-span-4 flex flex-wrap items-center gap-1.5">
+            <div class="relative flex-1 min-w-[140px]">
+              <input
+                id="rev-date-filter"
+                type="date"
+                value="${escapeHtml(dateFilter)}"
+                title="${i18n.bi('فلتر بالتاريخ (يظهر تلقائياً اعتماد التحاليل في اليوم الحالي)', 'Filter by date (defaults to Today approvals)')}"
+                class="w-full rounded-lg border border-sky-300 bg-sky-50/50 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
+              />
+            </div>
+            <button
+              id="rev-date-today-btn"
+              type="button"
+              class="rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer transition-colors ${
+                dateFilter === todayIso
+                  ? 'bg-sky-600 text-white shadow-2xs'
+                  : 'border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+              }"
+            >
+              📅 ${i18n.bi(`اعتماد اليوم (${results.filter((r) => matchesResultDate(r, todayIso)).length})`, `Today (${results.filter((r) => matchesResultDate(r, todayIso)).length})`)}
+            </button>
+            <button
+              id="rev-date-all-btn"
+              type="button"
+              class="rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer transition-colors ${
+                dateFilter === ''
+                  ? 'bg-slate-800 text-white shadow-2xs'
+                  : 'border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }"
+            >
+              📋 ${i18n.bi(`كل التواريخ (${results.length})`, `All Dates (${results.length})`)}
+            </button>
+          </div>
+          <div class="sm:col-span-3">
             <select
               id="rev-status-filter"
               class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 focus:border-sky-600 focus:bg-white focus:outline-none"
             >
-              <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>${i18n.bi(`جميع النتائج (${results.length})`, `All Results (${results.length})`)}</option>
+              <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>${i18n.bi(`جميع الحالات (${filteredResults.length})`, `All Results (${filteredResults.length})`)}</option>
               <option value="pending_review" ${statusFilter === 'pending_review' ? 'selected' : ''}>${i18n.bi(`بانتظار المراجعة والاعتماد (${pendingCount})`, `Pending Review (${pendingCount})`)}</option>
               <option value="draft" ${statusFilter === 'draft' ? 'selected' : ''}>${i18n.bi(`مسودة (${results.filter((r) => r.status === 'draft').length})`, `Draft (${results.filter((r) => r.status === 'draft').length})`)}</option>
               <option value="approved" ${statusFilter === 'approved' ? 'selected' : ''}>${i18n.bi(`معتمدة نهائياً (${results.filter((r) => r.status === 'approved').length})`, `Approved (${results.filter((r) => r.status === 'approved').length})`)}</option>
@@ -288,7 +348,7 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
                 <th class="py-3 px-3 text-center w-10">${i18n.bi('دمج', 'Select')}</th>
-                <th class="py-3 px-3 text-start">${i18n.bi('المريض والتقرير المجمع', 'Patient & Consolidated')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('المريض والتقرير المجمع والتاريخ', 'Patient, Consolidated & Date')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('التحليل وحالة الكنترول', 'Test & QC')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('النتيجة وفحص التغير التاريخي (Delta Check)', 'Values & Delta Check')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.status}</th>
@@ -302,6 +362,7 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
                   const pat = patMap.get(r.patientId);
                   const tst = tstMap.get(r.testId);
                   const req = reqMap.get(r.requestId);
+                  const rDate = getResultDate(r);
                   const deltaAlerts = evaluateDeltaChecksForResult(r, results);
                   const critVals = getCriticalValuesFromResult(r);
                   const hasCritLog = critLogs.some((l) => l.resultId === r.id);
@@ -337,7 +398,7 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
                       <td class="py-2.5 px-3">
                         <div class="font-bold text-slate-900">${escapeHtml(pat?.name || r.patientId)}</div>
                         <div class="text-[11px] font-mono text-slate-500">
-                          ${escapeHtml(req?.requestNumber || r.requestId)} · ${escapeHtml(pat?.phone || '')}
+                          ${escapeHtml(req?.requestNumber || r.requestId)} · ${escapeHtml(pat?.phone || '')} · 📅 ${escapeHtml(rDate)}
                         </div>
                         ${
                           patApprovedResults.length > 0
@@ -464,6 +525,22 @@ export async function renderResultReviewPage(container: HTMLElement): Promise<vo
         nextInput.focus();
         nextInput.setSelectionRange(pos, pos);
       }
+    });
+
+    const revDateEl = document.getElementById('rev-date-filter') as HTMLInputElement | null;
+    revDateEl?.addEventListener('change', () => {
+      dateFilter = revDateEl.value;
+      renderView();
+    });
+
+    document.getElementById('rev-date-today-btn')?.addEventListener('click', () => {
+      dateFilter = todayIso;
+      renderView();
+    });
+
+    document.getElementById('rev-date-all-btn')?.addEventListener('click', () => {
+      dateFilter = '';
+      renderView();
     });
 
     const statusSelectEl = document.getElementById('rev-status-filter') as HTMLSelectElement | null;

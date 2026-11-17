@@ -45,6 +45,7 @@ export const en = {
     microbiology: 'Microbiology Cultures & Antibiogram (C&S)',
     qualityControl: 'Internal QC & Westgard Rules (L-J)',
     homeVisits: 'Home Visits & Phlebotomist Dispatch',
+    labToLab: 'Lab-to-Lab Sample Dispatch & Reference Labs',
     corporateContracts: 'Corporate, Union & Insurance Contracts',
     resultReview: 'Result Review & Approval',
     reports: 'Medical & Financial Reports',

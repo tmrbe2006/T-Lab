@@ -47,19 +47,34 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
 
   const patientMap = new Map(patients.map((p) => [p.id, p]));
   const doctorMap = new Map(doctors.map((d) => [d.id, d]));
+  const getTodayIso = (): string => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+  const todayIso = getTodayIso();
+
+  const getRequestDate = (r: LabRequest): string => {
+    const raw = r.createdAt || todayIso;
+    const match = String(raw).match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+    return match ? match[1] : todayIso;
+  };
+
   let searchQuery = '';
+  let dateFilter = todayIso; // تلقائياً يظهر طلبات التحاليل في اليوم الحالي
   let currentPage = 1;
   const itemsPerPage = 15;
 
   const getFiltered = () => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return requests;
     return requests.filter((r) => {
+      if (dateFilter && getRequestDate(r) !== dateFilter) return false;
+      if (!q) return true;
       const pName = patientMap.get(r.patientId)?.name.toLowerCase() || '';
       const pNameEn = (patientMap.get(r.patientId)?.nameEn || '').toLowerCase();
       return (
         r.requestNumber.toLowerCase().includes(q) ||
         r.barcode.toLowerCase().includes(q) ||
+        r.createdAt.toLowerCase().includes(q) ||
         pName.includes(q) ||
         pNameEn.includes(q)
       );
@@ -719,6 +734,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
 
   const renderTable = () => {
     const filteredRows = getFiltered();
+    const todayRequestsCount = requests.filter((r) => getRequestDate(r) === todayIso).length;
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
     if (currentPage > totalPages) currentPage = totalPages;
     const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
@@ -731,7 +747,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <h1 class="text-xl font-bold text-slate-900">${i18n.dict.nav.requests}</h1>
-            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إدارة طلبات التحاليل، تطبيق خصم المريض الافتراضي، وطباعة ملصقات الباركود Code128', 'Manage lab requests, automatic patient default discounts, and Code128 barcode labels')}</p>
+            <p class="text-xs text-slate-500 mt-0.5">${i18n.bi('إدارة طلبات التحاليل، الفلترة التلقائية لطلبات اليوم الحالي، وطباعة ملصقات الباركود Code128', 'Manage lab requests, automatic Today date filter, and Code128 barcode labels')}</p>
           </div>
           <div class="flex items-center gap-2">
             ${canPrint ? `<button id="req-print-all" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
@@ -739,18 +755,53 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           </div>
         </div>
 
-        ${renderSearchFilterBar({
-          searchInputId: 'req-search',
-          searchQuery,
-          filteredCount: filteredRows.length,
-          totalCount: requests.length,
-        })}
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 rounded-xl bg-white border border-slate-200 p-3 items-center">
+          <div class="sm:col-span-6">
+            ${renderSearchFilterBar({
+              searchInputId: 'req-search',
+              searchQuery,
+              filteredCount: filteredRows.length,
+              totalCount: requests.length,
+            })}
+          </div>
+          <div class="sm:col-span-6 flex flex-wrap items-center justify-end gap-2">
+            <label class="text-xs font-bold text-slate-700">📅 ${i18n.bi('فلتر بالتاريخ:', 'Date Filter:')}</label>
+            <input
+              id="req-date-filter"
+              type="date"
+              value="${dateFilter}"
+              class="rounded-lg border border-sky-300 bg-sky-50/50 px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
+            />
+            <button
+              id="req-date-today-btn"
+              type="button"
+              class="rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer transition-colors ${
+                dateFilter === todayIso
+                  ? 'bg-sky-600 text-white shadow-2xs'
+                  : 'border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+              }"
+            >
+              📅 ${i18n.bi(`طلبات اليوم (${todayRequestsCount})`, `Today (${todayRequestsCount})`)}
+            </button>
+            <button
+              id="req-date-all-btn"
+              type="button"
+              class="rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer transition-colors ${
+                dateFilter === ''
+                  ? 'bg-slate-800 text-white shadow-2xs'
+                  : 'border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }"
+            >
+              📋 ${i18n.bi(`كل التواريخ (${requests.length})`, `All Dates (${requests.length})`)}
+            </button>
+          </div>
+        </div>
 
         <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto">
           <table class="w-full text-xs text-start">
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
-                <th class="py-3 px-3 text-start">${i18n.bi('رقم الطلب / الباركود', 'Request # / Barcode')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('رقم الطلب / الباركود والتاريخ', 'Request # / Barcode & Date')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('المريض', 'Patient')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('النوع / الطبيب المحول', 'Type / Doctor')}</th>
                 <th class="py-3 px-3 text-start">${i18n.dict.common.total}</th>
@@ -762,51 +813,76 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              ${rows
-                .map((r) => {
-                  const pat = patientMap.get(r.patientId);
-                  const doc = r.doctorId ? doctorMap.get(r.doctorId) : undefined;
-                  return `
-                    <tr class="hover:bg-slate-50">
-                      <td class="py-2.5 px-3 font-mono">
-                        <div class="font-bold text-slate-900 tabular-nums">${r.requestNumber}</div>
-                        <div class="text-[11px] text-slate-400 tabular-nums">${r.barcode} · ${r.createdAt}</div>
-                      </td>
-                      <td class="py-2.5 px-3">
-                        <div class="font-bold text-slate-800">${pat?.name || r.patientId}</div>
-                        ${pat?.nameEn ? `<div class="text-[11px] text-slate-500" dir="ltr">${pat.nameEn}</div>` : ''}
-                      </td>
-                      <td class="py-2.5 px-3 text-slate-600">
-                        ${r.type === 'referred' ? `${i18n.bi('محول:', 'Ref:')} ${doc?.nameAr || ''}` : i18n.bi('طلب داخلي', 'Internal')}
-                      </td>
-                      <td class="py-2.5 px-3 font-mono tabular-nums">${r.subtotal}</td>
-                      <td class="py-2.5 px-3 font-mono text-amber-700 tabular-nums">-${r.discountAmount}</td>
-                      <td class="py-2.5 px-3 font-mono text-sky-700 tabular-nums">+${r.taxAmount}</td>
-                      <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${r.netTotal} EGP</td>
-                      <td class="py-2.5 px-3 font-semibold text-slate-700">${i18n.dict.statuses[r.status] || r.status}</td>
-                      <td class="py-2.5 px-3">
-                        <div class="flex flex-wrap items-center gap-1.5">
-                          <button type="button" data-a4="${r.id}" class="req-a4-btn rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-sky-700 hover:bg-slate-100 cursor-pointer">
-                            A4
-                          </button>
-                          <button type="button" data-th="${r.id}" class="req-th-btn rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 cursor-pointer">
-                            80mm
-                          </button>
-                          <button type="button" data-bc="${r.id}" class="req-bc-btn rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 cursor-pointer">
-                            ${i18n.dict.actions.printBarcode}
-                          </button>
-                          <button type="button" data-edit="${r.id}" class="req-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
-                            ${i18n.dict.actions.edit}
-                          </button>
-                          <button type="button" data-del="${r.id}" class="req-del-btn rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
-                            ${i18n.dict.actions.delete}
-                          </button>
-                        </div>
+              ${
+                rows.length > 0
+                  ? rows
+                      .map((r) => {
+                        const pat = patientMap.get(r.patientId);
+                        const doc = r.doctorId ? doctorMap.get(r.doctorId) : undefined;
+                        return `
+                          <tr class="hover:bg-slate-50">
+                            <td class="py-2.5 px-3 font-mono">
+                              <div class="font-bold text-slate-900 tabular-nums">${r.requestNumber}</div>
+                              <div class="text-[11px] text-slate-500 font-semibold tabular-nums">${r.barcode} · 📅 ${r.createdAt}</div>
+                            </td>
+                            <td class="py-2.5 px-3">
+                              <div class="font-bold text-slate-800">${pat?.name || r.patientId}</div>
+                              ${pat?.nameEn ? `<div class="text-[11px] text-slate-500" dir="ltr">${pat.nameEn}</div>` : ''}
+                            </td>
+                            <td class="py-2.5 px-3 text-slate-600">
+                              ${r.type === 'referred' ? `${i18n.bi('محول:', 'Ref:')} ${doc?.nameAr || ''}` : i18n.bi('طلب داخلي', 'Internal')}
+                            </td>
+                            <td class="py-2.5 px-3 font-mono tabular-nums">${r.subtotal}</td>
+                            <td class="py-2.5 px-3 font-mono text-amber-700 tabular-nums">-${r.discountAmount}</td>
+                            <td class="py-2.5 px-3 font-mono text-sky-700 tabular-nums">+${r.taxAmount}</td>
+                            <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${r.netTotal} EGP</td>
+                            <td class="py-2.5 px-3 font-semibold text-slate-700">${i18n.dict.statuses[r.status] || r.status}</td>
+                            <td class="py-2.5 px-3">
+                              <div class="flex flex-wrap items-center gap-1.5">
+                                <button type="button" data-a4="${r.id}" class="req-a4-btn rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-sky-700 hover:bg-slate-100 cursor-pointer">
+                                  A4
+                                </button>
+                                <button type="button" data-th="${r.id}" class="req-th-btn rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 cursor-pointer">
+                                  80mm
+                                </button>
+                                <button type="button" data-bc="${r.id}" class="req-bc-btn rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 cursor-pointer">
+                                  ${i18n.dict.actions.printBarcode}
+                                </button>
+                                <button type="button" data-edit="${r.id}" class="req-edit-btn rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                                  ${i18n.dict.actions.edit}
+                                </button>
+                                <button type="button" data-del="${r.id}" class="req-del-btn rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                                  ${i18n.dict.actions.delete}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        `;
+                      })
+                      .join('')
+                  : `
+                    <tr>
+                      <td colspan="9" class="py-8 text-center text-slate-500">
+                        <div class="font-bold text-slate-700 mb-1">${
+                          dateFilter
+                            ? i18n.bi(
+                                `لا توجد طلبات تحاليل مسجلة في تاريخ (${dateFilter})`,
+                                `No lab requests found for date (${dateFilter})`
+                              )
+                            : i18n.bi('لا توجد طلبات تحاليل مطابقة', 'No matching lab requests')
+                        }</div>
+                        <div class="text-xs mb-3">${i18n.bi('يمكنك إضافة طلب جديد لليوم الحالي أو عرض جميع الطلبات من كل التواريخ.', 'Create a new request for today or view all requests across all dates.')}</div>
+                        ${
+                          dateFilter && requests.length > 0
+                            ? `<button id="req-empty-show-all-btn" type="button" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
+                                📋 ${i18n.bi(`عرض جميع الطلبات من كل التواريخ (${requests.length})`, `Show All Dates (${requests.length})`)}
+                              </button>`
+                            : ''
+                        }
                       </td>
                     </tr>
-                  `;
-                })
-                .join('')}
+                  `
+              }
             </tbody>
           </table>
         </div>
@@ -826,6 +902,31 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
 
     bindSearchInputWithFocus('req-search', searchQuery, (val) => {
       searchQuery = val;
+      currentPage = 1;
+      renderTable();
+    });
+
+    const reqDateInput = document.getElementById('req-date-filter') as HTMLInputElement | null;
+    reqDateInput?.addEventListener('change', () => {
+      dateFilter = reqDateInput.value;
+      currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('req-date-today-btn')?.addEventListener('click', () => {
+      dateFilter = todayIso;
+      currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('req-date-all-btn')?.addEventListener('click', () => {
+      dateFilter = '';
+      currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('req-empty-show-all-btn')?.addEventListener('click', () => {
+      dateFilter = '';
       currentPage = 1;
       renderTable();
     });

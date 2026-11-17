@@ -993,7 +993,7 @@ export function buildConsolidatedPatientReportHtml(params: {
     'font-size:12px; font-weight:700; color:#1f2937; white-space:nowrap; padding-right:6px;';
 
   const html = `
-    <div dir="ltr" style="direction:ltr; text-align:left; color:#000; display:flex; flex-direction:column; min-height:210mm; justify-content:space-between;">
+    <div dir="ltr" style="direction:ltr; text-align:left; color:#000;">
       <div>
         <!-- Patient & Specimen Framed Boxed Grid (Exact Screenshot 2 Layout) -->
         <table dir="ltr" style="width:100%; border-collapse:separate; border-spacing:4px 4px; margin-bottom:4px;">
@@ -1056,7 +1056,7 @@ export function buildConsolidatedPatientReportHtml(params: {
       </div>
 
       <!-- Bottom Signature & Page Footer (Exact Screenshot 2 Layout) -->
-      <div style="margin-top:36px; padding-top:12px; display:flex; justify-content:space-between; align-items:flex-end; font-size:12px; color:#111827; page-break-inside:avoid;">
+      <div style="margin-top:24px; padding-top:10px; display:flex; justify-content:space-between; align-items:flex-end; font-size:12px; color:#111827; page-break-inside:avoid; break-inside:avoid;">
         <div style="font-weight:700; font-size:11.5px;">
           Page 1 of 1
         </div>
@@ -2106,6 +2106,150 @@ export async function ensureEnterpriseSeedData(): Promise<void> {
         { id: 'AB-DOX', code: 'DOX', nameEn: 'Doxycycline', nameAr: 'دوكسيسيكلين (Doxycycline)', antibioticClass: 'Tetracyclines', defaultMicValue: '1.0 µg/mL', clsiBreakpoint: 'S <= 4, R >= 16', targetGroup: 'Broad-Spectrum', active: true, createdAt: nowIso },
       ];
       await db.antibioticsCatalog.bulkPut(seededAntibiotics);
+    }
+
+    // 6. Ensure current day (todayIso) has active results, requests, and samples so automatic "Today" filters display live records immediately
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const allResults = await db.results.toArray();
+    const hasTodayResult = allResults.some(
+      (r) =>
+        (r.approvedAt && r.approvedAt.slice(0, 10) === todayIso) ||
+        (r.enteredAt && r.enteredAt.slice(0, 10) === todayIso)
+    );
+    if (!hasTodayResult && allResults.length > 0) {
+      const targetResults = allResults.slice(-2);
+      const targetReqIds = new Set<string>();
+      for (const r of targetResults) {
+        r.enteredAt = `${todayIso}T09:30:00.000Z`;
+        if (r.approvedAt || r.status === 'approved') {
+          r.approvedAt = `${todayIso}T11:15:00.000Z`;
+        }
+        targetReqIds.add(r.requestId);
+      }
+      await db.results.bulkPut(targetResults);
+
+      const allReqs = await db.requests.toArray();
+      const reqsToUpdate = allReqs.filter((req) => targetReqIds.has(req.id) || req.id === 'req_7' || req.id === 'req_8');
+      for (const req of reqsToUpdate) {
+        req.createdAt = `${todayIso}T08:45:00.000Z`;
+      }
+      if (reqsToUpdate.length > 0) {
+        await db.requests.bulkPut(reqsToUpdate);
+      }
+    }
+
+    const allSamples = await db.samples.toArray();
+    const hasTodaySample = allSamples.some((s) => s.receivedAt && s.receivedAt.slice(0, 10) === todayIso);
+    if (!hasTodaySample && allSamples.length > 0) {
+      const targetSamples = allSamples.slice(-2);
+      for (const s of targetSamples) {
+        s.receivedAt = `${todayIso} 09:15`;
+      }
+      await db.samples.bulkPut(targetSamples);
+    }
+
+    // 7. Seed Reference Lab Partners & Lab-to-Lab Sample Dispatches
+    const refLabsCount = await db.referenceLabPartners.count();
+    if (refLabsCount === 0) {
+      await db.referenceLabPartners.bulkPut([
+        {
+          id: 'ref_lab_1',
+          code: 'REF-BORG',
+          nameAr: 'معامل البرج المرجعية (Al Borg Reference Labs)',
+          nameEn: 'Al Borg Reference Laboratories',
+          contactPerson: 'د. طارق منصور — قسم التعاقدات Lab-to-Lab',
+          phone: '19911 / 01009876543',
+          address: 'المهندسين — شارع جامعة الدول العربية — الجيزة',
+          defaultDiscountPercent: 45,
+          turnaroundHours: 24,
+          active: true,
+        },
+        {
+          id: 'ref_lab_2',
+          code: 'REF-MOKHTABAR',
+          nameAr: 'معامل المختبر المرجعية (Al Mokhtabar B2B)',
+          nameEn: 'Al Mokhtabar Reference Lab',
+          contactPerson: 'د. هبه عبد الرحمن — منسق Lab-to-Lab',
+          phone: '19014 / 01223344556',
+          address: 'الدقي — شارع التحرير — الجيزة',
+          defaultDiscountPercent: 40,
+          turnaroundHours: 24,
+          active: true,
+        },
+        {
+          id: 'ref_lab_3',
+          code: 'REF-ALPHA',
+          nameAr: 'معامل ألفا التخصصية للجينات والباثولوجي (Alpha Lab)',
+          nameEn: 'Alpha Specialized Genetics & Molecular Lab',
+          contactPerson: 'د. شريف كامل — وحدة البيولوجيا الجزيئية',
+          phone: '16191 / 01112223344',
+          address: 'مصر الجديدة — شارع الميرغني — القاهرة',
+          defaultDiscountPercent: 35,
+          turnaroundHours: 48,
+          active: true,
+        },
+      ]);
+    }
+
+    const dispatchesCount = await db.labToLabDispatches.count();
+    if (dispatchesCount === 0) {
+      await db.labToLabDispatches.bulkPut([
+        {
+          id: 'l2l_1',
+          manifestNumber: 'L2L-2026-101',
+          sampleId: 'smp_1',
+          sampleCode: 'SMP-2026-1001',
+          requestId: 'req_1',
+          requestNumber: 'REQ-2026-1001',
+          patientId: 'pat_1',
+          patientName: 'أحمد محمود عبد العزيز',
+          sampleType: 'Serum',
+          tubeType: 'Plain Red / Gel SST',
+          refLabId: 'ref_lab_1',
+          refLabName: 'معامل البرج المرجعية (Al Borg Reference Labs)',
+          testsSummary: 'Anti-CCP, ANA Profile (Immunofluorescence), Vitamin D (25-OH)',
+          transportTemp: 'refrigerated_2_8',
+          courierName: 'كابتن مصطفى سيد (مندوب تبريد)',
+          courierPhone: '01099887766',
+          dispatchDate: todayIso,
+          dispatchedAt: `${todayIso} 10:30`,
+          expectedResultDate: todayIso,
+          b2bCost: 480,
+          patientPrice: 950,
+          status: 'in_transit',
+          notes: 'عينة سيرم مفصولة ومحفوظة في حافظة ثلج (Ice Box 2-8°C)',
+          createdBy: 'كيميائي عمر خالد',
+        },
+        {
+          id: 'l2l_2',
+          manifestNumber: 'L2L-2026-102',
+          sampleId: 'smp_2',
+          sampleCode: 'SMP-2026-1002',
+          requestId: 'req_2',
+          requestNumber: 'REQ-2026-1002',
+          patientId: 'pat_2',
+          patientName: 'فاطمة الزهراء حسن',
+          sampleType: 'EDTA Whole Blood',
+          tubeType: 'Lavender EDTA Tube',
+          refLabId: 'ref_lab_3',
+          refLabName: 'معامل ألفا التخصصية للجينات والباثولوجي (Alpha Lab)',
+          testsSummary: 'HBV DNA Quantitative PCR + Jak2 V617F Mutation',
+          transportTemp: 'frozen_minus_20',
+          courierName: 'كابتن محمود عادل (مندوب معمل ألفا)',
+          courierPhone: '01144556677',
+          dispatchDate: todayIso,
+          dispatchedAt: `${todayIso} 11:45`,
+          expectedResultDate: todayIso,
+          b2bCost: 850,
+          patientPrice: 1600,
+          status: 'result_received',
+          externalRefNumber: 'ALPHA-REF-88412',
+          externalResultSummary: 'HBV DNA PCR: Not Detected (< 10 IU/mL) | JAK2 V617F: Negative',
+          receivedResultAt: `${todayIso} 16:20`,
+          notes: 'تم استلام النتيجة المعتمدة من معمل ألفا ومراجعتها طبياً',
+          createdBy: 'د. سارة أحمد',
+        },
+      ]);
     }
   })();
 

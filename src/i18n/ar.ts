@@ -45,6 +45,7 @@ export const ar = {
     microbiology: 'المزارع البكتيرية وخريطة المضادات (C&S + MIC)',
     qualityControl: 'رقابة الجودة اليومية وقواعد (Westgard QC)',
     homeVisits: 'العينات المنزلية وتتبع المندوبين',
+    labToLab: 'إرسال العينات للمعامل المرجعية (Lab-to-Lab)',
     corporateContracts: 'التعاقدات والشركات والنقابات والمطالبات',
     resultReview: 'مراجعة واعتماد النتائج',
     reports: 'التقارير الطبية والمالية',

@@ -39,7 +39,8 @@ export type RouteId =
   | 'purchases'
   | 'erpAccounting'
   | 'auditLogs'
-  | 'testPlan';
+  | 'testPlan'
+  | 'labToLab';
 
 class AppRouter {
   private currentRoute: RouteId = 'dashboard';

@@ -65,7 +65,8 @@ export type ResourceScreen =
   | 'microbiology'
   | 'qualityControl'
   | 'homeVisits'
-  | 'corporateContracts';
+  | 'corporateContracts'
+  | 'labToLab';
 
 export type MicroscopyModality =
   | 'blood_film'
@@ -842,6 +843,7 @@ export interface QcRunRecord {
   westgardRule: WestgardRuleCode;
   status: 'accepted' | 'warning' | 'rejected';
   correctiveAction?: string;
+  imageDataUrl?: string;
   operatorName: string;
 }
 
@@ -896,6 +898,59 @@ export interface CorporateContract {
   notes: string;
 }
 
+export type LabToLabDispatchStatus =
+  | 'prepared'
+  | 'in_transit'
+  | 'received_by_ref_lab'
+  | 'result_received'
+  | 'rejected_by_ref_lab';
+
+export type LabToLabTransportTemp =
+  | 'refrigerated_2_8'
+  | 'frozen_minus_20'
+  | 'room_temp_15_25';
+
+export interface ReferenceLabPartner {
+  id: string;
+  code: string;
+  nameAr: string;
+  nameEn: string;
+  contactPerson: string;
+  phone: string;
+  address: string;
+  defaultDiscountPercent: number;
+  turnaroundHours: number;
+  active: boolean;
+}
+
+export interface LabToLabDispatchRecord {
+  id: string;
+  manifestNumber: string;
+  sampleId: string;
+  sampleCode: string;
+  requestId: string;
+  requestNumber: string;
+  patientId: string;
+  patientName: string;
+  sampleType: string;
+  tubeType: string;
+  refLabId: string;
+  refLabName: string;
+  testsSummary: string;
+  transportTemp: LabToLabTransportTemp;
+  courierName: string;
+  courierPhone: string;
+  dispatchDate: string;
+  dispatchedAt: string;
+  expectedResultDate: string;
+  b2bCost: number;
+  patientPrice: number;
+  status: LabToLabDispatchStatus;
+  externalResultSummary?: string;
+  externalRefNumber?: string;
+  receivedResultAt?: string;
+  notes: string;
+  createdBy: string;
+}
+
 export * from './erp.types';
-
-

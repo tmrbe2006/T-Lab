@@ -138,14 +138,31 @@ export class PrintService {
                 <title>${documentTitle}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
                 <style>
-                  body {
+                  @page {
+                    size: A4 portrait;
+                    margin: 8mm;
+                  }
+                  html, body {
                     font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif;
                     color: #000;
                     background: #fff;
-                    margin: 0;
-                    padding: 12px;
+                    margin: 0 !important;
+                    padding: 4px !important;
+                    height: auto !important;
+                    min-height: 0 !important;
+                    overflow: visible !important;
                     direction: ${docDir};
                     text-align: ${cellAlign};
+                  }
+                  .print-a4 {
+                    width: 100%;
+                    max-width: 194mm;
+                    margin: 0 auto;
+                    height: auto !important;
+                    min-height: 0 !important;
+                    box-sizing: border-box;
+                    page-break-after: avoid !important;
+                    break-after: avoid !important;
                   }
                   .tabular-nums { font-family: 'JetBrains Mono', monospace; }
                   table.print-table { width: 100%; border-collapse: collapse; margin-top: 8px; direction: ${docDir}; }
@@ -189,7 +206,9 @@ export class PrintService {
   <meta charset="UTF-8" />
   <title>${documentTitle}</title>
   <style>
-    body { font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif; padding: 20px; color: #0f172a; background: #fff; direction: ${docDir}; text-align: ${cellAlign}; }
+    @page { size: A4 portrait; margin: 8mm; }
+    html, body { font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif; margin: 0; padding: 8px; height: auto; min-height: 0; color: #0f172a; background: #fff; direction: ${docDir}; text-align: ${cellAlign}; }
+    .print-a4 { width: 100%; max-width: 194mm; margin: 0 auto; height: auto; min-height: 0; box-sizing: border-box; page-break-after: avoid; break-after: avoid; }
     table.print-table { width: 100%; border-collapse: collapse; margin-top: 10px; direction: ${docDir}; }
     table.print-table th, table.print-table td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: ${cellAlign}; font-size: 12px; }
     table.print-table th { background: #f1f5f9; }
@@ -253,7 +272,7 @@ export class PrintService {
 
     const sheetHtml = customLayout
       ? `
-      <div class="print-a4" dir="ltr" style="direction:ltr; text-align:left; font-family:'Plus Jakarta Sans','Cairo',sans-serif; color:#000; min-height:255mm; display:flex; flex-direction:column; justify-content:space-between;">
+      <div class="print-a4" dir="ltr" style="direction:ltr; text-align:left; font-family:'Plus Jakarta Sans','Cairo',sans-serif; color:#000; page-break-after:avoid; break-after:avoid;">
         <div>
           <!-- Bilingual Hospital / Clinical Laboratory Emblem Header (Screenshot 2 Style) -->
           <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px; margin-bottom:14px; padding-bottom:6px;">

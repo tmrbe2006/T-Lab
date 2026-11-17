@@ -1,3 +1,4 @@
+import * as d3 from 'd3';
 import { authService } from '../auth/auth.service';
 import { db } from '../db/database';
 import { can } from '../guards/permission.guard';
@@ -15,7 +16,7 @@ import {
 } from '../repositories';
 import { router, type RouteId } from '../router';
 
-type DashboardTab = 'all' | 'financial' | 'clinical' | 'demographics';
+type DashboardTab = 'all' | 'reception_d3' | 'financial' | 'clinical' | 'demographics';
 type DataMode = 'live' | 'simulated_preview';
 
 interface DeptStat {
@@ -48,6 +49,558 @@ const CHART_PALETTE = [
   '#0891b2', // cyan-600
   '#475569', // slate-600
 ];
+
+function getOrCreateD3Tooltip(): d3.Selection<HTMLDivElement, unknown, HTMLElement, unknown> {
+  let existing = d3.select<HTMLDivElement, unknown>('#d3-dashboard-floating-tooltip');
+  if (existing.empty()) {
+    existing = d3
+      .select('body')
+      .append('div')
+      .attr('id', 'd3-dashboard-floating-tooltip')
+      .attr(
+        'class',
+        'fixed z-50 pointer-events-none rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs text-white shadow-xl backdrop-blur-xs transition-opacity duration-150 opacity-0'
+      );
+  }
+  return existing;
+}
+
+function animateDashboardSecondaryVisuals(container: HTMLElement): void {
+  // Animate all SVG donut segments across the dashboard using D3 transitions
+  d3.select(container)
+    .selectAll<SVGCircleElement, unknown>('.dash-donut-segment')
+    .each(function (_, i) {
+      const circle = d3.select(this);
+      const targetDash = circle.attr('data-target-dasharray') || circle.attr('stroke-dasharray') || '0 999';
+      const circum = circle.attr('data-circumference') || '600';
+      circle
+        .attr('stroke-dasharray', `0 ${circum}`)
+        .transition()
+        .duration(850)
+        .delay(i * 65)
+        .ease(d3.easeCubicOut)
+        .attr('stroke-dasharray', targetDash);
+    });
+}
+
+function mountD3ReceptionCharts(params: {
+  dailySeries: Array<{ date?: string; dateLabel: string; revenue: number; expense: number; requests: number }>;
+  topTests: Array<{ code: string; nameAr: string; nameEn: string; count: number; revenue: number }>;
+}): number {
+  const t0 = performance.now();
+  const { dailySeries, topTests } = params;
+  const tooltip = getOrCreateD3Tooltip();
+
+  const showTooltip = (event: MouseEvent, htmlContent: string) => {
+    tooltip
+      .html(htmlContent)
+      .style('left', `${Math.min(event.clientX + 14, window.innerWidth - 240)}px`)
+      .style('top', `${Math.max(event.clientY - 48, 12)}px`)
+      .style('opacity', '1');
+  };
+
+  const hideTooltip = () => {
+    tooltip.style('opacity', '0');
+  };
+
+  // Animate top reception KPI counters with D3 number interpolation
+  d3.selectAll<HTMLElement, unknown>('[data-d3-counter]').each(function () {
+    const el = d3.select(this);
+    const targetVal = Number(el.attr('data-d3-counter') || 0);
+    const suffix = el.attr('data-d3-suffix') || '';
+    const formatComma = el.attr('data-d3-format') === 'comma';
+    el.transition()
+      .duration(950)
+      .ease(d3.easeCubicOut)
+      .tween('text', function () {
+        const interp = d3.interpolateNumber(0, targetVal);
+        return (t: number) => {
+          const v = Math.round(interp(t));
+          this.textContent = `${formatComma ? v.toLocaleString() : v}${suffix}`;
+        };
+      });
+  });
+
+  // ==========================================================================
+  // 1. D3 Chart: Daily Cases Volume (عدد الحالات اليومية — Animated Bar + Line)
+  // ==========================================================================
+  const casesEl = document.getElementById('d3-daily-cases-svg');
+  if (casesEl && dailySeries.length > 0) {
+    casesEl.innerHTML = '';
+    const width = 460;
+    const height = 220;
+    const margin = { top: 24, right: 18, bottom: 34, left: 38 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const svg = d3
+      .select(casesEl)
+      .append('svg')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('class', 'w-full h-auto overflow-visible');
+
+    const defs = svg.append('defs');
+    const barGrad = defs
+      .append('linearGradient')
+      .attr('id', 'd3CasesBarGrad')
+      .attr('x1', '0')
+      .attr('y1', '0')
+      .attr('x2', '0')
+      .attr('y2', '1');
+    barGrad.append('stop').attr('offset', '0%').attr('stop-color', '#0284c7');
+    barGrad.append('stop').attr('offset', '100%').attr('stop-color', '#38bdf8');
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const x = d3
+      .scaleBand<string>()
+      .domain(dailySeries.map((d) => d.dateLabel))
+      .range([0, innerW])
+      .padding(0.32);
+
+    const maxCases = Math.max(d3.max(dailySeries, (d) => d.requests) || 10, 5);
+    const y = d3.scaleLinear().domain([0, maxCases * 1.18]).nice().range([innerH, 0]);
+
+    // Horizontal grid lines (fade in smoothly)
+    const yTicks = y.ticks(4);
+    g.selectAll('.grid-line')
+      .data(yTicks)
+      .enter()
+      .append('line')
+      .attr('x1', 0)
+      .attr('x2', innerW)
+      .attr('y1', (d) => y(d))
+      .attr('y2', (d) => y(d))
+      .attr('stroke', '#e2e8f0')
+      .attr('stroke-dasharray', '3,3')
+      .attr('opacity', 0)
+      .transition()
+      .duration(500)
+      .attr('opacity', 1);
+
+    g.selectAll('.y-label')
+      .data(yTicks)
+      .enter()
+      .append('text')
+      .attr('x', -8)
+      .attr('y', (d) => y(d) + 3)
+      .attr('text-anchor', 'end')
+      .attr('class', 'fill-slate-400 text-[9.5px] font-mono')
+      .text((d) => String(Math.round(d)));
+
+    // Bars for daily cases: Start at baseline (y = innerH, height = 0) and animate upward with staggered delay
+    const bars = g
+      .selectAll<SVGRectElement, (typeof dailySeries)[0]>('.case-bar')
+      .data(dailySeries)
+      .enter()
+      .append('rect')
+      .attr('class', 'case-bar cursor-pointer')
+      .attr('x', (d) => x(d.dateLabel) || 0)
+      .attr('y', innerH)
+      .attr('width', x.bandwidth())
+      .attr('height', 0)
+      .attr('rx', 5)
+      .attr('fill', (_, i) => (i === dailySeries.length - 1 ? '#0369a1' : 'url(#d3CasesBarGrad)'));
+
+    bars
+      .on('mousemove', function (event: MouseEvent, d) {
+        d3.select(this).transition().duration(140).attr('fill', '#0f172a').attr('y', y(d.requests) - 2);
+        showTooltip(
+          event,
+          `<div class="font-bold text-sky-300">📅 ${d.date || d.dateLabel}</div>
+           <div class="mt-0.5">عدد الحالات: <strong class="font-mono text-white">${d.requests} حالة</strong></div>
+           <div>إيراد اليوم: <strong class="font-mono text-emerald-300">${d.revenue.toLocaleString()} EGP</strong></div>`
+        );
+      })
+      .on('mouseleave', function (_, d) {
+        const idx = dailySeries.indexOf(d);
+        d3.select(this)
+          .transition()
+          .duration(200)
+          .attr('fill', idx === dailySeries.length - 1 ? '#0369a1' : 'url(#d3CasesBarGrad)')
+          .attr('y', y(d.requests));
+        hideTooltip();
+      });
+
+    bars
+      .transition()
+      .duration(850)
+      .delay((_, i) => i * 75)
+      .ease(d3.easeCubicOut)
+      .attr('y', (d) => y(d.requests))
+      .attr('height', (d) => Math.max(2, innerH - y(d.requests)));
+
+    // Trend line overlay using d3.line with animated stroke-dashoffset drawing
+    const lineGen = d3
+      .line<{ dateLabel: string; requests: number }>()
+      .x((d) => (x(d.dateLabel) || 0) + x.bandwidth() / 2)
+      .y((d) => y(d.requests))
+      .curve(d3.curveMonotoneX);
+
+    const trendPath = g
+      .append('path')
+      .datum(dailySeries)
+      .attr('fill', 'none')
+      .attr('stroke', '#0f172a')
+      .attr('stroke-width', 2.2)
+      .attr('d', lineGen);
+
+    const pathNode = trendPath.node();
+    if (pathNode && typeof pathNode.getTotalLength === 'function') {
+      const totalLen = pathNode.getTotalLength();
+      trendPath
+        .attr('stroke-dasharray', `${totalLen} ${totalLen}`)
+        .attr('stroke-dashoffset', totalLen)
+        .transition()
+        .duration(1050)
+        .delay(180)
+        .ease(d3.easeCubicInOut)
+        .attr('stroke-dashoffset', 0);
+    }
+
+    // Pop-in dots on the trend line
+    g.selectAll('.case-dot')
+      .data(dailySeries)
+      .enter()
+      .append('circle')
+      .attr('cx', (d) => (x(d.dateLabel) || 0) + x.bandwidth() / 2)
+      .attr('cy', (d) => y(d.requests))
+      .attr('r', 0)
+      .attr('fill', '#ffffff')
+      .attr('stroke', '#0f172a')
+      .attr('stroke-width', 2)
+      .transition()
+      .duration(450)
+      .delay((_, i) => 280 + i * 75)
+      .ease(d3.easeBackOut.overshoot(2))
+      .attr('r', 3.5);
+
+    // Animated value labels above bars (count up from 0 -> requests)
+    g.selectAll('.case-val')
+      .data(dailySeries)
+      .enter()
+      .append('text')
+      .attr('x', (d) => (x(d.dateLabel) || 0) + x.bandwidth() / 2)
+      .attr('y', innerH - 4)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'fill-slate-800 text-[9.5px] font-bold font-mono')
+      .attr('opacity', 0)
+      .text('0')
+      .transition()
+      .duration(850)
+      .delay((_, i) => i * 75)
+      .ease(d3.easeCubicOut)
+      .attr('y', (d) => y(d.requests) - 7)
+      .attr('opacity', 1)
+      .tween('text', function (d) {
+        const interp = d3.interpolateNumber(0, d.requests);
+        return (t: number) => {
+          this.textContent = String(Math.round(interp(t)));
+        };
+      });
+
+    // X axis labels
+    g.selectAll('.x-label')
+      .data(dailySeries)
+      .enter()
+      .append('text')
+      .attr('x', (d) => (x(d.dateLabel) || 0) + x.bandwidth() / 2)
+      .attr('y', innerH + 16)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'fill-slate-500 text-[9px] font-mono')
+      .text((d) => d.dateLabel);
+  }
+
+  // ==========================================================================
+  // 2. D3 Chart: Total Daily Revenue (إجمالي الإيرادات — Animated Area + Line)
+  // ==========================================================================
+  const revEl = document.getElementById('d3-daily-revenue-svg');
+  if (revEl && dailySeries.length > 0) {
+    revEl.innerHTML = '';
+    const width = 460;
+    const height = 220;
+    const margin = { top: 24, right: 18, bottom: 34, left: 48 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const svg = d3
+      .select(revEl)
+      .append('svg')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('class', 'w-full h-auto overflow-visible');
+
+    const defs = svg.append('defs');
+    const grad = defs
+      .append('linearGradient')
+      .attr('id', 'd3RevAreaGrad')
+      .attr('x1', '0')
+      .attr('y1', '0')
+      .attr('x2', '0')
+      .attr('y2', '1');
+    grad.append('stop').attr('offset', '0%').attr('stop-color', '#10b981').attr('stop-opacity', 0.45);
+    grad.append('stop').attr('offset', '100%').attr('stop-color', '#10b981').attr('stop-opacity', 0.03);
+
+    // Animated clipPath curtain reveal from left to right
+    const clipRect = defs
+      .append('clipPath')
+      .attr('id', 'd3RevCurtainClip')
+      .append('rect')
+      .attr('x', 0)
+      .attr('y', -20)
+      .attr('width', 0)
+      .attr('height', innerH + 40);
+
+    clipRect
+      .transition()
+      .duration(1000)
+      .ease(d3.easeCubicOut)
+      .attr('width', innerW + 16);
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const x = d3
+      .scalePoint<string>()
+      .domain(dailySeries.map((d) => d.dateLabel))
+      .range([0, innerW])
+      .padding(0.2);
+
+    const maxRev = Math.max(d3.max(dailySeries, (d) => d.revenue) || 1000, 500);
+    const y = d3.scaleLinear().domain([0, maxRev * 1.15]).nice().range([innerH, 0]);
+
+    const yTicks = y.ticks(4);
+    g.selectAll('.grid-line')
+      .data(yTicks)
+      .enter()
+      .append('line')
+      .attr('x1', 0)
+      .attr('x2', innerW)
+      .attr('y1', (d) => y(d))
+      .attr('y2', (d) => y(d))
+      .attr('stroke', '#e2e8f0')
+      .attr('stroke-dasharray', '3,3');
+
+    g.selectAll('.y-label')
+      .data(yTicks)
+      .enter()
+      .append('text')
+      .attr('x', -6)
+      .attr('y', (d) => y(d) + 3)
+      .attr('text-anchor', 'end')
+      .attr('class', 'fill-slate-400 text-[9px] font-mono')
+      .text((d) => (d >= 1000 ? `${(d / 1000).toFixed(1)}k` : String(d)));
+
+    const areaGen = d3
+      .area<{ dateLabel: string; revenue: number }>()
+      .x((d) => x(d.dateLabel) || 0)
+      .y0(innerH)
+      .y1((d) => y(d.revenue))
+      .curve(d3.curveMonotoneX);
+
+    const lineGen = d3
+      .line<{ dateLabel: string; revenue: number }>()
+      .x((d) => x(d.dateLabel) || 0)
+      .y((d) => y(d.revenue))
+      .curve(d3.curveMonotoneX);
+
+    const clippedGroup = g.append('g').attr('clip-path', 'url(#d3RevCurtainClip)');
+
+    clippedGroup.append('path').datum(dailySeries).attr('fill', 'url(#d3RevAreaGrad)').attr('d', areaGen);
+
+    clippedGroup
+      .append('path')
+      .datum(dailySeries)
+      .attr('fill', 'none')
+      .attr('stroke', '#059669')
+      .attr('stroke-width', 2.8)
+      .attr('d', lineGen);
+
+    // Interactive revenue dots with elastic pop-in transition and hover scale
+    const revDots = g
+      .selectAll<SVGCircleElement, (typeof dailySeries)[0]>('.rev-dot')
+      .data(dailySeries)
+      .enter()
+      .append('circle')
+      .attr('class', 'rev-dot cursor-pointer')
+      .attr('cx', (d) => x(d.dateLabel) || 0)
+      .attr('cy', (d) => y(d.revenue))
+      .attr('r', 0)
+      .attr('fill', '#ffffff')
+      .attr('stroke', '#059669')
+      .attr('stroke-width', 2.4);
+
+    revDots
+      .on('mousemove', function (event: MouseEvent, d) {
+        d3.select(this).transition().duration(150).attr('r', 6.8).attr('fill', '#059669');
+        showTooltip(
+          event,
+          `<div class="font-bold text-emerald-300">💵 إيرادات ${d.date || d.dateLabel}</div>
+           <div class="mt-0.5">الإيراد المحصل: <strong class="font-mono text-white">${d.revenue.toLocaleString()} EGP</strong></div>
+           <div>عدد الحالات: <strong class="font-mono text-sky-300">${d.requests} حالة</strong></div>`
+        );
+      })
+      .on('mouseleave', function () {
+        d3.select(this).transition().duration(180).attr('r', 4.3).attr('fill', '#ffffff');
+        hideTooltip();
+      });
+
+    revDots
+      .transition()
+      .duration(520)
+      .delay((_, i) => 180 + i * 95)
+      .ease(d3.easeBackOut.overshoot(2.2))
+      .attr('r', 4.3);
+
+    // Animated EGP value labels
+    g.selectAll('.rev-val')
+      .data(dailySeries.filter((_, idx) => idx % 2 === 0 || idx === dailySeries.length - 1))
+      .enter()
+      .append('text')
+      .attr('x', (d) => x(d.dateLabel) || 0)
+      .attr('y', (d) => y(d.revenue) + 4)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'fill-emerald-900 text-[9px] font-bold font-mono')
+      .attr('opacity', 0)
+      .text('0')
+      .transition()
+      .duration(850)
+      .delay((_, i) => 220 + i * 140)
+      .ease(d3.easeCubicOut)
+      .attr('y', (d) => y(d.revenue) - 9)
+      .attr('opacity', 1)
+      .tween('text', function (d) {
+        const interp = d3.interpolateNumber(0, d.revenue);
+        return (t: number) => {
+          this.textContent = Math.round(interp(t)).toLocaleString();
+        };
+      });
+
+    g.selectAll('.x-label')
+      .data(dailySeries)
+      .enter()
+      .append('text')
+      .attr('x', (d) => x(d.dateLabel) || 0)
+      .attr('y', innerH + 16)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'fill-slate-500 text-[9px] font-mono')
+      .text((d) => d.dateLabel);
+  }
+
+  // ==========================================================================
+  // 3. D3 Chart: Most Requested Lab Tests (أكثر التحاليل طلباً — Animated Sweep)
+  // ==========================================================================
+  const topTestsEl = document.getElementById('d3-top-tests-svg');
+  if (topTestsEl && topTests.length > 0) {
+    topTestsEl.innerHTML = '';
+    const items = topTests.slice(0, 6);
+    const width = 460;
+    const height = 220;
+    const margin = { top: 12, right: 68, bottom: 20, left: 95 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const svg = d3
+      .select(topTestsEl)
+      .append('svg')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('class', 'w-full h-auto overflow-visible');
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const y = d3
+      .scaleBand<string>()
+      .domain(items.map((d) => d.code))
+      .range([0, innerH])
+      .padding(0.28);
+
+    const maxCnt = Math.max(d3.max(items, (d) => d.count) || 10, 5);
+    const x = d3.scaleLinear().domain([0, maxCnt * 1.15]).range([0, innerW]);
+
+    // Background tracks
+    g.selectAll('.bg-bar')
+      .data(items)
+      .enter()
+      .append('rect')
+      .attr('x', 0)
+      .attr('y', (d) => y(d.code) || 0)
+      .attr('width', innerW)
+      .attr('height', y.bandwidth())
+      .attr('rx', 5)
+      .attr('fill', '#f1f5f9');
+
+    // Foreground bars with horizontal sweep transition (width 0 -> target width)
+    const testBars = g
+      .selectAll<SVGRectElement, (typeof items)[0]>('.fg-bar')
+      .data(items)
+      .enter()
+      .append('rect')
+      .attr('class', 'fg-bar cursor-pointer')
+      .attr('x', 0)
+      .attr('y', (d) => y(d.code) || 0)
+      .attr('width', 0)
+      .attr('height', y.bandwidth())
+      .attr('rx', 5)
+      .attr('fill', (_, i) => CHART_PALETTE[i % CHART_PALETTE.length]);
+
+    testBars
+      .on('mousemove', function (event: MouseEvent, d) {
+        d3.select(this).transition().duration(140).attr('opacity', 0.82).attr('x', 2);
+        showTooltip(
+          event,
+          `<div class="font-bold text-indigo-300">🧪 ${d.code} — ${d.nameAr}</div>
+           <div class="mt-0.5">عدد الطلبات: <strong class="font-mono text-white">${d.count} طلب</strong></div>
+           <div>إجمالي الإيراد: <strong class="font-mono text-emerald-300">${d.revenue.toLocaleString()} EGP</strong></div>`
+        );
+      })
+      .on('mouseleave', function () {
+        d3.select(this).transition().duration(180).attr('opacity', 1).attr('x', 0);
+        hideTooltip();
+      });
+
+    testBars
+      .transition()
+      .duration(900)
+      .delay((_, i) => i * 85)
+      .ease(d3.easeCubicOut)
+      .attr('width', (d) => Math.max(6, x(d.count)));
+
+    // Left test code labels
+    g.selectAll('.test-code-lbl')
+      .data(items)
+      .enter()
+      .append('text')
+      .attr('x', -8)
+      .attr('y', (d) => (y(d.code) || 0) + y.bandwidth() / 2 + 3.5)
+      .attr('text-anchor', 'end')
+      .attr('class', 'fill-slate-800 text-[10px] font-bold font-mono')
+      .text((d) => d.code);
+
+    // Right count labels sliding out with the bar and counting up
+    g.selectAll('.test-cnt-lbl')
+      .data(items)
+      .enter()
+      .append('text')
+      .attr('x', 6)
+      .attr('y', (d) => (y(d.code) || 0) + y.bandwidth() / 2 + 3.5)
+      .attr('text-anchor', 'start')
+      .attr('class', 'fill-slate-700 text-[9.5px] font-bold font-mono')
+      .attr('opacity', 0)
+      .text('0 طلب')
+      .transition()
+      .duration(900)
+      .delay((_, i) => i * 85)
+      .ease(d3.easeCubicOut)
+      .attr('x', (d) => x(d.count) + 6)
+      .attr('opacity', 1)
+      .tween('text', function (d) {
+        const interp = d3.interpolateNumber(0, d.count);
+        return (t: number) => {
+          this.textContent = `${Math.round(interp(t))} طلب`;
+        };
+      });
+  }
+
+  return Number((performance.now() - t0).toFixed(2));
+}
 
 function buildSmoothSvgPath(points: Array<{ x: number; y: number }>): string {
   if (points.length === 0) return '';
@@ -97,15 +650,19 @@ function buildDonutSvg(
       const gap = circumference - dash;
       const offset = -accumulatedFraction * circumference;
       accumulatedFraction += frac;
+      const dashStr = `${dash.toFixed(2)} ${gap.toFixed(2)}`;
       return `
         <circle
+          class="dash-donut-segment cursor-pointer transition-opacity hover:opacity-80"
           cx="${cx}"
           cy="${cy}"
           r="${r}"
           fill="none"
           stroke="${seg.color}"
           stroke-width="${strokeWidth}"
-          stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+          data-target-dasharray="${dashStr}"
+          data-circumference="${circumference.toFixed(2)}"
+          stroke-dasharray="${dashStr}"
           stroke-dashoffset="${offset.toFixed(2)}"
           transform="rotate(-90 ${cx} ${cy})"
         >
@@ -762,9 +1319,13 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
 
     const patientMap = new Map(patients.map((p) => [p.id, p]));
 
+    const showReceptionD3 = activeTab === 'all' || activeTab === 'reception_d3';
     const showFinancial = activeTab === 'all' || activeTab === 'financial';
     const showClinical = activeTab === 'all' || activeTab === 'clinical';
     const showDemographics = activeTab === 'all' || activeTab === 'demographics';
+
+    const top1Test = topTestsDisplay[0];
+    const totalDailyCases7d = dailySeries.reduce((s, d) => s + d.requests, 0);
 
     container.innerHTML = `
       <div class="space-y-6">
@@ -787,6 +1348,17 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
+            ${
+              user?.role === 'Developer'
+                ? `<button
+                    id="dash-open-perf-btn"
+                    type="button"
+                    class="rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    ⚡ ${i18n.bi('اختبار أداء البرنامج (Performance Test)', 'Run Performance Test')}
+                  </button>`
+                : ''
+            }
             ${
               !hasOperationalData
                 ? `
@@ -840,6 +1412,7 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
             ${(
               [
                 { id: 'all', labelAr: 'جميع الإحصائيات والرسوم البيانية (شامل)', labelEn: 'All Analytics & Charts' },
+                { id: 'reception_d3', labelAr: '⚡ نظرة الاستقبال السريعة (رسوم D3.js)', labelEn: '⚡ Reception Quick-View (D3.js Charts)' },
                 { id: 'financial', labelAr: 'الإحصائيات المالية والتدفقات النقدية', labelEn: 'Financial & Revenue Charts' },
                 { id: 'clinical', labelAr: 'إحصائيات التحاليل والأقسام والأنابيب والنتائج', labelEn: 'Clinical, Departments & Tubes' },
                 { id: 'demographics', labelAr: 'المرضى والأطباء والجودة والتشخيص الذكي', labelEn: 'Demographics, Doctors, QC & AI' },
@@ -867,6 +1440,124 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
             ${i18n.bi('اضغط على أي مؤشر للانتقال الفوري إلى شاشته التفصيلية', 'Click any KPI card to open its detailed module')}
           </div>
         </div>
+
+        ${
+          showReceptionD3
+            ? `
+        <!-- NEW D3.js RECEPTION QUICK-OVERVIEW DASHBOARD SECTION -->
+        <div class="rounded-2xl border-2 border-sky-200 bg-gradient-to-br from-white via-sky-50/30 to-indigo-50/20 p-5 shadow-xs space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3">
+            <div>
+              <div class="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-2.5 py-0.5 text-[10px] font-extrabold text-white">
+                <span>📊 D3.js Interactive Analytics</span>
+                <span>·</span>
+                <span id="d3-render-perf-badge">Rendered in &lt; 5ms</span>
+              </div>
+              <h2 class="text-base font-extrabold text-slate-900 mt-1">
+                ${i18n.bi(
+                  'نظرة الاستقبال السريعة (Reception Quick-Overview Dashboard — D3.js)',
+                  'Reception Quick-Overview Dashboard (Powered by D3.js)'
+                )}
+              </h2>
+              <p class="text-xs text-slate-500">
+                ${i18n.bi(
+                  'تلخيص بصري تفاعلي باستخدام مكتبة D3 لعدد الحالات اليومية، إجمالي الإيرادات، وأكثر التحاليل طلباً لتعزيز سرعة اتخاذ القرار في الاستقبال.',
+                  'Interactive D3.js visual summary of daily cases volume, total revenue, and most requested lab tests for rapid reception insights.'
+                )}
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                id="d3-replay-transitions-btn"
+                type="button"
+                class="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-bold text-sky-900 hover:bg-sky-50 cursor-pointer shadow-2xs"
+              >
+                🔄 ${i18n.bi('إعادة تشغيل الحركة (D3 Transitions)', 'Replay D3 Transitions')}
+              </button>
+              <a href="#/requests" class="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-700">
+                ➕ ${i18n.bi('تسجيل طلب تحليل جديد', 'New Lab Request')}
+              </a>
+              <a href="#/resultReview" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700">
+                ✓ ${i18n.bi('اعتماد نتائج اليوم', 'Today Approvals')}
+              </a>
+            </div>
+          </div>
+
+          <!-- 3 Summary Highlights for Reception -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="rounded-xl border border-sky-200 bg-white p-3.5 flex items-center justify-between">
+              <div>
+                <div class="text-[11px] font-bold text-sky-800">${i18n.bi('1. عدد الحالات اليومية (Today / 7-Day)', '1. Daily Cases Volume')}</div>
+                <div class="text-xl font-black font-mono text-slate-900 mt-1">
+                  <span data-d3-counter="${todayRequestsCount}" data-d3-suffix=" حالة اليوم">${todayRequestsCount} حالة اليوم</span> /
+                  <span data-d3-counter="${totalDailyCases7d}" data-d3-suffix=" أسبوعياً">${totalDailyCases7d} أسبوعياً</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-0.5">${i18n.bi(`إجمالي الطلبات المسجلة: ${totalRequestsCount} طلب`, `Total Requests: ${totalRequestsCount}`)}</div>
+              </div>
+              <span class="text-2xl">👥</span>
+            </div>
+            <div class="rounded-xl border border-emerald-200 bg-white p-3.5 flex items-center justify-between">
+              <div>
+                <div class="text-[11px] font-bold text-emerald-800">${i18n.bi('2. إجمالي الإيرادات المحصلة والصافية', '2. Total Collected & Net Revenue')}</div>
+                <div class="text-xl font-black font-mono text-emerald-700 mt-1">
+                  <span data-d3-counter="${Math.round(totalCollectedRevenue)}" data-d3-format="comma" data-d3-suffix=" EGP">${totalCollectedRevenue.toLocaleString()} EGP</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-0.5">${i18n.bi(`صافي الفواتير: ${totalInvoicedNet.toLocaleString()} EGP · تحصيل ${collectionEfficiency.toFixed(0)}%`, `Net Invoiced: ${totalInvoicedNet.toLocaleString()} EGP`)}</div>
+              </div>
+              <span class="text-2xl">💰</span>
+            </div>
+            <div class="rounded-xl border border-indigo-200 bg-white p-3.5 flex items-center justify-between">
+              <div>
+                <div class="text-[11px] font-bold text-indigo-800">${i18n.bi('3. أكثر التحاليل طلباً في المعمل', '3. Most Requested Lab Test')}</div>
+                <div class="text-base font-black text-indigo-950 mt-1 truncate">${top1Test ? `${top1Test.test.code} — ${i18n.bi(top1Test.test.nameAr, top1Test.test.nameEn)}` : 'CBC'}</div>
+                <div class="text-[11px] text-slate-500 mt-0.5 font-mono">${top1Test ? `${top1Test.count} طلب · ${(top1Test.count * Number(top1Test.test.price || 150)).toLocaleString()} EGP` : ''}</div>
+              </div>
+              <span class="text-2xl">🧪</span>
+            </div>
+          </div>
+
+          <!-- 3 D3.js Charts Grid -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- Chart 1: Daily Cases (D3 Bar + Line) -->
+            <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                <div>
+                  <h3 class="text-xs font-extrabold text-slate-900">📊 ${i18n.bi('عدد الحالات اليومية (D3 Bar & Trend)', 'Daily Cases Volume (D3)')}</h3>
+                  <p class="text-[10px] text-slate-500">${i18n.bi('تطور عدد الحالات المستقبلة يومياً خلال الأسبوع', 'Daily patient requests volume trend')}</p>
+                </div>
+                <span class="rounded bg-sky-50 px-2 py-0.5 text-[10px] font-mono font-bold text-sky-700">D3.scaleBand</span>
+              </div>
+              <div id="d3-daily-cases-svg" class="w-full min-h-[190px] flex items-center justify-center"></div>
+            </div>
+
+            <!-- Chart 2: Total Revenue (D3 Area & Line) -->
+            <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                <div>
+                  <h3 class="text-xs font-extrabold text-slate-900">💵 ${i18n.bi('إجمالي الإيرادات اليومية (D3 Area Chart)', 'Total Daily Revenue (D3)')}</h3>
+                  <p class="text-[10px] text-slate-500">${i18n.bi('منحنى الإيرادات المحصلة اليومية بالجنيه المصري', 'Daily collected revenue in EGP')}</p>
+                </div>
+                <span class="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-700">D3.area</span>
+              </div>
+              <div id="d3-daily-revenue-svg" class="w-full min-h-[190px] flex items-center justify-center"></div>
+            </div>
+
+            <!-- Chart 3: Most Requested Lab Tests (D3 Horizontal Bar) -->
+            <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                <div>
+                  <h3 class="text-xs font-extrabold text-slate-900">🧪 ${i18n.bi('أكثر التحاليل طلباً (D3 Top Tests)', 'Most Requested Tests (D3)')}</h3>
+                  <p class="text-[10px] text-slate-500">${i18n.bi('أعلى 6 تحاليل طبية طلباً في الاستقبال', 'Top 6 most requested laboratory tests')}</p>
+                </div>
+                <span class="rounded bg-indigo-50 px-2 py-0.5 text-[10px] font-mono font-bold text-indigo-700">D3.scaleLinear</span>
+              </div>
+              <div id="d3-top-tests-svg" class="w-full min-h-[190px] flex items-center justify-center"></div>
+            </div>
+          </div>
+        </div>
+        `
+            : ''
+        }
 
         <!-- 12 Executive KPI Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1546,6 +2237,36 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
           router.navigate(targetRoute);
         }
       });
+    });
+
+    const triggerD3Animations = () => {
+      if (showReceptionD3) {
+        const renderMs = mountD3ReceptionCharts({
+          dailySeries,
+          topTests: topTestsDisplay.map((t) => ({
+            code: t.test.code,
+            nameAr: t.test.nameAr,
+            nameEn: t.test.nameEn,
+            count: t.count,
+            revenue: t.count * Number(t.test.price || 150),
+          })),
+        });
+        const badge = document.getElementById('d3-render-perf-badge');
+        if (badge) {
+          badge.textContent = `Rendered + Animated in ${renderMs}ms`;
+        }
+      }
+      animateDashboardSecondaryVisuals(container);
+    };
+
+    triggerD3Animations();
+
+    document.getElementById('d3-replay-transitions-btn')?.addEventListener('click', () => {
+      triggerD3Animations();
+    });
+
+    document.getElementById('dash-open-perf-btn')?.addEventListener('click', () => {
+      document.getElementById('top-perf-benchmark-btn')?.click();
     });
 
     document.getElementById('dash-testplan-btn')?.addEventListener('click', () => {

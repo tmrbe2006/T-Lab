@@ -158,12 +158,20 @@ html.dark ::-webkit-scrollbar-thumb {
 
 /* Print media rules: A4, Thermal 80mm, and Barcode Label */
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
   html,
   body {
     background: #ffffff !important;
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
   }
 
   #app,
@@ -176,27 +184,40 @@ html.dark ::-webkit-scrollbar-thumb {
   #print-root {
     display: block !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   .print-a4 {
-    width: 210mm;
-    min-height: 297mm;
-    padding: 12mm;
+    width: 100%;
+    max-width: 194mm;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 4mm;
     margin: 0 auto;
+    box-sizing: border-box;
     background: #fff !important;
     color: #0f172a !important;
     font-size: 12px;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   .print-thermal {
     width: 78mm;
+    min-height: 0 !important;
+    height: auto !important;
     padding: 4mm;
     margin: 0 auto;
     background: #fff !important;
     color: #000 !important;
     font-size: 11px;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   .print-barcode {
@@ -209,6 +230,11 @@ html.dark ::-webkit-scrollbar-thumb {
     font-size: 10px;
     text-align: center;
     page-break-after: always;
+  }
+
+  .print-barcode:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   table.print-table {

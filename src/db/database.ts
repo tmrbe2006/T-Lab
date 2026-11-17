@@ -97,6 +97,10 @@ export class MedicalLabDatabase extends Dexie {
   // Version 8 Antibiotics Master Catalog for Culture & Sensitivity (CLSI / EUCAST)
   antibioticsCatalog!: Table<import('../types').AntibioticCatalogItem, string>;
 
+  // Version 9 Lab-to-Lab Sample Dispatch & Reference Laboratories
+  labToLabDispatches!: Table<import('../types').LabToLabDispatchRecord, string>;
+  referenceLabPartners!: Table<import('../types').ReferenceLabPartner, string>;
+
   constructor() {
     super('MedicalLabDB_v1');
 
@@ -189,6 +193,12 @@ export class MedicalLabDatabase extends Dexie {
     // Version 8: Master Antibiotics Catalog for Culture & Sensitivity Reports
     this.version(8).stores({
       antibioticsCatalog: 'id, code, nameEn, antibioticClass, targetGroup, active',
+    });
+
+    // Version 9: Lab-to-Lab Sample Dispatch & Reference Laboratories
+    this.version(9).stores({
+      labToLabDispatches: 'id, manifestNumber, sampleId, sampleCode, requestId, patientId, refLabId, dispatchDate, status',
+      referenceLabPartners: 'id, code, nameAr, active',
     });
   }
 }

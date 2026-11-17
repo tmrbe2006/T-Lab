@@ -82,7 +82,12 @@ export class AdvancedSearchService {
     // 3. Numeric / Amount range filter
     const minVal = criteria.minAmount !== '' ? Number(criteria.minAmount) : null;
     const maxVal = criteria.maxAmount !== '' ? Number(criteria.maxAmount) : null;
-    if ((minVal !== null && !Number.isNaN(minVal)) || (maxVal !== null && !Number.isNaN(maxVal))) {
+    const isDefaultWideRange =
+      (minVal === null || minVal <= 0) && (maxVal === null || maxVal >= 999999);
+    if (
+      !isDefaultWideRange &&
+      ((minVal !== null && !Number.isNaN(minVal)) || (maxVal !== null && !Number.isNaN(maxVal)))
+    ) {
       // Extract numeric values from cells (excluding dates like 2026-11-09 and codes like REQ-2026-1001)
       const cleanedForNumbers = fullRowText
         .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, ' ')

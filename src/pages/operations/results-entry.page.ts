@@ -10,6 +10,7 @@ import {
 } from '../../repositories';
 import {
   buildConsolidatedPatientReportHtml,
+  ensureEnterpriseSeedData,
   evaluateDeltaChecksForResult,
   openCriticalReadBackModal,
 } from '../../services/enterprise-lab.service';
@@ -20,6 +21,7 @@ import {
 import type { LabResult } from '../../types';
 
 export async function renderResultsEntryPage(container: HTMLElement): Promise<void> {
+  await ensureEnterpriseSeedData();
   const user = authService.getCurrentUser();
   // Ensure every request with a received sample has its LabResult draft rows generated
   await requestsRepository.ensureDraftResultsForAllRequests();
@@ -38,8 +40,22 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
   const reqMap = new Map(allRequests.map((r) => [r.id, r]));
   const sampleByReqId = new Map(allSamples.map((s) => [s.requestId, s]));
 
+  const getTodayIso = (): string => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+  const todayIso = getTodayIso();
+
+  const getResultDate = (r: LabResult): string => {
+    const req = reqMap.get(r.requestId);
+    const raw = r.approvedAt || r.enteredAt || req?.createdAt || todayIso;
+    const match = String(raw).match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+    return match ? match[1] : todayIso;
+  };
+
   let searchQuery = '';
   let statusFilter = 'all';
+  let dateFilter = todayIso; // تلقائياً يظهر طلبات التحاليل في اليوم الحالي
 
   const openEntryModal = (res: LabResult) => {
     const canReopen = can(user, 'reopenResult', 'results');
@@ -446,13 +462,15 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
   const getFilteredResults = () => {
     const q = searchQuery.trim().toLowerCase();
     return results.filter((r) => {
+      const rDate = getResultDate(r);
+      if (dateFilter && rDate !== dateFilter) return false;
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (!q) return true;
       const pat = patMap.get(r.patientId);
       const tst = tstMap.get(r.testId);
       const req = reqMap.get(r.requestId);
       const smp = sampleByReqId.get(r.requestId);
-      const blob = `${pat?.name || ''} ${pat?.nameEn || ''} ${pat?.code || ''} ${tst?.code || ''} ${tst?.nameAr || ''} ${tst?.nameEn || ''} ${req?.requestNumber || ''} ${req?.barcode || ''} ${smp?.sampleCode || ''}`.toLowerCase();
+      const blob = `${pat?.name || ''} ${pat?.nameEn || ''} ${pat?.code || ''} ${tst?.code || ''} ${tst?.nameAr || ''} ${tst?.nameEn || ''} ${req?.requestNumber || ''} ${req?.barcode || ''} ${smp?.sampleCode || ''} ${rDate}`.toLowerCase();
       return blob.includes(q);
     });
   };
@@ -460,6 +478,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
   const renderView = () => {
     const canPrint = can(user, 'print', 'results');
     const filteredResults = getFilteredResults();
+    const todayResultsCount = results.filter((r) => getResultDate(r) === todayIso).length;
 
     container.innerHTML = `
       <div class="space-y-4">
@@ -476,9 +495,9 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
           </div>
         </div>
 
-        <!-- Search & Status Filter Bar -->
-        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 rounded-xl bg-white border border-slate-200 p-3">
-          <div class="sm:col-span-8">
+        <!-- Search, Date Filter (Defaults to Today), & Status Filter Bar -->
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 rounded-xl bg-white border border-slate-200 p-3 items-center">
+          <div class="sm:col-span-5">
             <input
               id="res-search-input"
               type="search"
@@ -487,15 +506,48 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
               class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
             />
           </div>
-          <div class="sm:col-span-4">
+          <div class="sm:col-span-4 flex flex-wrap items-center gap-1.5">
+            <div class="relative flex-1 min-w-[140px]">
+              <input
+                id="res-date-filter"
+                type="date"
+                value="${escapeHtml(dateFilter)}"
+                title="${i18n.bi('فلتر بالتاريخ (يظهر تلقائياً طلبات اليوم الحالي)', 'Filter by request date (defaults to Today)')}"
+                class="w-full rounded-lg border border-sky-300 bg-sky-50/50 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
+              />
+            </div>
+            <button
+              id="res-date-today-btn"
+              type="button"
+              class="rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer transition-colors ${
+                dateFilter === todayIso
+                  ? 'bg-sky-600 text-white shadow-2xs'
+                  : 'border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+              }"
+            >
+              📅 ${i18n.bi(`اليوم (${todayResultsCount})`, `Today (${todayResultsCount})`)}
+            </button>
+            <button
+              id="res-date-all-btn"
+              type="button"
+              class="rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer transition-colors ${
+                dateFilter === ''
+                  ? 'bg-slate-800 text-white shadow-2xs'
+                  : 'border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }"
+            >
+              📋 ${i18n.bi(`كل التواريخ (${results.length})`, `All Dates (${results.length})`)}
+            </button>
+          </div>
+          <div class="sm:col-span-3">
             <select
               id="res-status-filter"
               class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 focus:border-sky-600 focus:bg-white focus:outline-none"
             >
-              <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>${i18n.bi(`جميع النتائج (${results.length})`, `All Results (${results.length})`)}</option>
-              <option value="draft" ${statusFilter === 'draft' ? 'selected' : ''}>${i18n.bi(`بانتظار الإدخال / مسودة (${results.filter((r) => r.status === 'draft').length})`, `Draft (${results.filter((r) => r.status === 'draft').length})`)}</option>
-              <option value="pending_review" ${statusFilter === 'pending_review' ? 'selected' : ''}>${i18n.bi(`مرسلة للمراجعة والاعتماد (${results.filter((r) => r.status === 'pending_review').length})`, `Pending Review (${results.filter((r) => r.status === 'pending_review').length})`)}</option>
-              <option value="approved" ${statusFilter === 'approved' ? 'selected' : ''}>${i18n.bi(`معتمدة نهائياً (${results.filter((r) => r.status === 'approved').length})`, `Approved (${results.filter((r) => r.status === 'approved').length})`)}</option>
+              <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>${i18n.bi(`جميع الحالات (${filteredResults.length})`, `All Statuses (${filteredResults.length})`)}</option>
+              <option value="draft" ${statusFilter === 'draft' ? 'selected' : ''}>${i18n.bi(`بانتظار الإدخال / مسودة (${results.filter((r) => (!dateFilter || getResultDate(r) === dateFilter) && r.status === 'draft').length})`, `Draft`)}</option>
+              <option value="pending_review" ${statusFilter === 'pending_review' ? 'selected' : ''}>${i18n.bi(`مرسلة للمراجعة والاعتماد (${results.filter((r) => (!dateFilter || getResultDate(r) === dateFilter) && r.status === 'pending_review').length})`, `Pending Review`)}</option>
+              <option value="approved" ${statusFilter === 'approved' ? 'selected' : ''}>${i18n.bi(`معتمدة نهائياً (${results.filter((r) => (!dateFilter || getResultDate(r) === dateFilter) && r.status === 'approved').length})`, `Approved`)}</option>
             </select>
           </div>
         </div>
@@ -504,7 +556,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
           <table class="w-full text-xs text-start">
             <thead>
               <tr class="border-b border-slate-200 bg-slate-50 text-slate-600">
-                <th class="py-3 px-3 text-start">${i18n.bi('رقم الطلب / العينة', 'Request / Sample')}</th>
+                <th class="py-3 px-3 text-start">${i18n.bi('رقم الطلب / العينة والتاريخ', 'Request / Sample & Date')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('المريض', 'Patient')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('التحليل', 'Test')}</th>
                 <th class="py-3 px-3 text-start">${i18n.bi('القيم المسجلة', 'Entered Values')}</th>
@@ -521,6 +573,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                         const tst = tstMap.get(r.testId);
                         const req = reqMap.get(r.requestId);
                         const smp = sampleByReqId.get(r.requestId);
+                        const rDate = getResultDate(r);
                         const valSummary = r.values
                           .slice(0, 4)
                           .map((v) => `${v.parameterNameEn}: ${v.value} ${v.unit} [Normal: ${v.normalRange}]`)
@@ -539,6 +592,7 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                             <td class="py-2.5 px-3 font-mono">
                               <div class="font-bold text-slate-900 tabular-nums">${req?.requestNumber || r.requestId}</div>
                               <div class="text-[11px] text-emerald-700 font-semibold tabular-nums">${smp?.sampleCode || 'SMP'} · ${i18n.dict.statuses[smp?.status || 'received'] || 'مستلمة'}</div>
+                              <div class="text-[11px] text-slate-500 font-semibold tabular-nums">📅 ${rDate}</div>
                             </td>
                             <td class="py-2.5 px-3">
                               <div class="font-bold text-slate-900">${pat?.name || r.patientId}</div>
@@ -581,8 +635,22 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
                   : `
                     <tr>
                       <td colspan="6" class="py-8 text-center text-slate-500">
-                        <div class="font-bold text-slate-700 mb-1">${i18n.bi('لا توجد نتائج مطابقة حالياً', 'No results found')}</div>
-                        <div class="text-xs">${i18n.bi('تأكد من إنشاء طلب تحاليل للمريض واستلام عينته في شاشة (طلبات التحاليل) أو (استقبال العينات).', 'Create a lab request and mark the sample received in Lab Requests or Sample Reception.')}</div>
+                        <div class="font-bold text-slate-700 mb-1">${
+                          dateFilter
+                            ? i18n.bi(
+                                `لا توجد طلبات تحاليل مسجلة في تاريخ (${dateFilter})`,
+                                `No lab results found for date (${dateFilter})`
+                              )
+                            : i18n.bi('لا توجد نتائج مطابقة حالياً', 'No results found')
+                        }</div>
+                        <div class="text-xs mb-3">${i18n.bi('تأكد من إنشاء طلب تحاليل للمريض بتاريخ اليوم أو اضغط لعرض جميع التواريخ السابقة.', 'Create a lab request for today or click below to view all dates.')}</div>
+                        ${
+                          dateFilter && results.length > 0
+                            ? `<button id="res-empty-show-all-btn" type="button" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
+                                📋 ${i18n.bi(`عرض جميع طلبات التحاليل من كل التواريخ (${results.length})`, `Show All Dates (${results.length})`)}
+                              </button>`
+                            : ''
+                        }
                       </td>
                     </tr>
                   `
@@ -603,6 +671,27 @@ export async function renderResultsEntryPage(container: HTMLElement): Promise<vo
         nextInput.focus();
         nextInput.setSelectionRange(pos, pos);
       }
+    });
+
+    const dateInputEl = document.getElementById('res-date-filter') as HTMLInputElement | null;
+    dateInputEl?.addEventListener('change', () => {
+      dateFilter = dateInputEl.value;
+      renderView();
+    });
+
+    document.getElementById('res-date-today-btn')?.addEventListener('click', () => {
+      dateFilter = todayIso;
+      renderView();
+    });
+
+    document.getElementById('res-date-all-btn')?.addEventListener('click', () => {
+      dateFilter = '';
+      renderView();
+    });
+
+    document.getElementById('res-empty-show-all-btn')?.addEventListener('click', () => {
+      dateFilter = '';
+      renderView();
     });
 
     const statusSelectEl = document.getElementById('res-status-filter') as HTMLSelectElement | null;

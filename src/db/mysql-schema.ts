@@ -951,6 +951,7 @@ export function buildEmptyExceptUsersMySQLDump(
     'testParameters',
     'antibioticsCatalog',
     'chartOfAccounts',
+    'referenceLabPartners',
   ]);
 
   const lines: string[] = [

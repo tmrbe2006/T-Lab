@@ -143,8 +143,10 @@ class MySQLSyncService {
   public async collectAllTablesData(): Promise<Record<string, Record<string, unknown>[]>> {
     try {
       const { accountingRepository } = await import('../repositories/accounting.repository');
+      const { ensureEnterpriseSeedData } = await import('./enterprise-lab.service');
       await Promise.all([
         syncGlobalMedicalCatalog(false),
+        ensureEnterpriseSeedData(),
         lookupsRepository.getScientificDepartments(),
         lookupsRepository.getSampleTubes(),
         lookupsRepository.getDoctorSpecialties(),
@@ -421,6 +423,7 @@ class MySQLSyncService {
         'sampleTubes',
         'doctorSpecialties',
         'antibioticsCatalog',
+        'referenceLabPartners',
       ]);
 
       this.isPulling = true;
