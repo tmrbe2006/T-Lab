@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title T-Lab - Inno Setup 6 Builder (v5.0.0)
+title T-Lab - Inno Setup 6 Builder (v6.0.0)
 cd /d "%~dp0"
 
 echo ============================================================================
-echo   T-Lab Medical Laboratory System - Inno Setup 6 Package Builder (v5.0.0)
+echo   T-Lab Medical Laboratory System - Inno Setup 6 Package Builder (v6.0.0)
 echo ============================================================================
 echo.
 
@@ -23,11 +23,11 @@ if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
 
 if defined ISCC_PATH (
   echo Found Inno Setup 6 at: "%ISCC_PATH%"
-  echo Compiling tlab-setup.iss into Output\T-Lab_Setup_v5.0.0.exe ...
+  echo Compiling tlab-setup.iss into Output\T-Lab_Setup_v6.0.0.exe ...
   "%ISCC_PATH%" "tlab-setup.iss"
   echo.
   echo ============================================================================
-  echo   [SUCCESS] Installer created inside folder: Output\T-Lab_Setup_v5.0.0.exe
+  echo   [SUCCESS] Installer created inside folder: Output\T-Lab_Setup_v6.0.0.exe
   echo ============================================================================
 ) else (
   echo [INFO] Inno Setup 6 was not found in default Program Files path.
