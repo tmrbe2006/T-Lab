@@ -2,6 +2,7 @@ import { authService } from '../../auth/auth.service';
 import {
   closeModal,
   escapeHtml,
+  openDeleteConfirmModal,
   openModal,
   renderPageHeader,
   showToast,
@@ -219,9 +220,6 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
             }">
               🧫 ${i18n.bi('طلبات وتقارير المزارع (C&S + MIC)', 'Culture Requests & Reports')}
             </button>
-            ${
-              canEnterCultureResults
-                ? `
             <button id="micro-tab-antibiotics" class="rounded-lg px-3.5 py-2 text-xs font-bold cursor-pointer ${
               activeTab === 'antibiotics'
                 ? 'bg-teal-600 text-white shadow-xs'
@@ -242,19 +240,8 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
             <button id="micro-add-antibiotic-btn" class="rounded-lg bg-teal-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-teal-600 cursor-pointer">
               + 💊 ${i18n.bi('إضافة مضاد حيوي للقاعدة', 'New Antibiotic')}
             </button>
-            `
-                : `
-            <span class="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900">
-              🔒 ${i18n.bi('وضع الاستقبال: متاح تسجيل طلب مزرعة جديد فقط (إضافة النتيجة مقفولة)', 'Reception Mode: New Culture Request Only (Result Entry Locked)')}
-            </span>
-            `
-            }
             <button id="micro-new-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer shadow-xs">
-              + ${
-                canEnterCultureResults
-                  ? i18n.bi('طلب مزرعة جديد / إدخال نتيجة (C&S)', 'New Culture Request / Result')
-                  : i18n.bi('تسجيل طلب مزرعة جديد (استقبال)', 'New Culture Request (Reception)')
-              }
+              + ${i18n.bi('طلب مزرعة جديد / إدخال نتيجة (C&S)', 'New Culture Request / Result')}
             </button>
           </div>
         `
@@ -373,32 +360,23 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                         </td>
                         <td class="px-4 py-3 text-end">
                           <div class="flex flex-wrap justify-end items-center gap-1.5">
-                            ${
-                              canEnterCultureResults
-                                ? `
-                              <button data-view-culture="${c.id}" class="rounded-lg ${
-                                  isPending ? 'bg-amber-600 hover:bg-amber-500' : 'bg-slate-800 hover:bg-slate-700'
-                                } px-2.5 py-1.5 text-[11px] font-semibold text-white cursor-pointer">
-                                ${
-                                  isPending
-                                    ? `✏️ ${i18n.bi('إدخال النتيجة وجدول MIC', 'Enter Result & MIC')}`
-                                    : `🔍 ${i18n.bi('جدول MIC وتعديل النتيجة', 'MIC Panel & Edit')}`
-                                }
-                              </button>
-                            `
-                                : `
-                              <span class="rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 select-none" title="${i18n.bi('إضافة وتعديل نتيجة المزرعة مقفول لموظف الاستقبال', 'Adding/editing culture results is locked for reception')}">
-                                🔒 ${i18n.bi('إضافة النتيجة مقفولة', 'Result Entry Locked')}
-                              </span>
-                            `
-                            }
+                            <button type="button" data-view-culture="${c.id}" class="rounded-lg border border-sky-600 bg-sky-50 hover:bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-700 cursor-pointer">
+                              ✏️ ${
+                                isPending
+                                  ? i18n.bi('تعديل / إدخال النتيجة', 'Edit / Enter Result')
+                                  : i18n.bi('تعديل البيانات وجدول MIC', 'Edit & MIC Panel')
+                              }
+                            </button>
+                            <button type="button" data-del-culture="${c.id}" class="rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 text-[11px] font-bold text-rose-700 cursor-pointer">
+                              🗑️ ${i18n.bi('حذف', 'Delete')}
+                            </button>
                             ${
                               !isPending
                                 ? `
-                              <button data-print-culture="${c.id}" class="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-500 cursor-pointer">
+                              <button type="button" data-print-culture="${c.id}" class="rounded-lg bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-500 cursor-pointer">
                                 🖨️ ${i18n.bi('طباعة A4', 'Print A4')}
                               </button>
-                              <button data-wa-culture="${c.id}" class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-500 cursor-pointer">
+                              <button type="button" data-wa-culture="${c.id}" class="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 cursor-pointer">
                                 💬 واتساب
                               </button>
                             `
@@ -426,8 +404,8 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
               </h3>
               <p class="text-xs text-slate-500 mt-0.5">
                 ${i18n.bi(
-                  'أضف أو عدل المضادات الحيوية ونقاط القطع القياسية (CLSI Breakpoints) والتركيز المثبط الافتراضي (MIC) لتظهر فوراً في قوائم الاختيار داخل تقارير المزارع.',
-                  'Add or edit antibiotics, default MIC values, and CLSI breakpoints to make them immediately selectable in all Culture & Sensitivity reports.'
+                  'أضف أو عدل أو احذف المضادات الحيوية ونقاط القطع القياسية (CLSI Breakpoints) والتركيز المثبط الافتراضي (MIC) لتظهر فوراً في قوائم الاختيار داخل تقارير المزارع.',
+                  'Add, edit, or delete antibiotics, default MIC values, and CLSI breakpoints to make them immediately selectable in all Culture & Sensitivity reports.'
                 )}
               </p>
             </div>
@@ -478,7 +456,7 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
                     <td class="px-3 py-2.5 font-mono text-slate-600">${escapeHtml(ab.clsiBreakpoint)}</td>
                     <td class="px-3 py-2.5 text-end">
                       <div class="flex flex-wrap justify-end gap-1.5">
-                        <button type="button" data-edit-catalog-ab="${ab.id}" class="rounded border border-sky-600 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-50 cursor-pointer">
+                        <button type="button" data-edit-catalog-ab="${ab.id}" class="rounded border border-sky-600 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
                           ✏️ ${i18n.bi('تعديل', 'Edit')}
                         </button>
                         <button type="button" data-del-catalog-ab="${ab.id}" class="rounded border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
@@ -630,12 +608,36 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
     });
 
     container.querySelectorAll<HTMLButtonElement>('[data-del-catalog-ab]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-del-catalog-ab');
         if (!id) return;
-        await db.antibioticsCatalog.delete(id);
-        showToast(i18n.bi('تم حذف المضاد الحيوي من القاموس', 'Antibiotic deleted from catalog'), 'info');
-        await render();
+        const target = sortedAntibiotics.find((x) => x.id === id);
+        if (!target) return;
+        openDeleteConfirmModal({
+          recordLabel: `${target.nameEn} (${target.code}) — ${target.nameAr}`,
+          customWarning: i18n.bi(
+            'هل أنت متأكد من حذف هذا المضاد الحيوي من جدول المضادات الحيوية بقاعدة البيانات؟',
+            'Are you sure you want to delete this antibiotic from the master database catalog?'
+          ),
+          onConfirm: async (reason) => {
+            if (!(await enforcePermission('delete', 'microbiology'))) return;
+            await db.antibioticsCatalog.delete(target.id);
+            await authService.logAudit(
+              `حذف مضاد حيوي من القاموس: ${target.nameEn} (${target.code})`,
+              'microbiology',
+              target.id,
+              reason || ''
+            );
+            showToast(
+              i18n.bi(
+                `تم حذف المضاد الحيوي (${target.nameEn}) من القاموس بنجاح`,
+                `Antibiotic (${target.nameEn}) deleted from catalog`
+              ),
+              'success'
+            );
+            await render();
+          },
+        });
       });
     });
 
@@ -662,6 +664,39 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
         const id = btn.getAttribute('data-view-culture')!;
         const rec = sortedCultures.find((c) => c.id === id);
         if (rec) void openCultureDetailsModal(rec, render);
+      });
+    });
+
+    container.querySelectorAll('[data-del-culture]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-del-culture')!;
+        const rec = sortedCultures.find((c) => c.id === id);
+        if (!rec) return;
+        openDeleteConfirmModal({
+          recordLabel: `${rec.reportNumber} — ${rec.patientName} (${rec.specimenSourceAr})`,
+          customWarning: i18n.bi(
+            'هل أنت متأكد من حذف تقرير/طلب المزرعة البكتيرية وجدول الحساسية المرتبط به نهائياً؟',
+            'Are you sure you want to permanently delete this Culture & Sensitivity report and its MIC panel?'
+          ),
+          onConfirm: async (reason) => {
+            if (!(await enforcePermission('delete', 'microbiology'))) return;
+            await db.cultureResults.delete(rec.id);
+            await authService.logAudit(
+              `حذف تقرير مزرعة بكتيرية: ${rec.reportNumber} (${rec.patientName})`,
+              'microbiology',
+              rec.id,
+              reason || ''
+            );
+            showToast(
+              i18n.bi(
+                `تم حذف تقرير المزرعة (${rec.reportNumber}) بنجاح`,
+                `Culture report (${rec.reportNumber}) deleted successfully`
+              ),
+              'success'
+            );
+            await render();
+          },
+        });
       });
     });
 
@@ -814,10 +849,21 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
   let showQuickCreateBox = false;
 
   const syncRowsFromDom = () => {
+    const patNameEl = document.getElementById('cd-edit-patient-name') as HTMLInputElement | null;
+    const docNameEl = document.getElementById('cd-edit-doctor-name') as HTMLInputElement | null;
+    const specArEl = document.getElementById('cd-edit-specimen-ar') as HTMLInputElement | null;
     const orgEl = document.getElementById('cd-edit-organism') as HTMLSelectElement | null;
     const colEl = document.getElementById('cd-edit-colony') as HTMLInputElement | null;
     const pusEl = document.getElementById('cd-edit-pus') as HTMLInputElement | null;
     const notesEl = document.getElementById('cd-edit-notes') as HTMLInputElement | null;
+
+    if (patNameEl && patNameEl.value.trim()) rec.patientName = patNameEl.value.trim();
+    if (docNameEl) rec.doctorName = docNameEl.value.trim();
+    if (specArEl && specArEl.value.trim()) {
+      rec.specimenSourceAr = specArEl.value.trim();
+      rec.specimenSourceEn = specArEl.value.trim();
+    }
+
     if (orgEl) {
       const code = orgEl.value;
       rec.organismCode = code;
@@ -870,14 +916,23 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
   const renderModalContent = () => {
     const firstCatalogItem = catalog[0];
     openModal({
-      title: `${i18n.bi('إدخال وتعديل نتيجة المزرعة والحساسية (CLSI MIC):', 'Culture & Sensitivity MIC Result Entry:')} ${rec.reportNumber}`,
+      title: `${i18n.bi('✏️ تعديل بيانات ونتيجة المزرعة وجدول المضادات الحيوية (CLSI MIC):', '✏️ Edit Culture Report & MIC Panel:')} ${rec.reportNumber}`,
       size: 'xl',
       content: `
         <div class="space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
-            <div><span class="text-slate-500">${i18n.bi('المريض:', 'Patient:')}</span> <strong class="text-slate-900">${escapeHtml(rec.patientName)}</strong></div>
-            <div><span class="text-slate-500">${i18n.bi('العينة:', 'Specimen:')}</span> <strong>${escapeHtml(i18n.bi(rec.specimenSourceAr, rec.specimenSourceEn))}</strong></div>
-            <div><span class="text-slate-500">${i18n.bi('حالة التقرير:', 'Status:')}</span> <strong class="${rec.status === 'draft' ? 'text-amber-700' : 'text-emerald-700'}">${rec.status === 'draft' ? i18n.bi('⏳ قيد التحضين (بانتظار النتيجة)', 'Pending Result') : i18n.bi('✅ معتمد', 'Approved')}</strong></div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('اسم المريض:', 'Patient Name:')}</label>
+              <input id="cd-edit-patient-name" type="text" value="${escapeHtml(rec.patientName)}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-900" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('الطبيب المعالج:', 'Referring Doctor:')}</label>
+              <input id="cd-edit-doctor-name" type="text" value="${escapeHtml(rec.doctorName || '')}" placeholder="د. ..." class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('نوع ومصدر العينة:', 'Specimen Source:')}</label>
+              <input id="cd-edit-specimen-ar" type="text" value="${escapeHtml(rec.specimenSourceAr)}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-800" />
+            </div>
             <div>
               <label class="block text-[11px] font-bold text-slate-600 mb-1">${i18n.bi('الكائن المجهري المعزول (Isolated Organism):', 'Isolated Organism:')}</label>
               <select id="cd-edit-organism" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-rose-800">
@@ -1003,7 +1058,7 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
                   <th class="px-3 py-2 text-center">${i18n.bi('الحساسية (S / I / R)', 'Sensitivity')}</th>
                   <th class="px-3 py-2 text-start">${i18n.bi('التركيز المثبط الأدنى (MIC)', 'MIC Value')}</th>
                   <th class="px-3 py-2 text-start">${i18n.bi('نقاط القطع القياسية (CLSI Breakpoints)', 'CLSI Breakpoints')}</th>
-                  <th class="px-2 py-2 text-center w-12">${i18n.bi('حذف', 'Remove')}</th>
+                  <th class="px-2 py-2 text-center w-20">${i18n.bi('حذف', 'Remove')}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-200">
@@ -1050,7 +1105,9 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
                           <input data-edit-ab-bp="${idx}" type="text" value="${escapeHtml(ab.clsiBreakpoint)}" class="w-36 rounded border border-slate-200 px-2 py-0.5 text-xs font-mono text-slate-600" />
                         </td>
                         <td class="px-2 py-2 text-center">
-                          <button type="button" data-remove-ab-row="${idx}" class="text-rose-600 hover:text-rose-800 font-extrabold cursor-pointer" title="${i18n.bi('حذف المضاد من التقرير', 'Remove antibiotic')}">✕</button>
+                          <button type="button" data-remove-ab-row="${idx}" class="rounded border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer" title="${i18n.bi('حذف المضاد من التقرير', 'Remove antibiotic')}">
+                            🗑️ ${i18n.bi('حذف', 'Delete')}
+                          </button>
                         </td>
                       </tr>
                     `;
@@ -1065,8 +1122,11 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
             <input id="cd-edit-notes" type="text" value="${escapeHtml(rec.clinicalNotesAr)}" class="w-full rounded border border-sky-300 bg-white px-2.5 py-1.5 text-xs text-slate-900" />
           </div>
 
-          <div class="flex justify-end gap-2 pt-2 border-t border-slate-200">
-            <button id="save-culture-edits-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+            <button type="button" id="cd-delete-whole-culture-btn" class="rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+              🗑️ ${i18n.bi('حذف تقرير المزرعة بالكامل', 'Delete Entire Culture Report')}
+            </button>
+            <button type="button" id="save-culture-edits-btn" class="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer">
               💾 ${i18n.bi('حفظ واعتماد نتيجة المزرعة وجدول الحساسية و MIC', 'Save & Approve Culture Result & MIC Panel')}
             </button>
           </div>
@@ -1233,15 +1293,62 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
       renderModalContent();
     });
 
-    // Remove antibiotic row
+    // Remove antibiotic row with confirmation dialog
     document.querySelectorAll<HTMLButtonElement>('[data-remove-ab-row]').forEach((btn) => {
       btn.addEventListener('click', () => {
         syncRowsFromDom();
         const idx = Number(btn.getAttribute('data-remove-ab-row'));
-        if (!Number.isNaN(idx)) {
-          rec.antibiotics.splice(idx, 1);
-          renderModalContent();
+        const targetAb = rec.antibiotics[idx];
+        if (!Number.isNaN(idx) && targetAb) {
+          openDeleteConfirmModal({
+            recordLabel: `${targetAb.antibioticNameEn} (${targetAb.antibioticCode}) — MIC: ${targetAb.micValue}`,
+            customWarning: i18n.bi(
+              'هل أنت متأكد من حذف هذا المضاد الحيوي من جدول حساسية التقرير الحالي؟',
+              'Are you sure you want to remove this antibiotic from the current report MIC table?'
+            ),
+            onConfirm: async () => {
+              rec.antibiotics.splice(idx, 1);
+              showToast(
+                i18n.bi(
+                  `تم حذف المضاد الحيوي (${targetAb.antibioticNameEn}) من التقرير`,
+                  `Removed (${targetAb.antibioticNameEn}) from report`
+                ),
+                'info'
+              );
+              renderModalContent();
+            },
+          });
         }
+      });
+    });
+
+    // Delete entire culture report from inside modal with confirmation
+    document.getElementById('cd-delete-whole-culture-btn')?.addEventListener('click', () => {
+      syncRowsFromDom();
+      openDeleteConfirmModal({
+        recordLabel: `${rec.reportNumber} — ${rec.patientName}`,
+        customWarning: i18n.bi(
+          'هل أنت متأكد من حذف تقرير المزرعة البكتيرية وجدول الحساسية بالكامل؟',
+          'Are you sure you want to permanently delete this entire Culture & Sensitivity report?'
+        ),
+        onConfirm: async (reason) => {
+          if (!(await enforcePermission('delete', 'microbiology'))) return;
+          await db.cultureResults.delete(rec.id);
+          await authService.logAudit(
+            `حذف تقرير مزرعة بكتيرية: ${rec.reportNumber} (${rec.patientName})`,
+            'microbiology',
+            rec.id,
+            reason || ''
+          );
+          showToast(
+            i18n.bi(
+              `تم حذف تقرير المزرعة (${rec.reportNumber}) بنجاح`,
+              `Culture report (${rec.reportNumber}) deleted`
+            ),
+            'success'
+          );
+          onUpdated();
+        },
       });
     });
 

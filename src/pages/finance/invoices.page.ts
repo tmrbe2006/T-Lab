@@ -233,6 +233,126 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     renderTable();
   };
 
+  const openEditInvoiceModal = (inv: Invoice) => {
+    const pat = patMap.get(inv.patientId);
+    openCustomModal(
+      `${i18n.bi('✏️ تعديل بيانات الفاتورة:', '✏️ Edit Invoice:')} ${inv.invoiceNumber}`,
+      `
+        <form id="inv-edit-form" class="space-y-4 text-xs">
+          <div class="rounded-lg bg-slate-100 p-3 flex flex-wrap items-center justify-between gap-2">
+            <div><span class="text-slate-500">${i18n.bi('رقم الفاتورة:', 'Invoice #:')}</span> <strong class="font-mono text-slate-900">${inv.invoiceNumber}</strong></div>
+            <div><span class="text-slate-500">${i18n.bi('المريض:', 'Patient:')}</span> <strong class="text-slate-900">${pat?.name || inv.patientId}</strong></div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('تاريخ الفاتورة *', 'Invoice Date *')}</label>
+              <input name="date" type="date" required value="${inv.date}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('الإجمالي قبل الخصم (Subtotal) *', 'Subtotal *')}</label>
+              <input id="edit-inv-sub" name="subtotal" type="number" step="0.01" min="0" required value="${inv.subtotal}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('قيمة الخصم (Discount)', 'Discount Amount')}</label>
+              <input id="edit-inv-disc" name="discountAmount" type="number" step="0.01" min="0" value="${inv.discountAmount}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-amber-700" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('قيمة الضريبة (Tax)', 'Tax Amount')}</label>
+              <input id="edit-inv-tax" name="taxAmount" type="number" step="0.01" min="0" value="${inv.taxAmount}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-sky-700" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('الصافي المطلوب (Net Total)', 'Net Total')}</label>
+              <input id="edit-inv-net" name="netTotal" type="number" step="0.01" min="0" required value="${inv.netTotal}" class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono font-extrabold text-slate-900" />
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('المبلغ المدفوع (Paid Amount)', 'Paid Amount')}</label>
+              <input id="edit-inv-paid" name="paidAmount" type="number" step="0.01" min="0" required value="${inv.paidAmount}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold text-emerald-700" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('طريقة الدفع', 'Payment Method')}</label>
+              <select name="paymentMethod" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <option value="cash" ${inv.paymentMethod === 'cash' ? 'selected' : ''}>${i18n.bi('نقدي (Cash)', 'Cash')}</option>
+                <option value="card" ${inv.paymentMethod === 'card' ? 'selected' : ''}>${i18n.bi('بطاقة بنكية (POS Card)', 'POS Card')}</option>
+                <option value="bank_transfer" ${inv.paymentMethod === 'bank_transfer' ? 'selected' : ''}>${i18n.bi('تحويل بنكي (Bank Transfer)', 'Bank Transfer')}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-bold text-slate-700 mb-1">${i18n.bi('جهة التعاقد (إن وجدت)', 'Contract Name (Optional)')}</label>
+              <input name="contractName" type="text" value="${inv.contractName || ''}" placeholder="${i18n.bi('نقدي / اسم النقابة أو الشركة', 'Cash / Corporate Contract')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2 text-xs font-bold text-white hover:bg-sky-700 cursor-pointer">
+              💾 ${i18n.bi('حفظ تعديلات الفاتورة', 'Save Invoice Changes')}
+            </button>
+          </div>
+        </form>
+      `,
+      (close) => {
+        const subEl = document.getElementById('edit-inv-sub') as HTMLInputElement | null;
+        const discEl = document.getElementById('edit-inv-disc') as HTMLInputElement | null;
+        const taxEl = document.getElementById('edit-inv-tax') as HTMLInputElement | null;
+        const netEl = document.getElementById('edit-inv-net') as HTMLInputElement | null;
+
+        const recalcNet = () => {
+          const s = Number(subEl?.value) || 0;
+          const d = Number(discEl?.value) || 0;
+          const t = Number(taxEl?.value) || 0;
+          if (netEl) {
+            netEl.value = String(Math.max(0, Math.round((s - d + t) * 100) / 100));
+          }
+        };
+        subEl?.addEventListener('input', recalcNet);
+        discEl?.addEventListener('input', recalcNet);
+        taxEl?.addEventListener('input', recalcNet);
+
+        const form = document.getElementById('inv-edit-form') as HTMLFormElement | null;
+        form?.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (!(await enforcePermission('edit', 'invoices'))) return;
+          const fd = new FormData(form);
+          const subtotal = Math.max(0, Number(fd.get('subtotal')) || 0);
+          const discountAmount = Math.max(0, Number(fd.get('discountAmount')) || 0);
+          const taxAmount = Math.max(0, Number(fd.get('taxAmount')) || 0);
+          const netTotal = Math.max(0, Number(fd.get('netTotal')) || 0);
+          const paidAmount = Math.min(netTotal, Math.max(0, Number(fd.get('paidAmount')) || 0));
+          const remainingAmount = Math.max(0, Math.round((netTotal - paidAmount) * 100) / 100);
+
+          inv.date = String(fd.get('date') || inv.date);
+          inv.subtotal = subtotal;
+          inv.discountAmount = discountAmount;
+          inv.taxAmount = taxAmount;
+          inv.netTotal = netTotal;
+          inv.paidAmount = paidAmount;
+          inv.remainingAmount = remainingAmount;
+          inv.status = remainingAmount === 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+          inv.paymentMethod = (fd.get('paymentMethod') as PaymentMethod) || 'cash';
+          const cName = String(fd.get('contractName') || '').trim();
+          inv.contractName = cName || undefined;
+
+          await invoicesRepository.save(inv);
+          await authService.logAudit(
+            `تعديل بيانات الفاتورة ${inv.invoiceNumber}`,
+            'invoices',
+            inv.id
+          );
+          showToast(
+            i18n.bi(`تم حفظ تعديلات الفاتورة (${inv.invoiceNumber}) بنجاح`, `Invoice ${inv.invoiceNumber} updated`),
+            'success'
+          );
+          close();
+          invoices = await invoicesRepository.getAll();
+          renderTable();
+        });
+      }
+    );
+  };
+
   const renderTable = () => {
     const filteredRows = getFiltered();
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
@@ -240,7 +360,6 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     const rows = paginateArray(filteredRows, currentPage, itemsPerPage);
     const pagState = { currentPage, itemsPerPage, totalItems: filteredRows.length };
     const canAddPay = can(user, 'addPayment', 'invoices');
-    const canDelete = can(user, 'delete', 'invoices');
     const canPrint = can(user, 'print', 'invoices');
 
     container.innerHTML = `
@@ -322,6 +441,12 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                       </td>
                       <td class="py-2.5 px-3">
                         <div class="flex flex-wrap items-center gap-1.5">
+                          <button type="button" data-edit-inv="${inv.id}" class="inv-edit-btn rounded-md border border-sky-600 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                            ✏️ ${i18n.bi('تعديل', 'Edit')}
+                          </button>
+                          <button type="button" data-del="${inv.id}" class="inv-del-btn rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                            🗑️ ${i18n.dict.actions.delete}
+                          </button>
                           ${
                             inv.status !== 'paid' || inv.remainingAmount > 0
                               ? `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 cursor-pointer shadow-2xs">
@@ -345,9 +470,6 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                                  <button type="button" data-th="${inv.id}" class="inv-th-btn rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-700 hover:bg-indigo-100 font-bold cursor-pointer">receipt 80mm</button>`
                               : ''
                           }
-                          <button type="button" data-del="${inv.id}" class="inv-del-btn rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
-                            🗑️ ${i18n.dict.actions.delete}
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -418,6 +540,13 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
         </table>
       `;
       printService.printA4(i18n.dict.nav.invoices, html);
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.inv-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = invoices.find((x) => x.id === btn.getAttribute('data-edit-inv'));
+        if (target) openEditInvoiceModal(target);
+      });
     });
 
     document.querySelectorAll<HTMLButtonElement>('.inv-mark-paid-btn').forEach((btn) => {

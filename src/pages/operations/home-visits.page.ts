@@ -2,6 +2,7 @@ import { authService } from '../../auth/auth.service';
 import {
   closeModal,
   escapeHtml,
+  openDeleteConfirmModal,
   openModal,
   renderPageHeader,
   showToast,
@@ -142,7 +143,7 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         ${filtered
           .map((v) => {
-            const stInfo = STATUS_LABELS[v.status];
+            const stInfo = STATUS_LABELS[v.status] || STATUS_LABELS.scheduled;
             return `
               <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs flex flex-col justify-between gap-4">
                 <div class="space-y-2.5">
@@ -151,9 +152,17 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
                       <span class="font-mono text-xs font-extrabold px-2.5 py-1 rounded bg-slate-900 text-white">${escapeHtml(v.visitNumber)}</span>
                       <span class="text-xs font-bold text-slate-600">📅 ${escapeHtml(v.scheduledDate)} | ⏰ ${escapeHtml(v.scheduledTimeSlot)}</span>
                     </div>
-                    <span class="px-2.5 py-1 rounded-full text-xs font-extrabold ${stInfo.badgeCls}">
-                      ${escapeHtml(i18n.bi(stInfo.ar, stInfo.en))}
-                    </span>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="px-2.5 py-1 rounded-full text-xs font-extrabold ${stInfo.badgeCls}">
+                        ${escapeHtml(i18n.bi(stInfo.ar, stInfo.en))}
+                      </span>
+                      <button type="button" data-edit-hv="${v.id}" class="rounded-lg border border-sky-600 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                        ✏️ ${i18n.bi('تعديل', 'Edit')}
+                      </button>
+                      <button type="button" data-del-hv="${v.id}" class="rounded-lg border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                        🗑️ ${i18n.bi('حذف', 'Delete')}
+                      </button>
+                    </div>
                   </div>
 
                   <div>
@@ -176,26 +185,33 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
                         ${i18n.bi('رسوم الزيارة:', 'Visit Fee:')} ${formatCurrency(v.visitFee)} | ${i18n.bi('الإجمالي التقديري:', 'Est. Total:')} ${formatCurrency(v.visitFee + v.estimatedTestsTotal)}
                       </span>
                     </div>
+                    ${v.notes ? `<div class="text-[11px] text-slate-500 pt-1">📝 ${escapeHtml(v.notes)}</div>` : ''}
                   </div>
                 </div>
 
                 <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
                   <div class="flex flex-wrap gap-1.5">
-                    <button data-wa-phleb="${v.id}" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-500 cursor-pointer">
+                    <button type="button" data-wa-phleb="${v.id}" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-500 cursor-pointer">
                       💬 ${i18n.bi('واتساب للمندوب', 'WhatsApp Phlebotomist')}
                     </button>
-                    <button data-wa-patient="${v.id}" class="rounded-lg border border-emerald-600 px-3 py-1.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 cursor-pointer">
+                    <button type="button" data-wa-patient="${v.id}" class="rounded-lg border border-emerald-600 px-3 py-1.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 cursor-pointer">
                       💬 ${i18n.bi('تأكيد للمريض', 'Notify Patient')}
                     </button>
-                    <button data-print-hv="${v.id}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">
+                    <button type="button" data-print-hv="${v.id}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100 cursor-pointer">
                       🖨️ ${i18n.bi('أمر تحرك 80mm', 'Dispatch Slip')}
+                    </button>
+                    <button type="button" data-edit-hv="${v.id}" class="rounded-lg border border-sky-600 bg-white px-2.5 py-1.5 text-[11px] font-bold text-sky-700 hover:bg-sky-50 cursor-pointer">
+                      ✏️ ${i18n.bi('تعديل البيانات', 'Edit Visit')}
+                    </button>
+                    <button type="button" data-del-hv="${v.id}" class="rounded-lg border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                      🗑️ ${i18n.bi('حذف', 'Delete')}
                     </button>
                   </div>
 
                   ${
                     stInfo.next
                       ? `
-                    <button data-advance-hv="${v.id}" class="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-extrabold text-white hover:bg-sky-500 cursor-pointer">
+                    <button type="button" data-advance-hv="${v.id}" class="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-extrabold text-white hover:bg-sky-500 cursor-pointer">
                       ${escapeHtml(i18n.bi(stInfo.nextLabelAr || '', stInfo.nextLabelEn || ''))}
                     </button>
                   `
@@ -235,6 +251,49 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
           'success'
         );
         render();
+      });
+    });
+
+    container.querySelectorAll('[data-edit-hv]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!(await enforcePermission('edit', 'homeVisits'))) return;
+        const id = btn.getAttribute('data-edit-hv')!;
+        const rec = sorted.find((x) => x.id === id);
+        if (!rec) return;
+        openHomeVisitFormModal(patients, employees, render, rec);
+      });
+    });
+
+    container.querySelectorAll('[data-del-hv]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-del-hv')!;
+        const rec = sorted.find((x) => x.id === id);
+        if (!rec) return;
+        openDeleteConfirmModal({
+          recordLabel: `${rec.visitNumber} — ${rec.patientName} (${rec.scheduledDate})`,
+          customWarning: i18n.bi(
+            'هل أنت متأكد من حذف زيارة السحب المنزلي هذه نهائياً؟',
+            'Are you sure you want to permanently delete this home phlebotomy visit?'
+          ),
+          onConfirm: async (reason) => {
+            if (!(await enforcePermission('delete', 'homeVisits'))) return;
+            await db.homeVisits.delete(rec.id);
+            await authService.logAudit(
+              `حذف زيارة سحب منزلي: ${rec.visitNumber} (${rec.patientName})`,
+              'homeVisits',
+              rec.id,
+              reason || ''
+            );
+            showToast(
+              i18n.bi(
+                `تم حذف زيارة السحب المنزلي (${rec.visitNumber}) بنجاح`,
+                `Home visit (${rec.visitNumber}) deleted successfully`
+              ),
+              'success'
+            );
+            await render();
+          },
+        });
       });
     });
 
@@ -316,21 +375,39 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
 
     document.getElementById('hv-new-btn')?.addEventListener('click', async () => {
       if (!(await enforcePermission('add', 'homeVisits'))) return;
-      openNewHomeVisitModal(patients, employees, render);
+      openHomeVisitFormModal(patients, employees, render);
     });
   };
 
   await render();
 }
 
-function openNewHomeVisitModal(
+function openHomeVisitFormModal(
   patients: Array<{ id: string; name: string; phone: string; address: string }>,
   employees: Array<{ id: string; nameAr: string; phone: string }>,
-  onSaved: () => void
+  onSaved: () => void,
+  existing?: HomeVisitRecord
 ): void {
   const today = new Date().toISOString().slice(0, 10);
+  const phlebOptions = [
+    { id: 'EMP-PHLEB-1', nameAr: 'فني سحب/ مصطفى عبد الحميد', phone: '01099887766' },
+    { id: 'EMP-PHLEB-2', nameAr: 'أخصائية سحب/ آية الرحمن طارق', phone: '01288776655' },
+    ...employees.map((e) => ({ id: e.id, nameAr: e.nameAr, phone: e.phone })),
+  ];
+  const hasExistingPhleb =
+    existing && phlebOptions.some((p) => p.id === existing.phlebotomistId || p.nameAr === existing.phlebotomistName);
+  if (existing && !hasExistingPhleb) {
+    phlebOptions.unshift({
+      id: existing.phlebotomistId,
+      nameAr: existing.phlebotomistName,
+      phone: existing.phlebotomistPhone,
+    });
+  }
+
   openModal({
-    title: i18n.bi('🚐 حجز زيارة سحب منزلي جديدة', '🚐 Schedule New Home Phlebotomy Visit'),
+    title: existing
+      ? i18n.bi(`✏️ تعديل زيارة السحب المنزلي: ${existing.visitNumber}`, `✏️ Edit Home Visit: ${existing.visitNumber}`)
+      : i18n.bi('🚐 حجز زيارة سحب منزلي جديدة', '🚐 Schedule New Home Phlebotomy Visit'),
     size: 'lg',
     content: `
       <form id="new-hv-form" class="space-y-3">
@@ -338,86 +415,149 @@ function openNewHomeVisitModal(
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('المريض *', 'Patient *')}</label>
             <select id="nhv-patient" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              ${patients.map((p) => `<option value="${p.id}">${escapeHtml(p.name)} (${escapeHtml(p.phone)})</option>`).join('')}
+              ${
+                existing && !patients.some((p) => p.id === existing.patientId)
+                  ? `<option value="${escapeHtml(existing.patientId)}" selected>${escapeHtml(existing.patientName)} (${escapeHtml(existing.patientPhone)})</option>`
+                  : ''
+              }
+              ${patients
+                .map(
+                  (p) =>
+                    `<option value="${p.id}" ${existing?.patientId === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.phone)})</option>`
+                )
+                .join('')}
             </select>
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('مندوب السحب المكلف *', 'Assigned Phlebotomist *')}</label>
             <select id="nhv-phleb" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              <option value="EMP-PHLEB-1|فني سحب/ مصطفى عبد الحميد|01099887766">فني سحب/ مصطفى عبد الحميد (01099887766)</option>
-              <option value="EMP-PHLEB-2|أخصائية سحب/ آية الرحمن طارق|01288776655">أخصائية سحب/ آية الرحمن طارق (01288776655)</option>
-              ${employees.map((e) => `<option value="${e.id}|${escapeHtml(e.nameAr)}|${escapeHtml(e.phone)}">${escapeHtml(e.nameAr)} (${escapeHtml(e.phone)})</option>`).join('')}
+              ${phlebOptions
+                .map((p) => {
+                  const val = `${p.id}|${escapeHtml(p.nameAr)}|${escapeHtml(p.phone)}`;
+                  const isSel =
+                    existing &&
+                    (existing.phlebotomistId === p.id || existing.phlebotomistName === p.nameAr);
+                  return `<option value="${val}" ${isSel ? 'selected' : ''}>${escapeHtml(p.nameAr)} (${escapeHtml(p.phone)})</option>`;
+                })
+                .join('')}
             </select>
           </div>
           <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('اسم المريض (للتعديل السريع)', 'Patient Name')}</label>
+            <input id="nhv-patient-name" type="text" required value="${escapeHtml(existing?.patientName || patients[0]?.name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('رقم هاتف المريض *', 'Patient Phone *')}</label>
+            <input id="nhv-patient-phone" type="text" required value="${escapeHtml(existing?.patientPhone || patients[0]?.phone || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+          </div>
+          <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('تاريخ الزيارة *', 'Visit Date *')}</label>
-            <input id="nhv-date" type="date" value="${today}" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <input id="nhv-date" type="date" value="${escapeHtml(existing?.scheduledDate || today)}" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('الفترة الزمنية *', 'Time Slot *')}</label>
-            <input id="nhv-slot" type="text" value="10:00 AM - 11:30 AM" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <input id="nhv-slot" type="text" value="${escapeHtml(existing?.scheduledTimeSlot || '10:00 AM - 11:30 AM')}" required class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('العنوان التفصيلي *', 'Detailed Address *')}</label>
-            <input id="nhv-address" type="text" required value="${escapeHtml(patients[0]?.address || 'شارع التحرير - الدقي')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <input id="nhv-address" type="text" required value="${escapeHtml(existing?.address || patients[0]?.address || 'شارع التحرير - الدقي')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('علامة مميزة (Landmark)', 'Landmark')}</label>
-            <input id="nhv-landmark" type="text" value="بجوار صيدلية العزبي" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <input id="nhv-landmark" type="text" value="${escapeHtml(existing?.landmark ?? 'بجوار صيدلية العزبي')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
         </div>
 
         <div>
           <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('بيان التحاليل المطلوبة *', 'Requested Tests Summary *')}</label>
-          <input id="nhv-tests" type="text" required value="صورة دم كاملة CBC + وظائف كبد وكلى + سكر تراكمي HbA1c" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input id="nhv-tests" type="text" required value="${escapeHtml(existing?.requestedTestsSummary || 'صورة دم كاملة CBC + وظائف كبد وكلى + سكر تراكمي HbA1c')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('رسوم الانتقال المنزلي', 'Home Visit Fee')}</label>
-            <input id="nhv-fee" type="number" value="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="nhv-fee" type="number" value="${existing ? existing.visitFee : 100}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('قيمة التحاليل التقديرية', 'Est. Tests Amount')}</label>
-            <input id="nhv-total" type="number" value="650" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="nhv-total" type="number" value="${existing ? existing.estimatedTestsTotal : 650}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('حالة الزيارة', 'Visit Status')}</label>
+            <select id="nhv-status" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">
+              ${(['scheduled', 'dispatched', 'sample_collected', 'delivered_to_lab', 'cancelled'] as HomeVisitStatus[])
+                .map(
+                  (st) =>
+                    `<option value="${st}" ${(existing?.status || 'scheduled') === st ? 'selected' : ''}>${escapeHtml(i18n.bi(STATUS_LABELS[st].ar, STATUS_LABELS[st].en))}</option>`
+                )
+                .join('')}
+            </select>
           </div>
           <div class="flex items-end pb-2">
             <label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-              <input id="nhv-fasting" type="checkbox" checked class="w-4 h-4 accent-sky-600" />
+              <input id="nhv-fasting" type="checkbox" ${existing ? (existing.fastingRequired ? 'checked' : '') : 'checked'} class="w-4 h-4 accent-sky-600" />
               ${i18n.bi('يشترط صيام المريض', 'Fasting Required')}
             </label>
           </div>
         </div>
 
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('ملاحظات الزيارة', 'Visit Notes')}</label>
+          <input id="nhv-notes" type="text" value="${escapeHtml(existing?.notes || 'تم الحجز عبر نظام السحب المنزلي')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
           <button type="button" id="nhv-cancel" class="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 cursor-pointer">${i18n.dict.actions.cancelBtn}</button>
           <button type="submit" class="rounded-lg bg-sky-600 px-5 py-2 text-xs font-bold text-white hover:bg-sky-500 cursor-pointer">
-            ✅ ${i18n.bi('تأكيد حجز الزيارة المنزلية', 'Confirm Home Visit')}
+            💾 ${existing ? i18n.bi('حفظ التعديلات', 'Save Changes') : i18n.bi('تأكيد حجز الزيارة المنزلية', 'Confirm Home Visit')}
           </button>
         </div>
       </form>
     `,
   });
 
+  const patSel = document.getElementById('nhv-patient') as HTMLSelectElement | null;
+  patSel?.addEventListener('change', () => {
+    const picked = patients.find((p) => p.id === patSel.value);
+    if (!picked) return;
+    const nameInput = document.getElementById('nhv-patient-name') as HTMLInputElement | null;
+    const phoneInput = document.getElementById('nhv-patient-phone') as HTMLInputElement | null;
+    const addrInput = document.getElementById('nhv-address') as HTMLInputElement | null;
+    if (nameInput) nameInput.value = picked.name;
+    if (phoneInput) phoneInput.value = picked.phone;
+    if (addrInput && picked.address) addrInput.value = picked.address;
+  });
+
   document.getElementById('nhv-cancel')?.addEventListener('click', closeModal);
   document.getElementById('new-hv-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const patientId = (document.getElementById('nhv-patient') as HTMLSelectElement).value;
-    const pat = patients.find((p) => p.id === patientId) || patients[0];
+    const pat = patients.find((p) => p.id === patientId);
+    const patientName =
+      (document.getElementById('nhv-patient-name') as HTMLInputElement).value.trim() ||
+      pat?.name ||
+      '-';
+    const patientPhone =
+      (document.getElementById('nhv-patient-phone') as HTMLInputElement).value.trim() ||
+      pat?.phone ||
+      '01000000000';
     const [phlebId, phlebName, phlebPhone] = (
       document.getElementById('nhv-phleb') as HTMLSelectElement
     ).value.split('|');
+    const selectedStatus =
+      ((document.getElementById('nhv-status') as HTMLSelectElement | null)?.value as HomeVisitStatus) ||
+      'scheduled';
 
     const user = authService.getCurrentUser();
     const rec: HomeVisitRecord = {
-      id: generateId('HV'),
-      visitNumber: `HV-2025-${Math.floor(100 + Math.random() * 899)}`,
-      patientId: pat?.id || 'PAT-1',
-      patientName: pat?.name || '-',
-      patientPhone: pat?.phone || '01000000000',
+      id: existing?.id || generateId('HV'),
+      visitNumber: existing?.visitNumber || `HV-2025-${Math.floor(100 + Math.random() * 899)}`,
+      patientId: patientId || pat?.id || 'PAT-1',
+      patientName,
+      patientPhone,
       address: (document.getElementById('nhv-address') as HTMLInputElement).value.trim(),
       landmark: (document.getElementById('nhv-landmark') as HTMLInputElement).value.trim(),
       scheduledDate: (document.getElementById('nhv-date') as HTMLInputElement).value,
@@ -426,18 +566,25 @@ function openNewHomeVisitModal(
       phlebotomistName: phlebName,
       phlebotomistPhone: phlebPhone,
       requestedTestsSummary: (document.getElementById('nhv-tests') as HTMLInputElement).value.trim(),
-      visitFee: parseFloat((document.getElementById('nhv-fee') as HTMLInputElement).value) || 100,
+      visitFee: parseFloat((document.getElementById('nhv-fee') as HTMLInputElement).value) || 0,
       estimatedTestsTotal: parseFloat((document.getElementById('nhv-total') as HTMLInputElement).value) || 0,
       fastingRequired: (document.getElementById('nhv-fasting') as HTMLInputElement).checked,
-      status: 'scheduled',
-      notes: 'تم الحجز عبر نظام السحب المنزلي',
-      createdBy: user?.fullNameAr || 'Reception',
-      createdAt: new Date().toISOString(),
+      status: selectedStatus,
+      collectedAt: existing?.collectedAt,
+      deliveredAt: existing?.deliveredAt,
+      notes: (document.getElementById('nhv-notes') as HTMLInputElement).value.trim() || 'تم الحجز عبر نظام السحب المنزلي',
+      createdBy: existing?.createdBy || user?.fullNameAr || 'Reception',
+      createdAt: existing?.createdAt || new Date().toISOString(),
     };
 
     await db.homeVisits.put(rec);
     closeModal();
-    showToast(i18n.bi('تم تسجيل زيارة السحب المنزلي بنجاح', 'Home visit scheduled'), 'success');
+    showToast(
+      existing
+        ? i18n.bi(`تم حفظ تعديلات الزيارة (${rec.visitNumber}) بنجاح`, `Home visit (${rec.visitNumber}) updated`)
+        : i18n.bi('تم تسجيل زيارة السحب المنزلي بنجاح', 'Home visit scheduled'),
+      'success'
+    );
     onSaved();
   });
 }

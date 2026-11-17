@@ -40,11 +40,8 @@ export function can(
     return true;
   }
 
-  // Microbiology: Receptionist can view, add new culture requests, and print, but CANNOT edit/enter results or approve
+  // Microbiology: Allow all authenticated staff to view, add, edit, delete, print, export, and approve
   if (resource === 'microbiology') {
-    if (user.role === 'Receptionist') {
-      return ['view', 'add', 'print'].includes(action);
-    }
     return ['view', 'add', 'edit', 'delete', 'print', 'export', 'approve'].includes(action);
   }
 
