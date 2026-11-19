@@ -44,7 +44,7 @@ class MySQLSyncService {
           host: parsed.host || '127.0.0.1',
           port: Number(parsed.port || 3306),
           user: parsed.user || 'root',
-          password: parsed.password || '',
+          password: '', // Never hydrate database secrets from the browser
           database: parsed.database || 'tlab_db',
           autoSync: Boolean(parsed.autoSync),
         };
@@ -63,7 +63,7 @@ class MySQLSyncService {
   }
 
   public saveConfig(cfg: MySQLClientConfig): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...cfg, password: '' }));
   }
 
   private async fetchMySQLApi<T extends { ok?: boolean; error?: string }>(
@@ -118,10 +118,7 @@ class MySQLSyncService {
           host: envCfg.host || localCfg.host || '127.0.0.1',
           port: Number(envCfg.port || localCfg.port || 3306),
           user: envCfg.user || localCfg.user || 'root',
-          password:
-            envCfg.password && envCfg.password.trim() !== ''
-              ? envCfg.password.trim()
-              : localCfg.password || '',
+          password: '',
           database: envCfg.database || localCfg.database || 'tlab_db',
           autoSync:
             typeof envCfg.autoSync === 'boolean' ? envCfg.autoSync : Boolean(localCfg.autoSync),
@@ -494,9 +491,8 @@ class MySQLSyncService {
       this.connectedDb = cfg.database || 'tlab_db';
       this.saveConfig({ ...cfg, autoSync: true });
       this.updateTopHeaderButtonDOM();
-      if ((res.totalRowsPulled || 0) === 0) {
-        await this.pushAllToMySQL({ ...cfg, autoSync: true });
-      }
+      // Never initialize an empty server by silently uploading local demo data.
+      // A manual, reviewed migration must explicitly authorize the first upload.
     }
   }
 
@@ -741,7 +737,7 @@ class MySQLSyncService {
               <input
                 id="${prefix}-password"
                 type="password"
-                value="${cfg.password || ''}"
+                value=""
                 placeholder="••••••••"
                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono"
               />
@@ -901,7 +897,7 @@ class MySQLSyncService {
       if (hostEl && envCfg.host) hostEl.value = envCfg.host;
       if (portEl && envCfg.port) portEl.value = String(envCfg.port);
       if (userEl && envCfg.user) userEl.value = envCfg.user;
-      if (passEl && envCfg.password) passEl.value = envCfg.password;
+      if (passEl) passEl.value = '';
       if (dbEl && envCfg.database) dbEl.value = envCfg.database;
       if (autoEl) autoEl.checked = Boolean(envCfg.autoSync);
 
