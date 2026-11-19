@@ -12,6 +12,7 @@ import { ServerPermissionStore, installPermissionAdminRoutes } from './server/se
 import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflow';
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './server/preliminary-results';
+import { InvoiceDraftStore, installInvoiceDraftRoutes } from './server/invoice-drafts';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -321,10 +322,12 @@ async function startServer() {
   const patientDomain = new PatientDomainStore(safeDbConnection);
   const labWorkflow = new LabWorkflowStore(safeDbConnection);
   const preliminaryResults = new PreliminaryResultStore(safeDbConnection);
+  const invoiceDrafts = new InvoiceDraftStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
     installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
+    installInvoiceDraftRoutes(secureApp, invoiceDrafts, serverPermissions, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
 
@@ -960,6 +963,7 @@ Return a strict JSON object with these exact keys:
         await serverPermissions.ensureTable();
         await patientDomain.ensureTables();
         await labWorkflow.ensureTables();
+        await invoiceDrafts.ensureTables();
         console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
       } catch (dbErr: unknown) {
         console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
