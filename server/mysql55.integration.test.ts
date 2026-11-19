@@ -1264,4 +1264,64 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('isolates branch membership and keeps branch administration Developer-only', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const staff = new StaffAccountStore(connect);
+    const registry = new BranchRegistry(connect);
+    await staff.ensureTable();
+    await registry.ensureTables();
+    const suffix = Date.now().toString(36);
+    const a = await staff.create('branch_a_' + suffix, 'Branch-employee-A-2026!', 'Receptionist');
+    const b = await staff.create('branch_b_' + suffix, 'Branch-employee-B-2026!', 'Receptionist');
+    const one = await registry.create('branch_one_' + suffix, 'Sample branch one');
+    const two = await registry.create('branch_two_' + suffix, 'Sample branch two');
+    expect(await registry.isAllowed({ userId: a.id, username: a.username, role: a.role }, one.id)).toBe(false);
+    expect(await registry.grant(a.id, one.id)).toBe(true);
+    expect(await registry.grant(b.id, two.id)).toBe(true);
+    expect(await registry.isAllowed({ userId: a.id, username: a.username, role: a.role }, one.id)).toBe(true);
+    expect(await registry.isAllowed({ userId: a.id, username: a.username, role: a.role }, two.id)).toBe(false);
+    expect(await registry.isAllowed({ userId: b.id, username: b.username, role: b.role }, one.id)).toBe(false);
+    expect(await registry.isAllowed({ userId: b.id, username: b.username, role: b.role }, two.id)).toBe(true);
+    await registry.revoke(a.id, one.id);
+    expect(await registry.isAllowed({ userId: a.id, username: a.username, role: a.role }, one.id)).toBe(false);
+    const app = express();
+    app.use(express.json());
+    installBranchRegistryRoutes(app, registry, async req => {
+      const role = req.get('x-ci-role');
+      return role ? {role, userId: role === 'Receptionist' ? a.id : 'server-developer',
+        username: role.toLowerCase()} : undefined;
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + addr.port;
+      expect((await fetch(base + '/api/v2/branches')).status).toBe(401);
+      const staffList = await fetch(base + '/api/v2/branches', {headers:{'x-ci-role':'Receptionist'}});
+      expect(staffList.status).toBe(200);
+      expect((await staffList.json()).branches.some((row:{id:string})=>row.id===two.id)).toBe(false);
+      const denied = await fetch(base + '/api/v2/branches', {
+        method:'POST', headers:{'content-type':'application/json','x-ci-role':'Receptionist'},
+        body:JSON.stringify({code:'branch_other_'+suffix,name:'Denied branch'}),
+      });
+      expect(denied.status).toBe(403);
+      const created = await fetch(base + '/api/v2/branches', {
+        method:'POST', headers:{'content-type':'application/json','x-ci-role':'Developer'},
+        body:JSON.stringify({code:'branch_third_'+suffix,name:'Third sample branch'}),
+      });
+      expect(created.status).toBe(201);
+      expect((await created.json()).branch.id).toMatch(/^br_/);
+    } finally {
+      await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()));
+    }
+  });
+
 });
