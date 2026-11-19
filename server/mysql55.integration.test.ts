@@ -1337,4 +1337,87 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('isolates branch patient CRUD and audit between staff accounts on MySQL 5.5', async () => {
+    const connect=()=>mysql.createConnection({
+      host:process.env.MYSQL_HOST||'127.0.0.1',
+      port:Number(process.env.MYSQL_PORT||3306),
+      user:process.env.MYSQL_USER||'root',
+      password:process.env.MYSQL_PASSWORD||'',
+      database:process.env.MYSQL_DATABASE||'tlab_mysql55_ci',
+    });
+    const branches=new BranchRegistry(connect);
+    const patients=new BranchPatientStore(connect);
+    const grants=new ServerPermissionStore(connect);
+    const staff=new StaffAccountStore(connect);
+    await staff.ensureTable();await grants.ensureTable();
+    await branches.ensureTables();await patients.ensureTables();
+    const suffix=Date.now().toString(36);
+    const a=await staff.create('v3_a_'+suffix,'Branch-V3-UserA-2026!','Receptionist');
+    const b=await staff.create('v3_b_'+suffix,'Branch-V3-UserB-2026!','Receptionist');
+    const one=await branches.create('v3_one_'+suffix,'First test branch');
+    const two=await branches.create('v3_two_'+suffix,'Second test branch');
+    expect(await branches.grant(a.id,one.id)).toBe(true);
+    expect(await branches.grant(b.id,two.id)).toBe(true);
+    const app=express();app.use(express.json());
+    const resolve=async (req:express.Request)=>{
+      const user=req.get('x-ci-user');
+      if(user==='a')return {userId:a.id,role:a.role,username:a.username};
+      if(user==='b')return {userId:b.id,role:b.role,username:b.username};
+      return undefined;
+    };
+    installBranchPatientRoutes(app,patients,branches,grants,resolve);
+    const previous=process.env.TLAB_MULTIBRANCH_MODE;
+    process.env.TLAB_MULTIBRANCH_MODE='true';
+    const server=await new Promise<import('node:http').Server>(resolve=>{
+      const listener=app.listen(0,'127.0.0.1',()=>resolve(listener));
+    });
+    try {
+      const addr=server.address();if(!addr||typeof addr==='string')throw Error('Missing port');
+      const base='http://127.0.0.1:'+addr.port+'/api/v3/branches/';
+      const url=(branch:string)=>base+branch+'/patients';
+      const post=(branch:string,who:string,name:string)=>fetch(url(branch),{
+        method:'POST',headers:{'x-ci-user':who,'content-type':'application/json'},
+        body:JSON.stringify({name,phone:'+201000000000',gender:'male'}),
+      });
+      expect((await post(one.id,'b','Cross branch rejected')).status).toBe(404);
+      const created=await post(one.id,'a','Synthetic branch one patient');
+      expect(created.status).toBe(201);
+      const p=(await created.json()).patient;
+      expect(p.branchId).toBe(one.id);
+      expect((await fetch(url(one.id)+'/'+p.id,{headers:{'x-ci-user':'a'}})).status).toBe(200);
+      expect((await fetch(url(one.id)+'/'+p.id,{headers:{'x-ci-user':'b'}})).status).toBe(404);
+      const list=await fetch(url(two.id),{headers:{'x-ci-user':'b'}});
+      expect(list.status).toBe(200);
+      expect((await list.json()).items.some((row:{id:string})=>row.id===p.id)).toBe(false);
+      const stale=await fetch(url(one.id)+'/'+p.id,{
+        method:'PATCH',headers:{'x-ci-user':'a','content-type':'application/json'},
+        body:JSON.stringify({version:99,changes:{name:'Invalid revision'}}),
+      });
+      expect(stale.status).toBe(409);
+      const edited=await fetch(url(one.id)+'/'+p.id,{
+        method:'PATCH',headers:{'x-ci-user':'a','content-type':'application/json'},
+        body:JSON.stringify({version:1,changes:{name:'Updated sample patient'}}),
+      });
+      expect(edited.status).toBe(200);
+      const otherAccess=await fetch(url(two.id)+'/'+p.id,{headers:{'x-ci-user':'b'}});
+      expect(otherAccess.status).toBe(404);
+      const db=await connect();
+      try {
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT branch_id, version FROM secure_branch_patients WHERE id=?',[p.id],
+        );
+        expect(rows[0].branch_id).toBe(one.id);expect(Number(rows[0].version)).toBe(2);
+        const [audit]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS n FROM secure_branch_patient_audit WHERE branch_id=? AND record_id=?',
+          [one.id,p.id],
+        );
+        expect(Number(audit[0].n)).toBe(2);
+      } finally{await db.end();}
+    } finally {
+      if(previous===undefined)delete process.env.TLAB_MULTIBRANCH_MODE;
+      else process.env.TLAB_MULTIBRANCH_MODE=previous;
+      await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()));
+    }
+  });
+
 });
