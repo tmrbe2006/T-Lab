@@ -58,6 +58,34 @@ export class JournalDraftStore {
     } finally { await db.end(); }
   }
 
+  async find(id: string, actor: ServerIdentity) {
+    if (!idPattern.test(id)) throw new Error('Invalid draft id');
+    const db = await this.connect();
+    try {
+      const [drafts] = await db.execute<(DraftRow & { memo: string; created_at: string })[]>(
+        'SELECT id, created_by, idempotency_key, content_hash, total_minor, line_count, memo, created_at ' +
+        'FROM secure_journal_drafts WHERE id = ? LIMIT 1', [id],
+      );
+      if (!drafts.length) return null;
+      const draft = drafts[0];
+      if (actor.role !== 'Developer' && actor.role !== 'Owner' &&
+          draft.created_by !== actor.userId) return null;
+      const [lines] = await db.execute<RowDataPacket[]>(
+        'SELECT line_no, account_code, debit_minor, credit_minor ' +
+        'FROM secure_journal_draft_lines WHERE draft_id = ? ORDER BY line_no', [id],
+      );
+      return {
+        id: draft.id, memo: draft.memo, totalMinor: Number(draft.total_minor),
+        lineCount: Number(draft.line_count),
+        lines: lines.map(row => ({
+          lineNo: Number(row.line_no), accountCode: String(row.account_code),
+          debitMinor: Number(row.debit_minor), creditMinor: Number(row.credit_minor),
+        })),
+        posted: false as const, approved: false as const,
+      };
+    } finally { await db.end(); }
+  }
+
   async prepare(memo: unknown, lines: unknown, key: unknown, actor: ServerIdentity) {
     if (typeof memo !== 'string' || memo.trim().length < 6 ||
         memo.length > 240 || /[\x00-\x1f]/.test(memo) ||
@@ -149,6 +177,21 @@ export function installJournalDraftRoutes(
       return res.status(draft.replayed ? 200 : 201).json({ ok: true, ...draft });
     } catch {
       return res.status(409).json({ ok: false, error: 'Unbalanced, invalid or duplicate accounting draft' });
+    }
+  });
+  app.get('/api/v2/finance/journal-drafts/:id', async (req: Request, res: Response) => {
+    const actor = await identity(req);
+    if (!actor) return res.status(401).json({ ok: false });
+    try {
+      if (!(await grants.can(actor.role, 'journalDrafts', 'view'))) {
+        return res.status(403).json({ ok: false });
+      }
+      if (!idPattern.test(req.params.id)) return res.status(400).json({ ok: false });
+      const draft = await store.find(req.params.id, actor);
+      if (!draft) return res.status(404).json({ ok: false });
+      return res.json({ ok: true, draft });
+    } catch {
+      return res.status(503).json({ ok: false });
     }
   });
   // Deliberately no POST/PUT/DELETE to general-ledger or posted journal tables.
