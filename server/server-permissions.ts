@@ -1,4 +1,6 @@
 import type { Connection, RowDataPacket } from 'mysql2/promise';
+import type { Express, Request, Response } from 'express';
+import type { IdentityResolver } from './patient-domain';
 
 export type SecureAction = 'view' | 'add' | 'edit' | 'delete';
 const PERMISSIONS: Record<string, SecureAction[]> = {
@@ -61,4 +63,50 @@ export class ServerPermissionStore {
       await conn.end();
     }
   }
+  async list(resource: string): Promise<Array<{role: string; resource: string; action: string; allowed: boolean}>> {
+    if (resource !== 'patients') throw new Error('Unsupported resource');
+    const conn = await this.connect();
+    try {
+      const [rows] = await conn.execute<RowDataPacket[]>(
+        'SELECT `role`, `resource`, `action`, `allowed` FROM `secure_role_permissions` WHERE `resource` = ? ORDER BY `role`, `action`',
+        [resource],
+      );
+      return rows.map(row => ({
+        role: String(row.role), resource: String(row.resource),
+        action: String(row.action), allowed: Number(row.allowed) === 1,
+      }));
+    } finally { await conn.end(); }
+  }
+
+}
+
+/** Administrative interface for server-enforced permissions (Developer only). */
+export function installPermissionAdminRoutes(
+  app: Express, store: ServerPermissionStore, identity: IdentityResolver
+): void {
+  const admin = (handler: (req: Request, res: Response) => Promise<void>) =>
+    async (req: Request, res: Response) => {
+      const actor = await identity(req);
+      if (!actor) { res.status(401).json({ ok: false }); return; }
+      if (actor.role !== 'Developer') { res.status(403).json({ ok: false }); return; }
+      try { await handler(req, res); }
+      catch { res.status(503).json({ ok: false, error: 'Server permissions unavailable' }); }
+    };
+  app.get('/api/v2/permissions', admin(async (req, res) => {
+    if (req.query.resource !== 'patients') { res.status(400).json({ ok: false }); return; }
+    res.json({ ok: true, permissions: await store.list('patients') });
+  }));
+  app.put('/api/v2/permissions', admin(async (req, res) => {
+    const { role, resource, action, allowed } = req.body || {};
+    if (typeof role !== 'string' || typeof resource !== 'string' ||
+        typeof action !== 'string' || typeof allowed !== 'boolean') {
+      res.status(400).json({ ok: false, error: 'Invalid permission request' }); return;
+    }
+    try {
+      await store.set(role, resource, action as SecureAction, allowed);
+      res.json({ ok: true });
+    } catch {
+      res.status(400).json({ ok: false, error: 'Unsupported permission' });
+    }
+  }));
 }
