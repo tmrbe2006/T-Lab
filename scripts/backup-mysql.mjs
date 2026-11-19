@@ -5,7 +5,7 @@ import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { decodeBackupKey, encryptGzipStream, verifyEncryptedBackup } from './backup-crypto.mjs';
-import { temporaryMysqlOptions } from './mysql-client-options.mjs';
+import { temporaryMysqlOptions, allowPlaintextMysqlConnection } from './mysql-client-options.mjs';
 
 dotenv.config();
 
@@ -32,7 +32,8 @@ async function main() {
   // defaults-extra-file MUST be the first CLI option for MySQL 5.5 and MariaDB.
   const args = [
     '--defaults-extra-file=' + options.filename,
-    '--protocol=tcp', '--single-transaction', '--quick', '--routines',
+    '--protocol=tcp', ...(allowPlaintextMysqlConnection(host) ? ['--skip-ssl'] : []),
+    '--single-transaction', '--quick', '--routines',
     '--triggers', '--events', '--hex-blob',
     '--default-character-set=utf8', db,
   ];
