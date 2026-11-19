@@ -1440,11 +1440,13 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     const receptionA=await staff.create('flow_a_'+suffix,'Branch-flow-A-2026!','Receptionist');
     const receptionB=await staff.create('flow_b_'+suffix,'Branch-flow-B-2026!','Receptionist');
     const techA=await staff.create('flow_tech_'+suffix,'Branch-flow-tech-2026!','Technician');
+    const techB=await staff.create('flow_tb_'+suffix,'Branch-flow-TechB-2026!','Technician');
     const a=await registry.create('flow_branch_a_'+suffix,'Flow branch A');
     const b=await registry.create('flow_branch_b_'+suffix,'Flow branch B');
     await registry.grant(receptionA.id,a.id);
     await registry.grant(receptionB.id,b.id);
     await registry.grant(techA.id,a.id);
+    await registry.grant(techB.id,b.id);
     const patient=await patients.create(a.id,{name:'Synthetic Branch A Patient'},
       receptionA.id);
     const [testId,paramId]=['lab_test_'+suffix,'lab_param_'+suffix];
@@ -1464,6 +1466,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       if(who==='a')return {userId:receptionA.id,username:receptionA.username,role:receptionA.role};
       if(who==='b')return {userId:receptionB.id,username:receptionB.username,role:receptionB.role};
       if(who==='tech')return {userId:techA.id,username:techA.username,role:techA.role};
+      if(who==='techB')return {userId:techB.id,username:techB.username,role:techB.role};
       return undefined;
     };
     installBranchLabWorkflowRoutes(app,workflow,registry,grants,resolve);
@@ -1496,7 +1499,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
           headers:{'x-ci-user':who,'content-type':'application/json'},
           body:JSON.stringify({sampleType:'blood',version}),
         });
-      expect((await receive(b.id,'b',1)).status).toBe(404);
+      expect((await receive(b.id,'techB',1)).status).toBe(404);
       expect((await receive(a.id,'a',1)).status).toBe(403);
       const accepted=await receive(a.id,'tech',1);
       expect(accepted.status).toBe(200);
