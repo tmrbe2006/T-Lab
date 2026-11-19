@@ -82,3 +82,17 @@ Protected pilot APIs added:
 **RELEASE BLOCKERS**: No production use. Multi-tube sample collection, tests requiring several specimens, lab analyzer exchange, medical audit requirements, offline exactly-once synchronization, accounting invoices and payments, inventory consumption, fully validated result review/approval, and real Windows network/print UAT are incomplete. Legacy Developer pages still store patient data locally.
 
 Integration tests in `server/mysql55.integration.test.ts` cover secure request-to-sample life cycle and unreviewed results, plus malicious price substitution, role enforcement, stale-version conflict and audit trail.
+
+## Phase 5 — Financial pre-issuance quotation (not a receivable)
+
+The new `secure_invoice_drafts` table is **not** the existing `invoices` table. It is an unissued, nonpayable price summary for one server-authorized laboratory request. It does not post cash, receivables, VAT, insurance claims, payments, journals or commissions.
+
+- `POST /api/v2/finance/quotes` accepts only `requestId`, expected `requestVersion`, and a client-generated bounded `idempotencyKey`. All item prices come from server-side `request_items`, never browser fields. Currency amounts are calculated in integer minor units; no floating point accumulation.
+- MySQL 5.5 InnoDB locks the request row and reads its current version; stale requests are rejected. Unique constraints on `request_id` and `idempotency_key` prevent duplicate quotes even across simultaneous devices. Replaying the same key returns the same quote.
+- `GET /api/v2/finance/quotes/:id` is server-authorized and returns a record explicitly flagged `state: unissued_quote`, `payable: false`, and `hasTaxOrDiscount: false`.
+- Reception pilot displays the quote amount with a visible disclaimer that it is not an invoice and cannot be collected.
+- CI validates RBAC denial for technicians, rejection of spoofed amounts, exact cents, replay protection, different-key duplicate protection, and **zero real invoices and payments** for the request.
+
+### Before issuing official invoices or accepting payments
+
+Implement accounting policy choices, correct taxes and discounts, fiscal periods, immutable invoice numbering, transactionally balanced journal entries, payment receipt methods, reversals/refunds, cashbox closing and reconciliation, doctor commission accrual, staff duties segregation, and verified backup/recovery. No real collection is allowed through this pilot.
