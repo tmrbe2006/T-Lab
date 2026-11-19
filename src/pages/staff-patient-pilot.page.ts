@@ -5,6 +5,7 @@ import { renderInventoryReconciliation } from '../components/stock-reconciliatio
 import { renderFinanceAuditPilot } from '../components/finance-audit-pilot';
 import { renderJournalDraftPilot } from '../components/journal-draft-pilot';
 import { renderPreliminaryEntry } from '../components/preliminary-result-entry';
+import { renderBranchPatientsWorkspace } from '../components/branch-patients-workspace';
 import { renderStaffLabPilot } from '../components/staff-lab-pilot';
 import { authService } from '../auth/auth.service';
 import { escapeHtml } from '../components/common';
@@ -16,6 +17,22 @@ type Versioned = { record: Patient; version: number };
 type PageResult = { ok: boolean; items: Versioned[]; nextCursor: string | null };
 
 export async function renderStaffPatientPilot(root: HTMLElement, user: User): Promise<void> {
+  // Multi-branch mode cannot fall through to the unscoped v2 patient UI.
+  try {
+    const response = await fetch('/api/v2/branches', { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Cannot verify current branch permissions');
+    const data = await response.json() as {
+      multiBranchModeEnabled?: boolean;
+      branches?: Array<{id:string;code:string;nameAr:string}>;
+    };
+    if (data.multiBranchModeEnabled === true) {
+      await renderBranchPatientsWorkspace(root, user, data.branches || []);
+      return;
+    }
+  } catch {
+    root.textContent = 'تعذر التحقق من الفروع والصلاحيات. تم تعطيل شاشة المرضى احترازيًا.';
+    return;
+  }
   // Dedicated, deliberately limited UI. NO IndexedDB, no cached patient data,
   // no legacy module navigation or raw MySQL bulk sync.
   const editable = user.role === 'Receptionist' || user.role === 'Owner';
