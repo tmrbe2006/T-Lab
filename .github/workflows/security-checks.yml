@@ -27,3 +27,16 @@ jobs:
         run: npx vitest run
       - name: Production build
         run: npm run build
+      - name: Install Chromium browser
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke tests (login and 20 screens)
+        run: npx playwright test
+      - name: Upload browser test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlab-browser-smoke
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
