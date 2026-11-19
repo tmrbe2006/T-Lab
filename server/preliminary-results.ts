@@ -95,6 +95,54 @@ export class PreliminaryResultStore {
     } finally { await conn.end(); }
   }
 
+  async submitForReview(id: string, expectedVersion: number, actor: ServerIdentity) {
+    if (!validId(id) || !Number.isInteger(expectedVersion) || expectedVersion < 1) throw new Error('Invalid record version');
+    const conn = await this.connect();
+    try {
+      await conn.beginTransaction();
+      try {
+        const [rows] = await conn.execute<LabRow[]>(
+          'SELECT \`id\`, \`status\`, \`raw_json\` FROM \`lab_results\` WHERE \`id\` = ? FOR UPDATE', [id],
+        );
+        if (!rows[0]) { await conn.rollback(); return { status: 'missing' as const }; }
+        const [versions] = await conn.execute<RowDataPacket[]>(
+          'SELECT \`version\` FROM \`secure_record_versions\` WHERE \`resource\` = ? AND \`record_id\` = ? FOR UPDATE',
+          ['results', id],
+        );
+        if (versions.length !== 1) throw new Error('Result version missing');
+        const currentVersion = Number(versions[0].version);
+        if (currentVersion !== expectedVersion) {
+          await conn.rollback(); return { status: 'conflict' as const, currentVersion };
+        }
+        if (rows[0].status !== 'draft') { await conn.rollback(); return { status: 'invalid_state' as const }; }
+        const saved = JSON.parse(String(rows[0].raw_json || '')) as Record<string, unknown>;
+        if (saved.id !== id || saved.status !== 'draft' ||
+            saved.enteredBy !== actor.userId || !Array.isArray(saved.values) ||
+            saved.values.length === 0 || saved.clinicalValidation !== 'NOT_REVIEWED') {
+          throw new Error('Result cannot be submitted by this actor');
+        }
+        const next = currentVersion + 1;
+        const updated = { ...saved, status: 'pending_review', submittedForReviewAt: now(),
+          submittedBy: actor.userId, clinicalValidation: 'NOT_REVIEWED',
+          flagAssessment: 'NOT_ASSESSED', approvedBy: null, approvedAt: null };
+        await conn.execute(
+          'UPDATE \`lab_results\` SET \`status\` = ?, \`raw_json\` = ? WHERE \`id\` = ?',
+          ['pending_review', JSON.stringify(updated), id],
+        );
+        await conn.execute(
+          'UPDATE \`secure_record_versions\` SET \`version\` = ? WHERE \`resource\` = ? AND \`record_id\` = ?',
+          [next, 'results', id],
+        );
+        await conn.execute(
+          'INSERT INTO \`secure_lab_audit\` (\`id\`, \`resource\`, \`record_id\`, \`actor_id\`, \`operation\`, \`version\`, \`created_at\`) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+          [guid(), 'results', id, actor.userId, 'submit_review', next],
+        );
+        await conn.commit();
+        return { status: 'ok' as const, version: next, record: updated };
+      } catch (error) { await conn.rollback(); throw error; }
+    } finally { await conn.end(); }
+  }
+
   async get(id: string) {
     if (!validId(id)) throw new Error('Invalid result identifier');
     const conn = await this.connect();
@@ -136,6 +184,23 @@ export function installPreliminaryResultRoutes(
       res.status(201).json({ ok: true, ...created });
     } catch {
       res.status(422).json({ ok: false, error: 'Invalid or duplicate unreviewed result' });
+    }
+  }));
+
+  app.post('/api/v2/results/:id/submit-review', route('edit', async (req, res, actor) => {
+    if (!validId(req.params.id) || !req.body ||
+        Object.keys(req.body).sort().join(',') !== 'version') {
+      res.status(422).json({ ok: false, error: 'Result version required' }); return;
+    }
+    try {
+      const result = await store.submitForReview(req.params.id, req.body.version, actor);
+      if (result.status === 'missing') { res.status(404).json({ ok: false }); return; }
+      if (result.status === 'conflict' || result.status === 'invalid_state') {
+        res.status(409).json({ ok: false, error: 'Stale or already submitted result' }); return;
+      }
+      res.json({ ok: true, version: result.version, status: 'pending_review', approved: false });
+    } catch {
+      res.status(422).json({ ok: false, error: 'Draft could not be submitted' });
     }
   }));
 
