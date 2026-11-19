@@ -21,6 +21,7 @@ export interface ReadinessReport {
   backgroundLegacySyncDisabled: boolean;
   unsafeBulkImportDisabled: boolean;
   snapshotPullDisabled: boolean;
+  autoSchemaBootstrapDisabled: boolean;
   developerPasswordConfigured: boolean;
   status: 'technical_checks_passed' | 'attention_required';
   clinicalReleaseApproved: false;
@@ -37,6 +38,7 @@ export async function computeReadiness(connect: () => Promise<Connection>): Prom
     backgroundLegacySyncDisabled: process.env.MYSQL_AUTO_SYNC !== 'true',
     unsafeBulkImportDisabled: process.env.TLAB_ENABLE_UNSAFE_BULK_IMPORT !== 'true',
     snapshotPullDisabled: process.env.TLAB_ENABLE_SNAPSHOT_PULL !== 'true',
+    autoSchemaBootstrapDisabled: process.env.TLAB_ALLOW_SCHEMA_BOOTSTRAP !== 'true',
     developerPasswordConfigured: (process.env.TLAB_ADMIN_PASSWORD || '').length >= 16,
     status: 'attention_required',
     clinicalReleaseApproved: false,
@@ -59,7 +61,8 @@ export async function computeReadiness(connect: () => Promise<Connection>): Prom
   }
   if (base.databaseConnected && base.missingTables.length === 0 &&
       base.backgroundLegacySyncDisabled && base.unsafeBulkImportDisabled &&
-      base.snapshotPullDisabled && base.developerPasswordConfigured) {
+      base.snapshotPullDisabled && base.autoSchemaBootstrapDisabled &&
+      base.productionStaticAssets && base.developerPasswordConfigured) {
     base.status = 'technical_checks_passed';
   }
   return base;
