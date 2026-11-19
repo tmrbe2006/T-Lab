@@ -88,6 +88,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mariadb-client
+          chmod +x scripts/ci-mysql55-dump.sh
+          export TLAB_MYSQLDUMP_BIN="$PWD/scripts/ci-mysql55-dump.sh"
           node scripts/backup-mysql.mjs
           archive=$(find /tmp/tlab-test-backups -name '*.sql.gz.enc' -print -quit)
           test -n "$archive"
