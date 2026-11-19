@@ -463,6 +463,21 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         body: JSON.stringify({ version: 1 }),
       });
       expect(staleReview.status).toBe(409);
+      const reviewQueue = await fetch(base + '/api/v2/results/review-queue?limit=25', {
+        headers: { cookie: doctorCookie },
+      });
+      expect(reviewQueue.status).toBe(200);
+      const queue = await reviewQueue.json();
+      const queued = queue.items.find((item: { id: string }) => item.id === draft.record.id);
+      expect(queued).toBeDefined();
+      expect(queued.reviewStatus).toBe('NOT_REVIEWED');
+      expect(queued.values).toEqual([{ parameterId: paramId, value: 15.7 }]);
+      const receptionistCookie = await login(reception.username, 'Reception-ci-password-2026!');
+      const deniedQueue = await fetch(base + '/api/v2/results/review-queue', {
+        headers: { cookie: receptionistCookie },
+      });
+      expect(deniedQueue.status).toBe(403);
+
       const noApproval = await fetch(base + '/api/v2/results/' + draft.record.id + '/approve', {
         method: 'POST', headers: { cookie: doctorCookie },
       });
