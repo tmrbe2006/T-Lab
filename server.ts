@@ -14,6 +14,7 @@ import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflo
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './server/preliminary-results';
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './server/invoice-drafts';
 import { SafeInventoryStore, installSafeInventoryRoutes } from './server/safe-inventory';
+import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -331,6 +332,7 @@ async function startServer() {
     installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
     installInvoiceDraftRoutes(secureApp, invoiceDrafts, serverPermissions, resolveIdentity);
     installSafeInventoryRoutes(secureApp, safeInventory, serverPermissions, resolveIdentity);
+    installReadinessRoutes(secureApp, safeDbConnection, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
 
