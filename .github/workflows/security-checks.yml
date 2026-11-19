@@ -142,6 +142,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Windows pilot front-end assets
+        shell: pwsh
+        run: |
+          npm.cmd install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
+          npm.cmd run build
+          if ($LASTEXITCODE -ne 0) { throw 'Vite build failed' }
+          if (!(Test-Path '.\\dist\\index.html')) { throw 'Missing compiled UI' }
       - name: Install Inno Setup compiler
         shell: pwsh
         run: choco install innosetup --yes --no-progress --limit-output
@@ -159,4 +170,11 @@ jobs:
           if (!(Test-Path $iscc)) { throw 'Inno Setup 6 compiler missing' }
           & $iscc '.\tlab-setup.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
-      # Safety: do NOT publish the installer until clinical and finance acceptance.
+      - name: Upload explicitly nonproduction Windows sandbox installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: T-Lab-SANDBOX-PILOT-Windows-UNSAFE-FOR-PATIENTS
+          path: Output/T-Lab_PILOT_TEST_v*.exe
+          if-no-files-found: error
+          retention-days: 7
+      # TEST-ONLY INSTALLER: never publish as a clinical or finance product release.
