@@ -662,6 +662,18 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       });
       const selected = { itemId, lotId: lot1, quantity: '2.500', idempotencyKey: key };
       expect((await send(deniedCookie, selected)).status).toBe(403);
+      expect((await send(allowedCookie, { ...selected, quantity: '-1.000' })).status).toBe(409);
+      expect((await send(allowedCookie, { ...selected, quantity: '500.000' })).status).toBe(409);
+      const updateConn = await connect();
+      try {
+        await updateConn.execute('UPDATE inventory_lots SET qc_status = ? WHERE id = ?', ['pending', lot1]);
+      } finally { await updateConn.end(); }
+      expect((await send(allowedCookie, selected)).status).toBe(409);
+      const restoreConn = await connect();
+      try {
+        await restoreConn.execute('UPDATE inventory_lots SET qc_status = ? WHERE id = ?', ['released', lot1]);
+      } finally { await restoreConn.end(); }
+
       expect((await send(allowedCookie, { ...selected, lotId: lot2 })).status).toBe(409);
       const first = await send(allowedCookie, selected);
       expect(first.status).toBe(201);
