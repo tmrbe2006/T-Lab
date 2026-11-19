@@ -3,7 +3,6 @@ import { MedicalLabApp } from './app';
 import { authService } from './auth/auth.service';
 import { SecretsConfig } from './config/secrets.config';
 import { seedDatabase } from './db/seed';
-import { mysqlSyncService } from './services/mysql-sync.service';
 
 async function bootstrap(): Promise<void> {
   // Validate environment secrets configuration safely
@@ -26,8 +25,7 @@ async function bootstrap(): Promise<void> {
 
   // Initialize Empty Database (Users + Roles + Permissions only by default)
   await seedDatabase(false);
-  // Automatically connect & pull from MySQL Server if running locally/configured in .env
-  await mysqlSyncService.autoSyncOnStartup();
+  // Do not touch MySQL or load patient records until server login is verified.
   await authService.init();
 
   const root = document.getElementById('app');
