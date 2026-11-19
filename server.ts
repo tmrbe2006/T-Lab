@@ -14,6 +14,7 @@ import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflo
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './server/preliminary-results';
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './server/invoice-drafts';
 import { SafeInventoryStore, installSafeInventoryRoutes } from './server/safe-inventory';
+import { StockReceiptStore, installStockReceiptRoutes } from './server/stock-receiving';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -326,12 +327,14 @@ async function startServer() {
   const preliminaryResults = new PreliminaryResultStore(safeDbConnection);
   const invoiceDrafts = new InvoiceDraftStore(safeDbConnection);
   const safeInventory = new SafeInventoryStore(safeDbConnection);
+  const stockReceipts = new StockReceiptStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
     installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
     installInvoiceDraftRoutes(secureApp, invoiceDrafts, serverPermissions, resolveIdentity);
     installSafeInventoryRoutes(secureApp, safeInventory, serverPermissions, resolveIdentity);
+    installStockReceiptRoutes(secureApp, stockReceipts, serverPermissions, resolveIdentity);
     installReadinessRoutes(secureApp, safeDbConnection, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
@@ -977,6 +980,7 @@ Return a strict JSON object with these exact keys:
           await labWorkflow.ensureTables();
           await invoiceDrafts.ensureTables();
           await safeInventory.ensureTables();
+          await stockReceipts.ensureTable();
           console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
         } else {
           const connection = await getMySQLConnection(envCfg, true);
