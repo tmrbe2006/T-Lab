@@ -100,7 +100,7 @@ export class BranchPatientStore {
         await db.execute(
           'INSERT INTO secure_branch_patients (id,branch_id,name,phone,gender,active,version,created_at,updated_at) ' +
           'VALUES (?,?,?,?,?,1,1,NOW(),NOW())',
-          [id,branchId,p.name,p.phone || '',p.gender || 'male'],
+          [id,branchId,p.name!,p.phone || '',p.gender || 'male'],
         );
         await db.execute(
           'INSERT INTO secure_branch_patient_audit (id,branch_id,record_id,actor_id,operation,version,created_at) ' +
@@ -116,7 +116,7 @@ export class BranchPatientStore {
     actorId: string, action: 'edit' | 'delete') {
     if (!goodId(branchId) || !goodId(patientId) || !goodId(actorId) ||
         !Number.isInteger(version) || (version as number) < 1) throw new Error('Invalid revision');
-    const p = action === 'edit' ? fields(input, true) : {};
+    const p: Partial<{name:string;phone:string;gender:string}> = action === 'edit' ? fields(input, true) : {};
     const db = await this.connect();
     try {
       await db.beginTransaction();
