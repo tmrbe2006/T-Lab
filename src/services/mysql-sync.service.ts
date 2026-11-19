@@ -70,13 +70,8 @@ class MySQLSyncService {
     endpoint: string,
     init?: RequestInit
   ): Promise<T> {
-    const candidateBases = [
-      '',
-      'http://127.0.0.1:3007',
-      'http://localhost:3007',
-      'http://127.0.0.1:3000',
-      'http://localhost:3000',
-    ];
+    // Same-origin API only. Never fall back to another machine's localhost.
+    const candidateBases = [''];
     let lastResult: T | null = null;
     let lastErr = '';
 
