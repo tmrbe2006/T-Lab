@@ -136,7 +136,7 @@ export function installBranchRegistryRoutes(
   app.get('/api/v2/branches', async (req: Request, res: Response) => {
     const actor = await identity(req);
     if (!actor) return res.status(401).json({ ok: false });
-    try { return res.json({ ok: true, branches: await store.list(actor), operationalIsolationReady: false }); }
+    try { return res.json({ ok: true, branches: await store.list(actor), operationalIsolationReady: false, multiBranchModeEnabled: process.env.TLAB_MULTIBRANCH_MODE === 'true', branchPatientsAvailable: true }); }
     catch { return res.status(503).json({ ok: false }); }
   });
   app.post('/api/v2/branches', async (req: Request, res: Response) => {
