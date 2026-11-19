@@ -41,3 +41,11 @@ test('safe local sandbox startup is the only UI launch path and requires compile
   assert.match(initializer, /CONFIRM_EMPTY_TEST_DATABASE/);
   assert.match(initializer, /NOT EMPTY/);
 });
+
+test('production MySQL never creates missing databases or enables multiple SQL statements by default', async () => {
+  const source = await readFile('server.ts', 'utf8');
+  assert.match(source, /TLAB_ALLOW_DB_CREATION === 'true'/);
+  assert.match(source, /process\.env\.NODE_ENV !== 'production'/);
+  assert.doesNotMatch(source, /multipleStatements:\s*true/);
+  assert.match(source, /process\.env\.HOST \|\| '127\.0\.0\.1'/);
+});
