@@ -23,3 +23,8 @@ dev-dist/
 build/
 coverage/
 *.log
+
+# Patient-data backup archives and checksums (never commit)
+backups/
+*.sql.gz.enc
+*.sql.gz.enc.sha256
