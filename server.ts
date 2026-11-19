@@ -974,7 +974,8 @@ Return a strict JSON object with these exact keys:
     };
 
     httpServer.once('error', onError);
-    httpServer.listen(portToTry, '0.0.0.0', async () => {
+    // Local installations stay on loopback unless explicitly configured for LAN.
+    httpServer.listen(portToTry, process.env.HOST || '127.0.0.1', async () => {
       httpServer.removeListener('error', onError);
       const envCfg = resolveConfig();
       console.log(`\n============================================================`);
