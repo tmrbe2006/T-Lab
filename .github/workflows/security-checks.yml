@@ -1,0 +1,27 @@
+name: Security Phase Checks
+on:
+  push:
+    branches:
+      - security/phase-1-rbac-hardening-20261119
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type check
+        run: npm run lint
+      - name: Security regression tests
+        run: npx vitest run server/api-security.test.ts src/guards/permission.guard.test.ts
+      - name: Production build
+        run: npm run build
