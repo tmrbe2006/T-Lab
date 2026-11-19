@@ -4,7 +4,7 @@ import mysql from 'mysql2/promise';
 import express from 'express';
 import { installApiSecurity } from './api-security';
 import { PatientDomainStore, installPatientRoutes } from './patient-domain';
-import { ServerPermissionStore } from './server-permissions';
+import { ServerPermissionStore, installPermissionAdminRoutes } from './server-permissions';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './lab-workflow';
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './preliminary-results';
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './invoice-drafts';
