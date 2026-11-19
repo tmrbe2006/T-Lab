@@ -18,6 +18,53 @@ export class PreliminaryResultStore {
    * Records unverified measurements. No ranges, critical flags or clinical
    * approval are inferred from browser input. This endpoint cannot issue a report.
    */
+  async orderedParameters(requestId: string) {
+    if (!validId(requestId)) throw new Error('Invalid request');
+    const db = await this.connect();
+    try {
+      const [requests] = await db.execute<RowDataPacket[]>(
+        'SELECT status FROM lab_requests WHERE id = ? LIMIT 1', [requestId],
+      );
+      if (!requests.length) return null;
+      const status = String(requests[0].status);
+      if (!['sample_received', 'in_analysis'].includes(status)) {
+        return { requestId, status, tests: [], entryAllowed: false };
+      }
+      const [ordered] = await db.execute<RowDataPacket[]>(
+        'SELECT ri.test_id, t.code AS test_code, t.name_ar AS test_name, ' +
+        'p.id AS parameter_id, p.code AS parameter_code, p.name_ar AS parameter_name, ' +
+        'p.unit, p.result_type ' +
+        'FROM request_items ri INNER JOIN lab_tests t ON t.id = ri.test_id ' +
+        'LEFT JOIN test_parameters p ON p.test_id = ri.test_id AND p.active = 1 AND p.is_calculated = 0 ' +
+        'WHERE ri.request_id = ? ORDER BY ri.test_id, p.sort_order, p.id LIMIT 101',
+        [requestId],
+      );
+      if (!ordered.length || ordered.length > 100) throw new Error('Unsupported parameter count');
+      const tests = new Map<string, {
+        id: string; code: string; name: string;
+        parameters: Array<{ id: string; code: string; name: string; unit: string; resultType: string }>;
+      }>();
+      for (const row of ordered) {
+        const id = String(row.test_id);
+        if (!tests.has(id)) {
+          tests.set(id, {
+            id, code: String(row.test_code || ''), name: String(row.test_name || ''),
+            parameters: [],
+          });
+        }
+        if (row.parameter_id) {
+          tests.get(id)!.parameters.push({
+            id: String(row.parameter_id), code: String(row.parameter_code || ''),
+            name: String(row.parameter_name || ''), unit: String(row.unit || ''),
+            resultType: String(row.result_type || 'qualitative'),
+          });
+        }
+      }
+      // No guessed range/critical status is sent to result entry.
+      return { requestId, status, tests: [...tests.values()], entryAllowed: true };
+    } finally { await db.end(); }
+  }
+
   async createDraft(requestId: string, testId: string, values: ResultValue[], actor: ServerIdentity) {
     if (!validId(requestId) || !validId(testId) || !Array.isArray(values) ||
         values.length < 1 || values.length > 100 ||
@@ -205,6 +252,15 @@ export function installPreliminaryResultRoutes(
         res.status(503).json({ ok: false, error: 'Results unavailable' });
       }
     };
+
+  app.get('/api/v2/results/requests/:requestId/parameters', route('view', async (req, res) => {
+    if (!validId(req.params.requestId)) {
+      res.status(400).json({ ok: false }); return;
+    }
+    const ordered = await store.orderedParameters(req.params.requestId);
+    if (!ordered) { res.status(404).json({ ok: false }); return; }
+    res.json({ ok: true, ...ordered });
+  }));
 
   app.post('/api/v2/results/drafts', route('add', async (req, res, actor) => {
     const body = req.body || {};
