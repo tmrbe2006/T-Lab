@@ -35,7 +35,11 @@ if ($InitializeEmptySandbox) {
   try {
     & node --import tsx scripts/init-sandbox.ts
     if ($LASTEXITCODE -ne 0) { throw 'Sandbox initialization refused or failed. No existing data was deleted.' }
+    $env:TLAB_SANDBOX_SEED = 'CONFIRM_SYNTHETIC_DEMO_DATA'
+    & node --import tsx scripts/seed-sandbox-demo.ts
+    if ($LASTEXITCODE -ne 0) { throw 'Synthetic demo catalog failed; do not use this test schema until checked.' }
   } finally {
+    Remove-Item Env:\TLAB_SANDBOX_SEED -ErrorAction SilentlyContinue
     Remove-Item Env:\TLAB_SANDBOX_INIT -ErrorAction SilentlyContinue
   }
 }
