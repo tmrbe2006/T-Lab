@@ -146,3 +146,9 @@ Protected `POST /api/v2/finance/journal-drafts` implements a distinct draft-only
 **Important limitations**: The current account-code fields are not yet linked to a validated master chart of accounts, company/legal entity, fiscal period lock, automatic reversal, tax classification, cost-center mapping or financial approval trail. Therefore balanced amounts do **not** establish accounting validity. Do not activate real GL posting, even if all tests pass.
 
 The real MySQL 5.5 integration checks the Accountant/Technician authorization boundary, unequal or negative debit/credit refusal, key replay, rejected modified content, precise 125.75-unit draft and absence of any `journal_entries` posting. Release readiness also checks both secure draft tables; any missing schema blocks technical readiness.
+
+### Journal draft inspection and permission consistency
+
+`GET /api/v2/finance/journal-drafts/:id` provides read-only draft line details for the author, Owner or Developer, subject to server permission `journalDrafts.view`. The response explicitly carries `posted:false` and `approved:false`; cross-user Accountant access is denied without Owner/Developer role. No route to post or approve is registered.
+
+The Developer permission-matrix GET route now enumerates all protected resources, including `financeAudit`, `inventoryQc`, `inventoryReceipts` and `journalDrafts`. A dedicated real-MySQL regression exercises the GET for each resource and checks that non-Developer requests receive HTTP 403.
