@@ -29,7 +29,7 @@ jobs:
         run: npm run build
       - name: Install Chromium browser
         run: npx playwright install --with-deps chromium
-      - name: Browser smoke tests (login and 20 screens)
+      - name: Browser smoke tests (login and 40 screens)
         run: npx playwright test
       - name: Upload browser test evidence
         if: always()
@@ -72,3 +72,24 @@ jobs:
           MYSQL_PASSWORD: ci-only-mysql-password
           MYSQL_DATABASE: tlab_mysql55_ci
         run: npx vitest run server/mysql55.integration.test.ts
+      - name: Install Chromium for MySQL integration
+        run: npx playwright install --with-deps chromium
+      - name: Browser staff pilot against MySQL 5.5
+        env:
+          TLAB_STAFF_E2E: 'true'
+          TLAB_ADMIN_PASSWORD: ci-test-only-not-for-production-507218
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-only-mysql-password
+          MYSQL_DATABASE: tlab_mysql55_ci
+        run: npx playwright test tests/e2e/staff-pilot.e2e.ts
+      - name: Upload staff browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlab-mysql55-staff-browser
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
