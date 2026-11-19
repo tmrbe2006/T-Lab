@@ -5,6 +5,7 @@ import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { decodeBackupKey, encryptGzipStream, verifyEncryptedBackup } from './backup-crypto.mjs';
+import { temporaryMysqlOptions } from './mysql-client-options.mjs';
 
 dotenv.config();
 
@@ -27,15 +28,18 @@ async function main() {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = 'T-Lab-' + stamp + '-' + randomBytes(4).toString('hex') + '.sql.gz.enc';
   const output = resolve(destination, filename);
+  const options = await temporaryMysqlOptions({ host, port, user, password });
+  // defaults-extra-file MUST be the first CLI option for MySQL 5.5 and MariaDB.
   const args = [
-    '--single-transaction', '--quick', '--routines', '--triggers', '--events',
-    '--hex-blob', '--default-character-set=utf8',
-    '--host=' + host, '--port=' + port, '--user=' + user, '--', db,
+    '--defaults-extra-file=' + options.filename,
+    '--protocol=tcp', '--single-transaction', '--quick', '--routines',
+    '--triggers', '--events', '--hex-blob',
+    '--default-character-set=utf8', db,
   ];
   const child = spawn(process.env.TLAB_MYSQLDUMP_BIN || 'mysqldump', args, {
     shell: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, MYSQL_PWD: password },
+    env: { ...process.env, MYSQL_PWD: '' },
   });
   let errorHint = '';
   child.stderr?.on('data', chunk => {
@@ -68,6 +72,8 @@ async function main() {
     const safeReason = reason.split(password).join('[REDACTED]').slice(0, 220);
     const stderrReason = errorHint.split(password).join('[REDACTED]').slice(0, 320);
     throw new Error('Encrypted backup failed and incomplete output was deleted. ' + safeReason + ' ' + stderrReason);
+  } finally {
+    await options.cleanup();
   }
 }
 
