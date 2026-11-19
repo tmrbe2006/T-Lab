@@ -12,6 +12,25 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
   await page.locator('#login-form button[type="submit"]').click();
   await expect(page.locator('#top-logout-btn')).toBeVisible();
 
+  const suffix = Date.now().toString(36);
+  const e2eTestId = '000_e2e_' + suffix;
+  const dbConnection = await mysql.createConnection({
+    host: process.env.MYSQL_HOST || '127.0.0.1',
+    port: Number(process.env.MYSQL_PORT || 3306),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+  });
+  try {
+    await dbConnection.execute(
+      'INSERT INTO lab_tests (id, code, name_ar, price, active) VALUES (?, ?, ?, 25, 1)',
+      [e2eTestId, 'CI', 'E2E Result Test'],
+    );
+    await dbConnection.execute(
+      'INSERT INTO test_parameters (id, test_id, code, name_ar, result_type, is_calculated, active) VALUES (?, ?, ?, ?, ?, 0, 1)',
+      ['p_' + suffix, e2eTestId, 'E2E', 'E2E Numeric Parameter', 'numeric'],
+    );
+  } finally { await dbConnection.end(); }
   const username = 'pw_ci_' + Date.now().toString(36);
   const password = 'Pilot-ci-secret-password-16725!';
   const provision = await page.request.post('/api/auth/staff', {
