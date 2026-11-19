@@ -434,6 +434,12 @@ async function startServer() {
 
   // 3. Push All Data from T-Lab to MySQL Server
   app.post('/api/mysql/push-all', async (req, res) => {
+    // The historical bulk import is not concurrency safe. Opt-in is only
+    // allowed for controlled migration on a disposable test database.
+    if (process.env.TLAB_ENABLE_UNSAFE_BULK_IMPORT !== 'true') {
+      res.status(423).json({ ok: false, error: 'Bulk import disabled: migration approval required' });
+      return;
+    }
     const cfg = resolveConfig(req.body?.config);
     const tablesData = (req.body?.data || {}) as Record<string, Record<string, unknown>[]>;
 
@@ -457,12 +463,9 @@ async function startServer() {
           const rows = tablesData[mapping.dexieTable] || [];
           for (const row of rows) {
             if (!row || !row.id) continue;
-            try {
-              await upsertRowInMySQL(conn, mapping, row);
-              totalRowsSynced++;
-            } catch {
-              // continue syncing remaining rows if a legacy table has custom constraints
-            }
+            // Any failed write must abort and roll back the entire import.
+            await upsertRowInMySQL(conn, mapping, row);
+            totalRowsSynced++;
           }
         }
         await conn.commit();
@@ -522,8 +525,8 @@ async function startServer() {
               totalRowsPulled++;
             }
             resultData[mapping.dexieTable] = parsedRows;
-          } catch {
-            resultData[mapping.dexieTable] = [];
+          } catch (tableErr) {
+            throw new Error(`Failed reading ${mapping.mysqlTable}: ${tableErr instanceof Error ? tableErr.message : String(tableErr)}`);
           }
         }
       } finally {
@@ -543,6 +546,14 @@ async function startServer() {
   });
 
   // 5. Real-Time Single Record Sync (Insert / Update / Delete)
+  app.post('/api/mysql/sync-change', async (req, res) => {
+    // The legacy background endpoint can lose concurrent writes and bypass
+    // domain validations. It is disabled until versioned server operations land.
+    res.status(423).json({ ok: false, error: 'Legacy background sync is disabled for data safety' });
+    return;
+  });
+
+  /* Legacy handler retained temporarily for migration reference only.
   app.post('/api/mysql/sync-change', async (req, res) => {
     const cfg = resolveConfig(req.body?.config);
     const { dexieTable, operation, recordId, record } = req.body as {
@@ -579,6 +590,8 @@ async function startServer() {
       res.status(400).json({ ok: false, error: message });
     }
   });
+
+  */
 
   // 6. White-Label Clinical Microscopy Vision Analyzer (Blood Film, Urine Sediment, Stool Parasitology)
   const modelQuotaCooldowns = new Map<string, number>();
