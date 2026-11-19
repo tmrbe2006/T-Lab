@@ -1,7 +1,6 @@
 import { db } from '../db/database';
 import { buildRolePermissions } from '../db/seed';
 import { permissionsRepository, usersRepository } from '../repositories';
-import { mysqlSyncService } from '../services/mysql-sync.service';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
 
 const SESSION_KEY = 'medlab_current_user';
@@ -43,7 +42,8 @@ class AuthService {
       const data = await session.json() as ServerIdentity;
       if (!data.ok) return;
       if (data.username === 'developer' && data.role === 'Developer') {
-        await mysqlSyncService.autoSyncOnStartup();
+        // Historical IndexedDB auto-sync is intentionally disabled. Do not
+        // overwrite browser or central clinical records just by signing in.
         await this.reloadPermissionsCache();
         this.currentUser = serverDeveloperUser();
       } else {
@@ -136,7 +136,8 @@ class AuthService {
       const payload = await response.json() as ServerIdentity;
       let user: User | null = null;
       if (payload.ok && payload.username === 'developer' && payload.role === 'Developer') {
-        await mysqlSyncService.autoSyncOnStartup();
+        // Historical IndexedDB auto-sync is intentionally disabled. Do not
+        // overwrite browser or central clinical records just by signing in.
         await this.reloadPermissionsCache();
         user = serverDeveloperUser();
       } else {
