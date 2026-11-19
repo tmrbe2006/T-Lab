@@ -8,11 +8,11 @@ beforeAll(() => {
 
 afterEach(() => {
   // مسح localStorage
-  localStorage.clear();
+  if (typeof localStorage !== 'undefined') localStorage.clear();
 });
 
 // محاكاة window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
+if (typeof window !== 'undefined') Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
     matches: false,
