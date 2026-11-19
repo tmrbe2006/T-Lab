@@ -76,6 +76,26 @@ jobs:
           MYSQL_PASSWORD: ci-only-mysql-password
           MYSQL_DATABASE: tlab_mysql55_ci
         run: npx vitest run server/mysql55.integration.test.ts
+      - name: Verify empty-schema Windows pilot sandbox initialization
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-only-mysql-password
+          MYSQL_DATABASE: tlab_ci_fresh_test
+          TLAB_ADMIN_PASSWORD: ci-only-sandbox-developer-strong-2026
+          TLAB_SANDBOX_INIT: CONFIRM_EMPTY_TEST_DATABASE
+          TLAB_ENABLE_LEGACY_API: 'false'
+          MYSQL_AUTO_SYNC: 'false'
+        run: |
+          node --input-type=module -e "import mysql from 'mysql2/promise'; const db=await mysql.createConnection({host:'127.0.0.1',user:'root',password:'ci-only-mysql-password'});await db.query('CREATE DATABASE tlab_ci_fresh_test CHARACTER SET utf8 COLLATE utf8_general_ci');await db.end()"
+          node --import tsx scripts/init-sandbox.ts
+          node --import tsx scripts/check-local-sandbox.ts
+          if node --import tsx scripts/init-sandbox.ts; then
+            echo 'ERROR: second sandbox initialization unexpectedly succeeded'
+            exit 1
+          fi
+          MYSQL_DATABASE=tlab_mysql55_ci node --import tsx scripts/check-local-sandbox.ts && exit 1 || true
       - name: Encrypted backup of synthetic MySQL 5.5 CI database
         env:
           MYSQL_HOST: 127.0.0.1
@@ -125,6 +145,13 @@ jobs:
       - name: Install Inno Setup compiler
         shell: pwsh
         run: choco install innosetup --yes --no-progress --limit-output
+      - name: Validate sandbox PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\\scripts\\windows-local-pilot.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Out-String | Write-Error; exit 1 }
       - name: Validate Windows setup script by compiling it
         shell: pwsh
         run: |
