@@ -3,6 +3,7 @@ import { showToast, VirtualTable } from '../components/common';
 import { renderStaffAdminPanel } from '../components/staff-admin';
 import { renderServerPatientPermissions } from '../components/patient-permissions';
 import { renderReadinessPanel } from '../components/server-readiness';
+import { renderBranchAdminPanel } from '../components/branch-admin';
 import { SecretsConfig } from '../config/secrets.config';
 import { db } from '../db/database';
 import { can, enforcePermission } from '../guards/permission.guard';
@@ -65,6 +66,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
       </div>
 
       <section id="server-readiness-panel"></section>
+      <section id="server-branch-admin-panel"></section>
       <section id="secure-staff-admin-panel"></section>
       <section id="server-patient-permissions-panel"></section>
 
