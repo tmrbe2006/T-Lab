@@ -1,5 +1,6 @@
 import { renderStaffReviewQueue } from '../components/staff-review-queue';
 import { renderStockQuarantinePanel } from '../components/stock-quarantine-pilot';
+import { renderPreliminaryEntry } from '../components/preliminary-result-entry';
 import { renderStaffLabPilot } from '../components/staff-lab-pilot';
 import { authService } from '../auth/auth.service';
 import { escapeHtml } from '../components/common';
@@ -50,6 +51,7 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
         <div id="staff-lab-pilot-panel"></div>
         <div id="staff-review-queue-panel"></div>
         <div id="staff-stock-quarantine-panel"></div>
+        <div id="staff-preliminary-entry-panel"></div>
       </main>
     </div>`;
   const status = root.querySelector<HTMLElement>('#staff-pilot-status');
@@ -172,4 +174,6 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
   if (reviewPanel) await renderStaffReviewQueue(reviewPanel, user);
   const quarantinePanel = root.querySelector<HTMLElement>('#staff-stock-quarantine-panel');
   if (quarantinePanel) await renderStockQuarantinePanel(quarantinePanel, user);
+  const entryPanel = root.querySelector<HTMLElement>('#staff-preliminary-entry-panel');
+  if (entryPanel) await renderPreliminaryEntry(entryPanel, user);
 }
