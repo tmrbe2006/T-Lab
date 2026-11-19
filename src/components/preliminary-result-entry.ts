@@ -9,13 +9,12 @@ type Ordered = { tests: TestSet[]; entryAllowed: boolean };
 type LabRequest = { id: string; requestNumber: string; status: string };
 
 export async function renderPreliminaryEntry(root: HTMLElement, user: User) {
-  if (!['Owner', 'Chemist', 'Technician'].includes(user.role)) return;
-  // Draft creation is Chemist/Technician only under the default SQL permission
-  // matrix; Owner's read-only result permissions remain enforced on server.
+  if (!['Chemist', 'Technician'].includes(user.role)) return;
   root.innerHTML = '<section class="bg-white border rounded-xl p-4 space-y-3" dir="rtl">' +
     '<h2 class="font-bold">إدخال نتائج أولية — غير معتمدة</h2>' +
     '<p class="font-semibold text-xs text-rose-800">هذه القيم لم تخضع لمراجعة طبية، ولا تقارن تلقائيًا بالمعدلات الطبيعية، ولا تصدر تقريرًا للمريض.</p>' +
     '<label class="text-xs">الطلب المستلمة عينته<select class="block border rounded p-2" id="preliminary-order"><option value="">جاري التحميل...</option></select></label>' +
+    '<button type="button" id="preliminary-refresh" class="rounded border px-3 py-1 text-xs">تحديث الطلبات بعد استلام العينات</button>' +
     '<div id="preliminary-entry-forms" class="space-y-3"></div>' +
     '<p id="preliminary-entry-state" role="status" class="text-xs"></p></section>';
   const select = root.querySelector<HTMLSelectElement>('#preliminary-order');
@@ -132,4 +131,5 @@ export async function renderPreliminaryEntry(root: HTMLElement, user: User) {
     say('لا يمكن تحميل الطلبات؛ لن يتم حفظ بيانات محلية غير متزامنة.');
   }
   select?.addEventListener('change', () => { void renderSelectedRequest(); });
+  root.querySelector('#preliminary-refresh')?.addEventListener('click', () => { void renderPreliminaryEntry(root, user); });
 }
