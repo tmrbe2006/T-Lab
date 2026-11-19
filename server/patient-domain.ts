@@ -150,8 +150,9 @@ export class PatientDomainStore {
         const record: Record<string, unknown> = operation === 'delete' ? { ...original, active: false } : { ...original, ...changes };
         await conn.execute(
           'UPDATE `patients` SET `name` = ?, `name_en` = ?, `gender` = ?, `age` = ?, `birth_date` = ?, `phone` = ?, `address` = ?, `active` = ?, `raw_json` = ? WHERE `id` = ?',
-          [record.name, record.nameEn || '', record.gender || '', Number(record.age) || 0, record.birthDate || '', record.phone || '',
-           record.address || '', record.active === false ? 0 : 1, JSON.stringify(record), id],
+          [String(record.name || ''), String(record.nameEn || ''), String(record.gender || ''), Number(record.age) || 0,
+           String(record.birthDate || ''), String(record.phone || ''), String(record.address || ''),
+           record.active === false ? 0 : 1, JSON.stringify(record), id],
         );
         const next = current + 1;
         if (versions.length) {
