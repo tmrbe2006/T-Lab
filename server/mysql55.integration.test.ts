@@ -1116,4 +1116,50 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('developer permission matrix lists all newly added secure modules and denies non-Developer', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const permissions = new ServerPermissionStore(connect);
+    await permissions.ensureTable();
+    const app = express();
+    app.use(express.json());
+    installPermissionAdminRoutes(app, permissions, async req => {
+      const role = req.get('x-ci-role');
+      return role ? { role, username: role, userId: 'ci-role-user' } : undefined;
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + address.port + '/api/v2/permissions';
+      const resources = [
+        'patients', 'requests', 'samples', 'results', 'invoiceDrafts',
+        'inventoryMovements', 'inventoryReceipts', 'inventoryQc',
+        'financeAudit', 'journalDrafts',
+      ];
+      expect((await fetch(base + '?resource=journalDrafts')).status).toBe(401);
+      expect((await fetch(base + '?resource=journalDrafts',
+        { headers: { 'x-ci-role': 'Accountant' } })).status).toBe(403);
+      for (const resource of resources) {
+        const response = await fetch(base + '?resource=' + resource, {
+          headers: { 'x-ci-role': 'Developer' },
+        });
+        expect(response.status, 'Permission UI resource ' + resource).toBe(200);
+        const body = await response.json();
+        expect(body.permissions.length).toBe(24);
+        expect(body.permissions.every((row: { resource: string }) =>
+          row.resource === resource)).toBe(true);
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
 });
