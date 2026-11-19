@@ -418,25 +418,33 @@ class MySQLSyncService {
         'referenceLabPartners',
       ]);
 
+      // Apply a complete server snapshot atomically. Partial table-by-table
+      // replacement can otherwise leave broken requests, results and invoices.
+      // NOTE: multi-device merge/conflict resolution remains a release blocker.
       this.isPulling = true;
       try {
-        for (const mapping of MYSQL_TABLES_CONFIG) {
-          const rows = json.data[mapping.dexieTable];
-          if (Array.isArray(rows)) {
+        const presentMappings = MYSQL_TABLES_CONFIG.filter(
+          (mapping) => Array.isArray(json.data?.[mapping.dexieTable])
+        );
+        if (presentMappings.length !== MYSQL_TABLES_CONFIG.length) {
+          throw new Error('Incomplete MySQL snapshot; refusing to overwrite local data');
+        }
+        await db.transaction('rw', db.tables, async () => {
+          for (const mapping of presentMappings) {
+            const rows = json.data![mapping.dexieTable];
             if (rows.length === 0 && protectedMasterTables.has(mapping.dexieTable)) {
               continue;
             }
             const table = db.table(mapping.dexieTable);
-            if (!table) continue;
-            await table.clear();
-            if (rows.length > 0) {
-              const validRows = rows.filter((r) => r && typeof r === 'object' && r.id);
-              if (validRows.length > 0) {
-                await table.bulkPut(validRows);
-              }
+            if (!table) throw new Error(`Missing local table: ${mapping.dexieTable}`);
+            const validRows = rows.filter((r) => r && typeof r === 'object' && r.id);
+            if (validRows.length !== rows.length) {
+              throw new Error(`Invalid server data: ${mapping.dexieTable}`);
             }
+            await table.clear();
+            if (validRows.length) await table.bulkPut(validRows);
           }
-        }
+        });
         try {
           localStorage.setItem('tlab_clean_db_mode', 'true');
           localStorage.removeItem('tlab_demo_mode');
@@ -472,23 +480,18 @@ class MySQLSyncService {
    * the initial 37 tables and master catalog so the database is ready immediately.
    */
   public async autoSyncOnStartup(): Promise<void> {
+    // Safe mode: verify connectivity only. Never replace a user's unsynced
+    // records with a snapshot or force-upload demo data during startup.
     const cfg = await this.loadEnvConfigFromServer();
-    const testRes = await this.testConnection(cfg);
-    if (testRes.ok) {
-      this.isConnected = true;
+    const test = await this.testConnection(cfg);
+    this.isConnected = Boolean(test.ok);
+    if (test.ok) {
       this.connectedDb = cfg.database || 'tlab_db';
-      this.saveConfig({ ...cfg, autoSync: true });
-      this.updateTopHeaderButtonDOM();
+      this.lastError = '';
     }
-    const res = await this.pullAllFromMySQL(cfg);
-    if (res.ok) {
-      this.isConnected = true;
-      this.connectedDb = cfg.database || 'tlab_db';
-      this.saveConfig({ ...cfg, autoSync: true });
-      this.updateTopHeaderButtonDOM();
-      // Never initialize an empty server by silently uploading local demo data.
-      // A manual, reviewed migration must explicitly authorize the first upload.
-    }
+    // Do not automatically enable unverified background writes.
+    this.saveConfig({ ...cfg, autoSync: false });
+    this.updateTopHeaderButtonDOM();
   }
 
   /**
