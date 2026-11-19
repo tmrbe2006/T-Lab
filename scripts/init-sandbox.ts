@@ -14,6 +14,7 @@ import { BranchRegistry } from '../server/branch-registry';
 import { BranchPatientStore } from '../server/branch-patient-domain';
 import { BranchLabWorkflowStore } from '../server/branch-lab-workflow';
 import { BranchPreliminaryResultsStore } from '../server/branch-results';
+import { BranchBillingPilotStore } from '../server/branch-billing-pilot';
 
 async function main(): Promise<void> {
   const dbName = process.env.MYSQL_DATABASE || '';
@@ -67,7 +68,7 @@ async function main(): Promise<void> {
     new PatientDomainStore(connect), new LabWorkflowStore(connect),
     new InvoiceDraftStore(connect), new SafeInventoryStore(connect),
     new StockReceiptStore(connect), new StockQcReviewStore(connect),
-    new JournalDraftStore(connect), new BranchRegistry(connect), new BranchPatientStore(connect), new BranchLabWorkflowStore(connect), new BranchPreliminaryResultsStore(connect),
+    new JournalDraftStore(connect), new BranchRegistry(connect), new BranchPatientStore(connect), new BranchLabWorkflowStore(connect), new BranchPreliminaryResultsStore(connect), new BranchBillingPilotStore(connect),
   ]) {
     if ('ensureTables' in store && typeof store.ensureTables === 'function') {
       await store.ensureTables();
