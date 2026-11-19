@@ -1,5 +1,4 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
@@ -7,6 +6,7 @@ import mysql from 'mysql2/promise';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { installApiSecurity } from './server/api-security';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -87,7 +87,7 @@ export interface MySQLConnectionConfig {
   database: string;
 }
 
-function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnectionConfig {
+function resolveConfig(_bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnectionConfig {
   reloadEnvFile();
   const envHost = (process.env.MYSQL_HOST || '127.0.0.1').trim();
   const envPort = Number(String(process.env.MYSQL_PORT || '3306').trim()) || 3306;
@@ -95,19 +95,14 @@ function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnec
   const envPassword = (process.env.MYSQL_PASSWORD || '').trim();
   const envDatabase = (process.env.MYSQL_DATABASE || 'tlab_db').trim();
 
-  const bodyHost = typeof bodyConfig?.host === 'string' ? bodyConfig.host.trim() : '';
-  const bodyPort = Number(bodyConfig?.port || 0);
-  const bodyUser = typeof bodyConfig?.user === 'string' ? bodyConfig.user.trim() : '';
-  const bodyPassword = typeof bodyConfig?.password === 'string' ? bodyConfig.password.trim() : '';
-  const bodyDatabase = typeof bodyConfig?.database === 'string' ? bodyConfig.database.trim() : '';
-
+  // The browser must never choose server database credentials or remote hosts.
+  // All MySQL connection parameters come exclusively from the server .env.
   return {
-    host: bodyHost || envHost || '127.0.0.1',
-    port: bodyPort > 0 ? bodyPort : envPort,
-    user: bodyUser || envUser || 'root',
-    // Prefer non-empty .env password or non-empty body password
-    password: bodyPassword !== '' ? bodyPassword : envPassword,
-    database: (bodyDatabase || envDatabase || 'tlab_db').replace(/[^a-zA-Z0-9_]/g, ''),
+    host: envHost,
+    port: envPort,
+    user: envUser,
+    password: envPassword,
+    database: envDatabase.replace(/[^a-zA-Z0-9_]/g, ''),
   };
 }
 
@@ -126,9 +121,7 @@ async function getMySQLConnection(
   const hostsToTry = Array.from(
     new Set([cfg.host, envHost, '127.0.0.1', 'localhost'].filter(Boolean))
   );
-  const passwordsToTry = Array.from(
-    new Set([cfg.password ?? '', envPassword, '1234', ''].filter((p) => p !== undefined))
-  );
+  const passwordsToTry = [envPassword];
 
   let lastError: unknown = null;
 
@@ -318,19 +311,8 @@ async function startServer() {
   const app = express();
   const PORT = resolveRequestedPort();
 
-  app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Private-Network', 'true');
-    if (req.method === 'OPTIONS') {
-      res.sendStatus(204);
-      return;
-    }
-    next();
-  });
-  app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+  installApiSecurity(app);
 
   // 0. Get & Save Preferred Local Server Port (port.config.json)
   app.get('/api/server/port-config', (_req, res) => {
@@ -444,7 +426,6 @@ async function startServer() {
         host: cfg.host,
         port: cfg.port,
         user: cfg.user,
-        password: cfg.password || '',
         database: cfg.database,
         autoSync,
       },
