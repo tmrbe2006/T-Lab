@@ -62,7 +62,7 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
   await patientRow.locator('[data-patient-action="select"]').click();
   await expect(page.locator('#lab-pilot-request [name="patientId"]')).not.toHaveValue('');
   await expect(page.locator('#lab-pilot-request select[name="testId"] option')).not.toHaveCount(1, { timeout: 20_000 });
-  await page.locator('#lab-pilot-request select[name="testId"]').selectOption({ index: 1 });
+  await page.locator('#lab-pilot-request select[name="testId"]').selectOption(e2eTestId);
   await page.locator('#lab-pilot-request button[type="submit"]').click();
   await expect(page.locator('#lab-pilot-requests')).toContainText('awaiting_sample', { timeout: 20_000 });
   await expect(page.locator('#lab-pilot-status')).toContainText('تم إنشاء الطلب', { timeout: 20000 });
