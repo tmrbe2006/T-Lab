@@ -1,6 +1,7 @@
 import { authService } from '../auth/auth.service';
 import { showToast, VirtualTable } from '../components/common';
 import { renderStaffAdminPanel } from '../components/staff-admin';
+import { renderServerPatientPermissions } from '../components/patient-permissions';
 import { SecretsConfig } from '../config/secrets.config';
 import { db } from '../db/database';
 import { seedDatabase } from '../db/seed';
@@ -65,6 +66,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
       </div>
 
       <section id="secure-staff-admin-panel"></section>
+      <section id="server-patient-permissions-panel"></section>
 
       <!-- MySQL 5.5 & MySQL 8.0.28 Database Server & SQL Dump Section -->
       <section id="settings-mysql-panel">
@@ -228,6 +230,8 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   mysqlSyncService.bindControlPanelEvents(container, 'set-mysql');
   const staffPanel = container.querySelector<HTMLElement>('#secure-staff-admin-panel');
   if (staffPanel && user?.role === 'Developer') void renderStaffAdminPanel(staffPanel);
+  const rolePanel = container.querySelector<HTMLElement>('#server-patient-permissions-panel');
+  if (rolePanel && user?.role === 'Developer') void renderServerPatientPermissions(rolePanel);
 
   document.getElementById('set-offline-enable')?.addEventListener('click', () => {
     OfflineService.enableOfflineMode();
