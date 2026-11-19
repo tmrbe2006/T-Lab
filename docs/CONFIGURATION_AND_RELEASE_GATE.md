@@ -132,3 +132,17 @@ A server-side `financeAudit` permission (initially Owner and Accountant only) co
 Both endpoints return only record IDs and error codes; they do not expose patient names, execute updates, issue official invoices, accept payments or post ledger entries. The Owner/Accountant staff panel displays findings. This is a diagnostic gate, not a replacement for double-entry accounting, fiscal controls, supplier reconciliation, cashbox closure, tax compliance, or accountant sign-off.
 
 The real MySQL 5.5 regression test includes synthetic balanced and deliberately mismatched invoices/journal headers and confirms the Receptionist cannot access these audits.
+
+## New accounting stage — balanced journal **drafts**, NEVER ledger posting
+
+Protected `POST /api/v2/finance/journal-drafts` implements a distinct draft-only double-entry journal:
+
+- By default, only Owner and Accountant may prepare a draft; Developer may change the `journalDrafts` role/action permission.
+- Requires at least 2 and at most 50 line items, explicit account codes, positive amount on *exactly one* of debit or credit per line, strict fixed two-decimal arithmetic in integer minor units, equal positive totals and bounded monetary values.
+- Every submission uses an idempotency key. The server rejects reusing a key for modified lines/memo or a different employee. The draft and all its lines are saved in one MySQL 5.5 InnoDB transaction.
+- `secure_journal_drafts` and `secure_journal_draft_lines` are **not** the real `journal_entries` and never change accounts, invoices, patient balances or cash.
+- Staff form explicitly says *unposted*. No route to approve, post or edit posted journals exists in this pilot.
+
+**Important limitations**: The current account-code fields are not yet linked to a validated master chart of accounts, company/legal entity, fiscal period lock, automatic reversal, tax classification, cost-center mapping or financial approval trail. Therefore balanced amounts do **not** establish accounting validity. Do not activate real GL posting, even if all tests pass.
+
+The real MySQL 5.5 integration checks the Accountant/Technician authorization boundary, unequal or negative debit/credit refusal, key replay, rejected modified content, precise 125.75-unit draft and absence of any `journal_entries` posting. Release readiness also checks both secure draft tables; any missing schema blocks technical readiness.
