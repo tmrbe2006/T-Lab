@@ -39,7 +39,7 @@ FLUSH PRIVILEGES;
 الملف داخل ZIP اسمه `T-Lab_PILOT_TEST_v6.1.0.exe`. تظهر Artifacts عادةً لحسابات GitHub المسجّلة، وقد تنتهي صلاحية حفظها بعد 7 أيام. **لا تستخدم إصدارات Setup القديمة.**
 
 عند التثبيت:
-- اترك مسار `C:\T-Lab-Pilot-Sandbox` منفصلاً عن برنامجك الأساسي.
+- اترك مسار `%LOCALAPPDATA%\T-Lab-Pilot-Sandbox` منفصلاً عن برنامجك الأساسي.
 - MySQL Host: `127.0.0.1`، Port: `3306`.
 - MySQL User: `tlab_sandbox`؛ وكلمة المرور التي اخترتها له.
 - اسم قاعدة البيانات: `tlab_local_test` (بدون أي بيانات مرضى حقيقية).
