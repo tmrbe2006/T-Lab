@@ -32,3 +32,11 @@
 8. **Acceptance:** real Windows 11 installer execution, 2+ actual sites, user acceptance and security testing including unauthorized cross-branch requests, printer/barcode integration, disaster recovery, and formal lab director/accountant sign-off.
 
 **No final claim or production release** until all gates pass. The existing `main` branch and lab database remain unchanged.
+
+## Latest executable branch-specific laboratory pilot
+
+The new `server/branch-lab-workflow.ts` implements **separate** request, request-test, received-specimen and audit tables, all with explicit `branch_id`. Creating an order checks an active patient under that exact branch in a locked transaction; samples can be received once only, with version checks and approved role permissions. The branch staff interface now permits selecting a synthetic patient and test, creating a draft order, and authorized Technician/Chemist specimen receipt. Prices come from the shared catalog and are not yet branch-specific.
+
+A real MySQL 5.5 integration test checks cross-branch order creation and sample receipt denial, nonmatching patient refusal, duplicate sample blocking, and request version concurrency. The Chromium test in `tests/e2e/branches.e2e.ts` covers staff logins across two branches, creates a sample patient and order in branch A, verifies invisibility from branch B and receives the specimen as a permitted employee.
+
+**No clinically approved results, report signatures, interbranch specimen transfers, branch-specific tariffs, or official financial posting** are available in this multi-branch workflow. All v2 endpoints continue to be blocked in `TLAB_MULTIBRANCH_MODE=true`. Do not describe this as final multi-site operation.
