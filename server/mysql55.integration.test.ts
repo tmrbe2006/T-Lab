@@ -828,6 +828,11 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         });
       expect((await review(allowed, qcPayload)).status).toBe(403);
       expect((await review(denied, qcPayload)).status).toBe(403);
+      await expect(qc.decide(received.receiptId, 'pass',
+        'QC documents verified by independent reviewer',
+        'qc_same_actor_' + suffix + '_key',
+        { userId: chemist.id, username: chemist.username, role: 'Chemist' },
+      )).rejects.toThrow('Independent reviewer required');
       const successfulQc = await review(ownerCookie, qcPayload);
       expect(successfulQc.status).toBe(201);
       const qcData = await successfulQc.json();
