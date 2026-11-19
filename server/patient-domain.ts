@@ -147,7 +147,7 @@ export class PatientDomainStore {
         const current = versions.length ? Number(versions[0].version) : 1;
         if (current !== expectedVersion) { await conn.rollback(); return { status: 'conflict' as const, currentVersion: current }; }
         const original = fromRow(rows[0]);
-        const record = operation === 'delete' ? { ...original, active: false } : { ...original, ...changes };
+        const record: Record<string, unknown> = operation === 'delete' ? { ...original, active: false } : { ...original, ...changes };
         await conn.execute(
           'UPDATE `patients` SET `name` = ?, `name_en` = ?, `gender` = ?, `age` = ?, `birth_date` = ?, `phone` = ?, `address` = ?, `active` = ?, `raw_json` = ? WHERE `id` = ?',
           [record.name, record.nameEn || '', record.gender || '', Number(record.age) || 0, record.birthDate || '', record.phone || '',
