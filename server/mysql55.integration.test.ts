@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import mysql from 'mysql2/promise';
+import express from 'express';
+import { installApiSecurity } from './api-security';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -62,6 +64,48 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     expect(await store.update(created.id, { active: false })).toBe(true);
     expect((await store.find(username))?.account.active).toBe(false);
     expect((await store.list()).some(a => a.id === created.id)).toBe(true);
+  });
+
+  it('revokes an existing staff session when the developer disables that user', async () => {
+    const store = new StaffAccountStore(() => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    }));
+    await store.ensureTable();
+    const username = 'revoked_' + Date.now().toString(36);
+    const created = await store.create(username, 'Very-strong-test-password-7822!', 'Receptionist');
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, store);
+    app.get('/api/mysql/pull-all', (_req, res) => res.json({ ok: true }));
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + address.port;
+      const login = await fetch(base + '/api/auth/login', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password: 'Very-strong-test-password-7822!' }),
+      });
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get('set-cookie')!.split(';')[0];
+      const me = await fetch(base + '/api/auth/session', { headers: { cookie } });
+      expect((await me.json()).role).toBe('Receptionist');
+      const legacy = await fetch(base + '/api/mysql/pull-all', { headers: { cookie } });
+      expect(legacy.status).toBe(403);
+      const staffAdmin = await fetch(base + '/api/auth/staff', { headers: { cookie } });
+      expect(staffAdmin.status).toBe(403);
+      await store.update(created.id, { active: false });
+      const revoked = await fetch(base + '/api/auth/session', { headers: { cookie } });
+      expect(revoked.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
   });
 
 });
