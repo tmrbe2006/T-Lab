@@ -7,8 +7,10 @@ export async function renderJournalDraftPilot(root: HTMLElement, user: User): Pr
     '<p class="text-xs text-rose-900">يُمنع الترحيل أو تعديل أرصدة الحسابات. رموز الحسابات تُسجل للمراجعة فقط حتى اعتماد دليل الحسابات وإقفال الفترات.</p>' +
     '<form id="journal-draft-form" class="space-y-3">' +
     '<label class="text-xs block">وصف القيد<input name="memo" minlength="6" maxlength="240" required class="block border p-2 rounded w-full"></label>' +
+    '<label class="text-xs block">تاريخ الفحص المحاسبي<input type="date" name="entryDate" required class="block border p-2 rounded"></label>' +
     '<div id="journal-draft-lines" class="space-y-2"></div>' +
     '<button type="button" id="journal-draft-add-line" class="border rounded px-3 py-2 text-xs">إضافة سطر</button>' +
+    '<button type="button" id="journal-preflight" class="border rounded px-3 py-2 text-xs">فحص الحسابات والفترة</button>' +
     '<button type="submit" class="bg-indigo-700 text-white rounded px-3 py-2 text-xs">حفظ مسودة غير مرحلة</button>' +
     '</form><p id="journal-draft-state" role="status" class="text-xs"></p></section>';
   const form = root.querySelector<HTMLFormElement>('#journal-draft-form');
@@ -31,6 +33,36 @@ export async function renderJournalDraftPilot(root: HTMLElement, user: User): Pr
   };
   addLine(); addLine();
   root.querySelector('#journal-draft-add-line')?.addEventListener('click', addLine);
+
+  const inspect = async () => {
+    if (!form || !linesHost) return;
+    const fields = new FormData(form);
+    const entryDate = String(fields.get('entryDate') || '');
+    const accountCodes = Array.from(linesHost.children).map(row =>
+      row.querySelector<HTMLInputElement>('[data-account]')?.value.trim() || '',
+    );
+    try {
+      const response = await fetch('/api/v2/finance/posting-preflight', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryDate, accountCodes }),
+      });
+      if (!response.ok) throw new Error('تعذر فحص الحسابات أو الفترة');
+      const body = await response.json() as {
+        report: { approvedForPosting: false; reasons: string[]; basicStructureChecksPassed: boolean };
+      };
+      if (body.report.approvedForPosting !== false) {
+        throw new Error('رفض استجابة اعتماد غير متوقعة');
+      }
+      say(body.report.reasons.length
+        ? 'موانع الفحص: ' + body.report.reasons.join('، ') + ' — لا توجد صلاحية ترحيل.'
+        : 'اجتاز فحص رموز الحسابات والفترة مبدئيًا، لكن الترحيل ما زال محظورًا لحين الاعتماد المحاسبي.');
+    } catch (error) {
+      say(error instanceof Error ? error.message : 'فشل فحص القيود');
+    }
+  };
+  root.querySelector('#journal-preflight')?.addEventListener('click', () => { void inspect(); });
+
   let submitKey: string | null = null;
   form?.addEventListener('input', () => { submitKey = null; });
   form?.addEventListener('submit', async event => {
