@@ -95,3 +95,11 @@ MySQL 5.5 does not support modern TLS reliably. Backup tooling permits non-TLS o
 ### Production schema setup constraint
 
 `NODE_ENV=production` now **will not bootstrap or alter database tables automatically** unless `TLAB_ALLOW_SCHEMA_BOOTSTRAP=true` is explicitly set. On a new installation, an administrator must first create and validate schema on a disposable cloned MySQL database after backup review. Revert this flag to false after the controlled migration. Until then, application operations requiring missing tables will fail closed; this behavior is intentional.
+
+## Follow-on phase — quarantined receipts and conservative clinical preflight
+
+The protected MySQL v2 stock receiving endpoint now accepts a strictly validated item, new lot number, expiry date, 0.001-precision quantity and idempotency key. It is transactional, actor-auditable through the receipt record, permits no arbitrary QC status and creates the lot in `quarantine / pending` with **zero available balance**. It deliberately does not create purchase invoices, stock asset accounting or authorize QC release. Only Owner/Chemist can receive by default; Receptionist is denied. The guarded, paginated quarantine list and staff panel allow users to see quarantined batches without releasing them.
+
+The clinical review queue now provides a `clinical-preflight` endpoint and check button. It explicitly reports release blockers such as unverified age/specimen ranges, critical limits and escalation, instrument QC and independent sign-off. It always returns `releaseAllowed:false` because existing MySQL reference-range fields lack a versioned lab-approved clinical interval protocol. It cannot approve results or produce patient reports. Real clinical sign-off needs a laboratory medical director and instrument validation; a software test is not sufficient.
+
+Both features are backed by MySQL 5.5 integration tests. A successful test of a pilot must not be interpreted as successful implementation of the missing end-to-end purchasing or clinical-approval workflows.
