@@ -1038,6 +1038,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     const tech = await accounts.create(
       'journal_tech_' + suffix, 'Journal-Technician-2026!', 'Technician',
     );
+    const anotherAccountant = await accounts.create('journal_other_' + suffix, 'Other-Accountant-2026!', 'Accountant');
     const app = express();
     app.use(express.json());
     installApiSecurity(app, accounts, (securedApp, identity) =>
@@ -1059,6 +1060,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       };
       const allowed = await login(accountant.username, 'Journal-Accountant-2026!');
       const denied = await login(tech.username, 'Journal-Technician-2026!');
+      const otherCookie = await login(anotherAccountant.username, 'Other-Accountant-2026!');
       const key = 'journal_idempotency_' + suffix;
       const data = {
         memo: 'Synthetic double entry journal validation',
@@ -1100,6 +1102,10 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       expect(detailsBody.approved).toBe(false);
       expect(detailsBody.lines).toHaveLength(2);
       expect(detailsBody.lines[0].debitMinor).toBe(12575);
+      expect((await fetch(base + '/api/v2/finance/journal-drafts/' + created.draftId, {
+        headers: { cookie: otherCookie },
+      })).status).toBe(404);
+
       expect((await fetch(base + '/api/v2/finance/journal-drafts/' + created.draftId, {
         headers: { cookie: denied },
       })).status).toBe(403);
