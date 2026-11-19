@@ -27,7 +27,7 @@ $env:MYSQL_AUTO_SYNC = 'false'
 
 if (-not (Test-Path 'node_modules\tsx\dist\cli.mjs')) {
   Write-Host 'Installing the pinned application dependencies...'
-  & npm.cmd install --no-audit --no-fund
+  & npm.cmd install --include=dev --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
 }
 if ($InitializeEmptySandbox) {
