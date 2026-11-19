@@ -1182,4 +1182,85 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('blocks fiscal posting when period is locked, accounts missing or account is a parent', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const permissions = new ServerPermissionStore(connect);
+    const accounts = new StaffAccountStore(connect);
+    const preflight = new FinancialPostingPreflightStore(connect);
+    await accounts.ensureTable();
+    await permissions.ensureTable();
+    const suffix = Date.now().toString(36);
+    const debitCode = 'AST' + suffix, creditCode = 'REV' + suffix;
+    const childCode = 'CH' + suffix;
+    const period = new Date().toISOString().slice(0,7);
+    const entryDate = new Date().toISOString().slice(0,10);
+    const db = await connect();
+    try {
+      await db.execute(
+        'INSERT INTO chart_of_accounts (id, code, name_ar, type) VALUES (?, ?, ?, ?)',
+        ['acc_debit_' + suffix, debitCode, 'Synthetic debit ledger', 'asset'],
+      );
+      await db.execute(
+        'INSERT INTO chart_of_accounts (id, code, name_ar, type) VALUES (?, ?, ?, ?)',
+        ['acc_credit_' + suffix, creditCode, 'Synthetic credit ledger', 'revenue'],
+      );
+      await db.execute(
+        'INSERT INTO chart_of_accounts (id, code, name_ar, type, parent_code) VALUES (?, ?, ?, ?, ?)',
+        ['acc_child_' + suffix, childCode, 'Child ledger', 'asset', debitCode],
+      );
+      await db.execute(
+        'INSERT INTO period_locks (id, period_month, locked) VALUES (?, ?, 1)',
+        ['period_locked_' + suffix, period],
+      );
+    } finally { await db.end(); }
+
+    const app = express();
+    app.use(express.json());
+    installFinancialPreflightRoutes(app, preflight, permissions, async req => {
+      const role = req.get('x-ci-role');
+      return role ? { role, username: role, userId: 'ci-user' } : undefined;
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') throw new Error('No port');
+      const url = 'http://127.0.0.1:' + addr.port + '/api/v2/finance/posting-preflight';
+      const send = (role: string | undefined, codes: string[]) =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...(role ? { 'x-ci-role': role } : {}) },
+          body: JSON.stringify({ entryDate, accountCodes: codes }),
+        });
+      expect((await send(undefined, [debitCode, creditCode])).status).toBe(401);
+      expect((await send('Technician', [debitCode, creditCode])).status).toBe(403);
+      const locked = await send('Accountant', [debitCode, creditCode]);
+      expect(locked.status).toBe(200);
+      const lockedBody = (await locked.json()).report;
+      expect(lockedBody.approvedForPosting).toBe(false);
+      expect(lockedBody.reasons).toContain('PERIOD_LOCKED');
+      expect(lockedBody.reasons).toContain('PARENT_ACCOUNT_NOT_POSTABLE:' + debitCode);
+      const missing = await send('Accountant', [debitCode, 'MISSING_' + suffix]);
+      expect(missing.status).toBe(200);
+      expect((await missing.json()).report.reasons).toContain('ACCOUNT_MISSING_OR_DUPLICATE:MISSING_' + suffix);
+      expect((await send('Accountant', ['invalid/code', creditCode])).status).toBe(422);
+      const dbCheck = await connect();
+      try {
+        const [rows] = await dbCheck.execute<mysql.RowDataPacket[]>(
+          'SELECT locked FROM period_locks WHERE id = ?', ['period_locked_' + suffix],
+        );
+        expect(Number(rows[0].locked)).toBe(1);
+      } finally { await dbCheck.end(); }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
 });
