@@ -30,7 +30,7 @@ export async function renderStaffReviewQueue(root: HTMLElement, user: User): Pro
       if (!host) return;
       host.innerHTML = data.items.length ? `
         <table class="w-full border-collapse">
-          <thead><tr><th class="border p-2">رقم الطلب</th><th class="border p-2">المريض</th><th class="border p-2">التحليل</th><th class="border p-2">القيم الأولية</th><th class="border p-2">الحالة</th></tr></thead>
+          <thead><tr><th class="border p-2">رقم الطلب</th><th class="border p-2">المريض</th><th class="border p-2">التحليل</th><th class="border p-2">القيم الأولية</th><th class="border p-2">الحالة</th><th class="border p-2">التقييم</th></tr></thead>
           <tbody>${data.items.map(item => `
             <tr>
               <td class="border p-2">${escapeHtml(item.requestId)}</td>
@@ -38,8 +38,29 @@ export async function renderStaffReviewQueue(root: HTMLElement, user: User): Pro
               <td class="border p-2">${escapeHtml(item.testId)}</td>
               <td class="border p-2">${item.values.map(value => `${escapeHtml(value.parameterId)}: ${escapeHtml(String(value.value))}`).join('، ')}</td>
               <td class="border p-2 text-rose-700">غير معتمد — يحتاج مراجعة</td>
+              <td class="border p-2"><button type="button" data-review-id="${escapeHtml(item.id)}" class="rounded border px-2 py-1">فحص متطلبات الاعتماد</button></td>
             </tr>`).join('')}</tbody>
         </table>` : '<p class="text-slate-600">لا توجد نتائج أولية مُرسلة للمراجعة.</p>';
+      host.querySelectorAll<HTMLButtonElement>('button[data-review-id]').forEach(button => {
+        button.addEventListener('click', async () => {
+          const id = button.dataset.reviewId;
+          if (!id) return;
+          button.disabled = true;
+          try {
+            const response = await fetch('/api/v2/results/' + encodeURIComponent(id) + '/clinical-preflight', {
+              credentials: 'same-origin',
+            });
+            if (!response.ok) throw new Error('فشل الفحص أو لا توجد صلاحية');
+            const json = await response.json() as {
+              report: { releaseAllowed: boolean; status: string; reasons: string[] };
+            };
+            if (json.report.releaseAllowed !== false) throw new Error('استجابة غير آمنة: تم إيقاف العرض');
+            status('إصدار النتيجة محظور حتى استيفاء الضوابط: ' + json.report.reasons.join('، '));
+          } catch {
+            status('تعذر التحقق من سلامة الاعتماد. إصدار التقرير لا يزال محظورًا.');
+          } finally { button.disabled = false; }
+        });
+      });
       status(data.nextCursor ? 'تُعرض أول 25 نتيجة فقط. القائمة الكاملة تحتاج استكمال التصفح.' : 'تم تحميل قائمة المراجعة من MySQL.');
     } catch (error) {
       if (host) host.textContent = '';
