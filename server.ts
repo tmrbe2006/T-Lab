@@ -23,6 +23,7 @@ import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from 
 import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate } from './server/branch-registry';
 import { BranchPatientStore, installBranchPatientRoutes } from './server/branch-patient-domain';
 import { BranchLabWorkflowStore, installBranchLabWorkflowRoutes } from './server/branch-lab-workflow';
+import { BranchSummaryStore, installBranchReportRoutes } from './server/branch-reports';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -345,12 +346,14 @@ async function startServer() {
   const branches = new BranchRegistry(safeDbConnection);
   const branchPatients = new BranchPatientStore(safeDbConnection);
   const branchLab = new BranchLabWorkflowStore(safeDbConnection);
+  const branchReports = new BranchSummaryStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     // Branch metadata is safe to manage, but legacy patient/finance workflows
     // are not scoped to branch_id. Fail closed in explicit multibranch mode.
     installBranchRegistryRoutes(secureApp, branches, resolveIdentity);
     installBranchPatientRoutes(secureApp, branchPatients, branches, serverPermissions, resolveIdentity);
     installBranchLabWorkflowRoutes(secureApp, branchLab, branches, serverPermissions, resolveIdentity);
+    installBranchReportRoutes(secureApp, branchReports, branches, resolveIdentity);
     installBranchIsolationGate(secureApp);
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
