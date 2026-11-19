@@ -48,7 +48,7 @@ export class LabWorkflowStore {
         const tests: Array<{ id: string; price: number }> = [];
         for (const testId of testIds) {
           const [found] = await conn.execute<RowDataPacket[]>(
-            'SELECT \`id\`, \`price\`, \`active\` FROM \`tests\` WHERE \`id\` = ? LIMIT 1', [testId]);
+            'SELECT \`id\`, \`price\`, \`active\` FROM \`lab_tests\` WHERE \`id\` = ? LIMIT 1', [testId]);
           const row = found[0];
           if (!row || Number(row.active) !== 1) throw new Error('Unknown or inactive test');
           const price = Number(row.price);
