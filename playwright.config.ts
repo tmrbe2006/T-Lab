@@ -26,6 +26,7 @@ export default defineConfig({
       MYSQL_PASSWORD: process.env.MYSQL_PASSWORD || 'not-valid',
       MYSQL_DATABASE: process.env.MYSQL_DATABASE || 'tlab_ci_demo',
       NODE_ENV: 'development',
+      TLAB_MULTIBRANCH_MODE: process.env.TLAB_MULTIBRANCH_MODE || 'false',
     },
   },
 });
