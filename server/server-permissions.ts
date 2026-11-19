@@ -45,6 +45,7 @@ export class ServerPermissionStore {
           Owner: ['view', 'add'], Chemist: ['view', 'add'],
           Technician: ['view'], Accountant: ['view'],
         },
+        financeAudit: { Owner: ['view'], Accountant: ['view'] },
         invoiceDrafts: {
           Owner: ['view', 'add'], Receptionist: ['view', 'add'],
           Accountant: ['view', 'add'],
@@ -80,7 +81,7 @@ export class ServerPermissionStore {
   }
   async set(role: string, resource: string, action: SecureAction, allowed: boolean): Promise<void> {
     if (!['Owner','Doctor','Chemist','Technician','Receptionist','Accountant'].includes(role) ||
-        !['patients', 'requests', 'samples', 'results', 'invoiceDrafts', 'inventoryMovements', 'inventoryReceipts', 'inventoryQc'].includes(resource) || !['view','add','edit','delete'].includes(action) || typeof allowed !== 'boolean') {
+        !['patients', 'requests', 'samples', 'results', 'invoiceDrafts', 'inventoryMovements', 'inventoryReceipts', 'inventoryQc', 'financeAudit'].includes(resource) || !['view','add','edit','delete'].includes(action) || typeof allowed !== 'boolean') {
       throw new Error('Invalid role, resource or action');
     }
     const conn = await this.connect();
@@ -94,7 +95,7 @@ export class ServerPermissionStore {
     }
   }
   async list(resource: string): Promise<Array<{role: string; resource: string; action: string; allowed: boolean}>> {
-    if (!['patients', 'requests', 'samples', 'results', 'invoiceDrafts', 'inventoryMovements', 'inventoryReceipts', 'inventoryQc'].includes(resource)) throw new Error('Unsupported resource');
+    if (!['patients', 'requests', 'samples', 'results', 'invoiceDrafts', 'inventoryMovements', 'inventoryReceipts', 'inventoryQc', 'financeAudit'].includes(resource)) throw new Error('Unsupported resource');
     const conn = await this.connect();
     try {
       const [rows] = await conn.execute<RowDataPacket[]>(
