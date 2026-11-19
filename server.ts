@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { installApiSecurity } from './server/api-security';
 import { StaffAccountStore } from './server/staff-accounts';
-import { ServerPermissionStore } from './server/server-permissions';
+import { ServerPermissionStore, installPermissionAdminRoutes } from './server/server-permissions';
 import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
 import {
   buildCreateTableSQL,
@@ -319,6 +319,7 @@ async function startServer() {
   const patientDomain = new PatientDomainStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
+    installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
 
   // 0. Get & Save Preferred Local Server Port (port.config.json)
