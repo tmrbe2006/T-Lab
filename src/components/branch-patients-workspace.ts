@@ -1,5 +1,6 @@
 import type { User } from '../types';
 import { escapeHtml } from './common';
+import { renderBranchLabWorkspace } from './branch-lab-workspace';
 
 type Branch = { id: string; code: string; nameAr: string };
 type Patient = { id: string; name: string; phone: string; gender: string; version: number };
@@ -22,6 +23,7 @@ export async function renderBranchPatientsWorkspace(
     '<input name="phone" maxlength="32" placeholder="الهاتف" class="border rounded p-2 block">' +
     '<select name="gender" class="border rounded p-2 block"><option value="male">ذكر</option><option value="female">أنثى</option></select>' +
     '<button type="submit" class="border rounded p-2">إضافة المريض إلى الفرع المحدد</button></form>' +
+    '<div id="branch-lab-branch-panel"></div>' +
     '<p id="branch-patient-status" role="status"></p>' +
     '<button type="button" id="branch-patients-logout" class="border rounded p-2">تسجيل خروج</button>' +
     '</section>';
@@ -52,6 +54,8 @@ export async function renderBranchPatientsWorkspace(
             '</td><td class="border p-2">' + String(item.version) + '</td></tr>').join('') +
           '</tbody></table>';
       }
+      const labHost = root.querySelector<HTMLElement>('#branch-lab-branch-panel');
+      if (labHost) await renderBranchLabWorkspace(labHost,user,branch,data.items);
       say(data.nextCursor ? 'تُعرض أول 50 سجلاً فقط، لا يتم تحميل بقية الصفحات تلقائيًا.' :
         'تم تحميل سجلات الفرع المختار فقط.');
     } catch (error) { say(error instanceof Error ? error.message : 'تعذر تحميل المرضى'); }
