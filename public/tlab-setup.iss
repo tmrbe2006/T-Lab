@@ -225,6 +225,7 @@ begin
       'MYSQL_AUTO_SYNC=false' + #13#10 +
       'TLAB_ENABLE_UNSAFE_BULK_IMPORT=false' + #13#10 +
       'TLAB_ENABLE_SNAPSHOT_PULL=false' + #13#10 +
+      'TLAB_ALLOW_SCHEMA_BOOTSTRAP=false' + #13#10 +
       'TLAB_ADMIN_PASSWORD=' + AdminPass + #13#10 +
       '' + #13#10 +
       'GEMINI_API_KEY=' + #13#10 +
