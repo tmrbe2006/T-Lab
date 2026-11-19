@@ -29,6 +29,8 @@ jobs:
         run: node --test scripts/backup-crypto.test.mjs scripts/installer-safety.test.mjs
       - name: Production build
         run: npm run build
+      - name: Production server static-mode smoke test
+        run: node scripts/production-smoke.mjs
       - name: Install Chromium browser
         run: npx playwright install --with-deps chromium
       - name: Browser smoke tests (login and 40 screens)
