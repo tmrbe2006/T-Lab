@@ -1610,4 +1610,51 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('creates branch-only invoice previews and idempotent mock collections without official postings', async()=>{
+    const connect=()=>mysql.createConnection({
+      host:process.env.MYSQL_HOST||'127.0.0.1',port:Number(process.env.MYSQL_PORT||3306),
+      user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',
+      database:process.env.MYSQL_DATABASE||'tlab_mysql55_ci',
+    });
+    const accounts=new StaffAccountStore(connect),registry=new BranchRegistry(connect),
+      patients=new BranchPatientStore(connect),orders=new BranchLabWorkflowStore(connect),
+      billing=new BranchBillingPilotStore(connect),grants=new ServerPermissionStore(connect);
+    await accounts.ensureTable();await grants.ensureTable();await registry.ensureTables();
+    await patients.ensureTables();await orders.ensureTables();await billing.ensureTables();
+    const suffix=Date.now().toString(36);
+    const accountant=await accounts.create('finance_br_'+suffix,'Finance-Branch-2026!','Accountant');
+    const receptionist=await accounts.create('finance_rc_'+suffix,'Finance-Reception-2026!','Receptionist');
+    const branch1=await registry.create('finbranch1_'+suffix,'Finance test branch');
+    const branch2=await registry.create('finbranch2_'+suffix,'Other finance test branch');
+    await registry.grant(accountant.id,branch1.id);
+    await registry.grant(receptionist.id,branch1.id);
+    const patient=await patients.create(branch1.id,{name:'Synthetic finance branch patient'},receptionist.id);
+    const testId='fin_test_'+suffix;
+    const db=await connect();
+    try{
+      await db.execute('INSERT INTO lab_tests (id,code,name_ar,price,active) VALUES (?,?,?,?,1)',
+        [testId,'FINTEST','Finance Synthetic',125.75]);
+    }finally{await db.end();}
+    const order=await orders.create(branch1.id,patient.id,[testId],
+      {userId:receptionist.id,username:receptionist.username,role:receptionist.role});
+    expect(billing.draft(branch2.id,order.id,receptionist.id)).rejects.toThrow();
+    const draft=await billing.draft(branch1.id,order.id,receptionist.id);
+    expect(draft.amountMinor).toBe(12575);
+    expect(draft.officialInvoice).toBe(false);
+    expect(billing.draft(branch1.id,order.id,receptionist.id)).rejects.toThrow();
+    const key='finance_mock_key_'+suffix;
+    const first=await billing.mockCollect(branch1.id,draft.id,'25.25',key,accountant.id);
+    expect(first.replayed).toBe(false);
+    expect(first.officialReceipt).toBe(false);
+    const again=await billing.mockCollect(branch1.id,draft.id,'25.25',key,accountant.id);
+    expect(again.paymentId).toBe(first.paymentId);
+    expect(again.replayed).toBe(true);
+    await expect(billing.mockCollect(branch1.id,draft.id,'25.26',key,accountant.id)).rejects.toThrow();
+    await expect(billing.mockCollect(branch1.id,draft.id,'200.00','another_key_'+suffix,accountant.id)).rejects.toThrow();
+    const rows=await billing.list(branch1.id);
+    expect(rows.find(x=>x.id===draft.id)?.paidMinor).toBe(2525);
+    expect(rows.find(x=>x.id===draft.id)?.remainingMinor).toBe(10050);
+    expect((await billing.list(branch2.id)).some(x=>x.id===draft.id)).toBe(false);
+  });
+
 });
