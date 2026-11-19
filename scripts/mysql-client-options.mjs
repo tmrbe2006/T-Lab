@@ -30,11 +30,16 @@ export async function temporaryMysqlOptions({ host, port, user, password }) {
 }
 
 export function allowPlaintextMysqlConnection(host) {
-  // MySQL 5.5 has limited/obsolete TLS; allow loopback traffic only by default.
+  // MySQL 5.5 has obsolete TLS; permit unencrypted loopback only by default.
   if (['127.0.0.1', 'localhost', '::1'].includes(host)) return true;
-  const privateIPv4 =
-    /^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/.test(host) ||
-    /^192\\.168\\.\\d{1,3}\\.\\d{1,3}$/.test(host) ||
-    /^172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}$/.test(host);
-  return privateIPv4 && process.env.TLAB_BACKUP_ALLOW_PLAINTEXT_LAN === 'true';
+  const octets = host.split('.').map(Number);
+  const validIp = octets.length === 4 &&
+    host.split('.').every(part => part.length > 0 && part.length <= 3 &&
+      part.split('').every(ch => ch >= '0' && ch <= '9')) &&
+    octets.every(n => Number.isInteger(n) && n >= 0 && n <= 255);
+  const privateIp = validIp && (
+    octets[0] === 10 || (octets[0] === 192 && octets[1] === 168) ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+  );
+  return privateIp && process.env.TLAB_BACKUP_ALLOW_PLAINTEXT_LAN === 'true';
 }
