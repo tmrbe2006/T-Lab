@@ -240,6 +240,7 @@ begin
       'MYSQL_CONNECTION_TIMEOUT=8000' + #13#10 +
       'MYSQL_AUTO_SYNC=false' + #13#10 +
       'TLAB_ENABLE_LEGACY_API=false' + #13#10 +
+      'TLAB_MULTIBRANCH_MODE=false' + #13#10 +
       'TLAB_ENABLE_UNSAFE_BULK_IMPORT=false' + #13#10 +
       'TLAB_ENABLE_SNAPSHOT_PULL=false' + #13#10 +
       'TLAB_ALLOW_SCHEMA_BOOTSTRAP=false' + #13#10 +
