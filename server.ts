@@ -12,6 +12,7 @@ import { ServerPermissionStore, installPermissionAdminRoutes } from './server/se
 import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflow';
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './server/preliminary-results';
+import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './server/clinical-preflight';
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './server/invoice-drafts';
 import { SafeInventoryStore, installSafeInventoryRoutes } from './server/safe-inventory';
 import { StockReceiptStore, installStockReceiptRoutes } from './server/stock-receiving';
@@ -325,6 +326,7 @@ async function startServer() {
   const patientDomain = new PatientDomainStore(safeDbConnection);
   const labWorkflow = new LabWorkflowStore(safeDbConnection);
   const preliminaryResults = new PreliminaryResultStore(safeDbConnection);
+  const clinicalPreflight = new ClinicalPreflightStore(safeDbConnection);
   const invoiceDrafts = new InvoiceDraftStore(safeDbConnection);
   const safeInventory = new SafeInventoryStore(safeDbConnection);
   const stockReceipts = new StockReceiptStore(safeDbConnection);
@@ -332,6 +334,7 @@ async function startServer() {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
     installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
+    installClinicalPreflightRoutes(secureApp, clinicalPreflight, serverPermissions, resolveIdentity);
     installInvoiceDraftRoutes(secureApp, invoiceDrafts, serverPermissions, resolveIdentity);
     installSafeInventoryRoutes(secureApp, safeInventory, serverPermissions, resolveIdentity);
     installStockReceiptRoutes(secureApp, stockReceipts, serverPermissions, resolveIdentity);
