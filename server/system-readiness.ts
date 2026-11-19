@@ -8,7 +8,7 @@ const REQUIRED_TABLES = [
   'test_parameters', 'lab_results', 'inventory_items', 'inventory_lots',
   'secure_auth_users', 'secure_role_permissions', 'secure_record_versions',
   'secure_patient_audit', 'secure_lab_audit', 'secure_invoice_drafts',
-  'secure_stock_operations', 'secure_stock_receipts', 'secure_stock_qc_reviews', 'secure_stock_qc_reviews',
+  'secure_stock_operations', 'secure_stock_receipts', 'secure_stock_qc_reviews', 'secure_journal_drafts', 'secure_journal_draft_lines',
 ] as const;
 
 export interface ReadinessReport {
