@@ -152,3 +152,15 @@ The real MySQL 5.5 integration checks the Accountant/Technician authorization bo
 `GET /api/v2/finance/journal-drafts/:id` provides read-only draft line details for the author, Owner or Developer, subject to server permission `journalDrafts.view`. The response explicitly carries `posted:false` and `approved:false`; cross-user Accountant access is denied without Owner/Developer role. No route to post or approve is registered.
 
 The Developer permission-matrix GET route now enumerates all protected resources, including `financeAudit`, `inventoryQc`, `inventoryReceipts` and `journalDrafts`. A dedicated real-MySQL regression exercises the GET for each resource and checks that non-Developer requests receive HTTP 403.
+
+## Read-only fiscal posting preflight
+
+The new protected `POST /api/v2/finance/posting-preflight` checks:
+- Exact calendar date, an explicit *unique* open record for the relevant `period_locks.period_month`, with locked or missing/ambiguous periods flagged.
+- Every requested account code must exist *exactly once* in the chart of accounts.
+- Parent accounts that contain children are rejected as not directly postable.
+- Unrecognized account types and future posting dates are flagged.
+
+The API and Accountant/Owner draft UI expose the resulting reasons without mutating any accounting table. **`status:'blocked'` and `approvedForPosting:false` are invariant** even when all basic checks pass, because entity/branch ownership, VAT, financial review, account classifications, reversal workflows and line-level posted journal integrity have not been validated. This preflight is only a diagnostic prerequisite, NOT permission to post money.
+
+A real MySQL 5.5 test inserts synthetic chart accounts with parent-child hierarchy and a locked month, confirms blocked period, missing and parent-account warnings and denies Technician access. Existing accounting records are not modified.
