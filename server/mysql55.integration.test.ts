@@ -1658,4 +1658,48 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     expect((await billing.list(branch2.id)).some(x=>x.id===draft.id)).toBe(false);
   });
 
+  it('keeps stock transfers between branches exactly once with independent receiver',async()=>{
+    const connect=()=>mysql.createConnection({
+      host:process.env.MYSQL_HOST||'127.0.0.1',port:Number(process.env.MYSQL_PORT||3306),
+      user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',
+      database:process.env.MYSQL_DATABASE||'tlab_mysql55_ci',
+    });
+    const registry=new BranchRegistry(connect),stock=new BranchStockTransferPilotStore(connect),
+      accounts=new StaffAccountStore(connect);
+    await registry.ensureTables();await stock.ensureTables();await accounts.ensureTable();
+    const suffix=Date.now().toString(36);
+    const one=await registry.create('stk_a_'+suffix,'Synthetic originating branch');
+    const two=await registry.create('stk_b_'+suffix,'Synthetic receiving branch');
+    const actorA=await accounts.create('stock_a_'+suffix,'Stock-Actor-A-2026!','Chemist');
+    const actorB=await accounts.create('stock_b_'+suffix,'Stock-Actor-B-2026!','Chemist');
+    const item='stock_item_'+suffix;
+    const db=await connect();
+    try{
+      await db.execute('INSERT INTO inventory_items (id,code,name_ar,current_stock,active) '+
+        'VALUES (?,?,?,?,1)',[item,'DEMO_STK','Synthetic stock for transfer',0]);
+    }finally{await db.end();}
+    const seed=await stock.seedSynthetic(one.id,item,'LOTDEMO','10.500');
+    expect(seed.demoOnly).toBe(true);
+    const key='stock_transfer_key_'+suffix;
+    const first=await stock.initiate(one.id,two.id,item,'LOTDEMO','4.250',key,actorA.id);
+    expect(first.replayed).toBe(false);
+    const replay=await stock.initiate(one.id,two.id,item,'LOTDEMO','4.250',key,actorA.id);
+    expect(replay.transferId).toBe(first.transferId);
+    expect(replay.replayed).toBe(true);
+    await expect(stock.initiate(one.id,two.id,item,'LOTDEMO','5.000',key,actorA.id)).rejects.toThrow();
+    expect((await stock.levels(one.id))[0].quantityMilli).toBe(6250);
+    expect((await stock.receive(first.transferId,two.id,actorA.id)).status).toBe('same_actor');
+    expect((await stock.receive(first.transferId,one.id,actorB.id)).status).toBe('not_found');
+    expect((await stock.receive(first.transferId,two.id,actorB.id)).status).toBe('received');
+    expect((await stock.receive(first.transferId,two.id,actorB.id)).status).toBe('already_processed');
+    expect((await stock.levels(two.id))[0].quantityMilli).toBe(4250);
+    const db2=await connect();
+    try{
+      const [rows]=await db2.execute<mysql.RowDataPacket[]>(
+        'SELECT COUNT(*) AS n FROM secure_branch_demo_transfers WHERE id=? AND status=?',
+        [first.transferId,'received']);
+      expect(Number(rows[0].n)).toBe(1);
+    }finally{await db2.end();}
+  });
+
 });
