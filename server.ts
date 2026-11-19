@@ -8,6 +8,8 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { installApiSecurity } from './server/api-security';
 import { StaffAccountStore } from './server/staff-accounts';
+import { ServerPermissionStore } from './server/server-permissions';
+import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -311,8 +313,13 @@ async function startServer() {
   const PORT = resolveRequestedPort();
 
   app.use(express.json({ limit: '50mb' }));
-  const staffAccounts = new StaffAccountStore(() => getMySQLConnection(resolveConfig(), true));
-  installApiSecurity(app, staffAccounts);
+  const safeDbConnection = () => getMySQLConnection(resolveConfig(), true);
+  const staffAccounts = new StaffAccountStore(safeDbConnection);
+  const serverPermissions = new ServerPermissionStore(safeDbConnection);
+  const patientDomain = new PatientDomainStore(safeDbConnection);
+  installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
+    installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
+  });
 
   // 0. Get & Save Preferred Local Server Port (port.config.json)
   app.get('/api/server/port-config', (_req, res) => {
@@ -943,6 +950,8 @@ Return a strict JSON object with these exact keys:
       try {
         const info = await ensureDatabaseAndSchema(envCfg);
         await staffAccounts.ensureTable();
+        await serverPermissions.ensureTable();
+        await patientDomain.ensureTables();
         console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
       } catch (dbErr: unknown) {
         console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
