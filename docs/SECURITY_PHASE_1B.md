@@ -68,3 +68,17 @@ Testing: `server/mysql55.integration.test.ts` now exercises backend patient crea
 - Clinical domain remains **experimental**: only minimal patient fields are supported. The historical full patient file, medical histories, analyzers, test results, referrals, insurance, payments, stock, reporting and offline sync remain inaccessible for non-Developer users. Do not use with real patients until the entire workflow is moved to secure server operations and tested.
 - The original Developer-only pages still use local IndexedDB and are **not** suitable for clinical deployment.
 - CI includes a separate Chromium test on real MySQL 5.5 for reception login, patient addition and denial of legacy MySQL APIs. It must pass along with the full unit/build/schema suite.
+
+## Phase 4 — Request, sample, preliminary result domains
+
+Protected pilot APIs added:
+- `POST /api/v2/requests` accepts ONLY `patientId` + bounded unique `testIds`. The server validates the active patient and active catalogue tests, determines prices from `lab_tests`, and saves request and individual items as one MySQL 5.5 InnoDB transaction. **No invoice is generated.**
+- `GET /api/v2/catalog/tests` and `GET /api/v2/requests` return bounded, paginated lists with request-view permissions.
+- `POST /api/v2/requests/:id/samples/receive` atomically receives one sample per pilot request, requires an expected version, returns HTTP 409 for concurrent/stale edits or duplicate receipts, updates request status, and writes actor audit.
+- A restricted employee lab workflow panel provides receptionist request creation and technician/chemist sample receipt. The old laboratory/results pages remain blocked for staff.
+- `POST /api/v2/results/drafts` accepts only the exact active non-calculated test parameter set for an already received sample. It rejects wrong test IDs, missing values, wrong input types, duplicates, and unauthorized roles. It creates an **unapproved draft only** with `clinicalValidation: NOT_REVIEWED`, `flagAssessment: NOT_ASSESSED`, `has_critical: NULL`; no clinical status or reference interval is fabricated.
+- `GET /api/v2/results/:id` is role-checked. There is intentionally **no approve/sign/report endpoint** until gender/age-specific reference intervals, clinical critical threshold checks, second-review authorization, read-back tracking, and laboratory validation are completed.
+
+**RELEASE BLOCKERS**: No production use. Multi-tube sample collection, tests requiring several specimens, lab analyzer exchange, medical audit requirements, offline exactly-once synchronization, accounting invoices and payments, inventory consumption, fully validated result review/approval, and real Windows network/print UAT are incomplete. Legacy Developer pages still store patient data locally.
+
+Integration tests in `server/mysql55.integration.test.ts` cover secure request-to-sample life cycle and unreviewed results, plus malicious price substitution, role enforcement, stale-version conflict and audit trail.
