@@ -57,7 +57,9 @@ export class PreliminaryResultStore {
           const p = byId.get(measurement.parameterId);
           if (!p) throw new Error('Unexpected parameter');
           if (p.result_type === 'numeric') {
-            const numeric = typeof measurement.value === 'number' ? measurement.value : Number(measurement.value);
+            const numericText = String(measurement.value).trim();
+            if (!/^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$/.test(numericText)) throw new Error('Invalid numeric formatting');
+            const numeric = Number(numericText);
             if (!Number.isFinite(numeric) || String(measurement.value).trim() === '' ||
                 Math.abs(numeric) > 1e12) throw new Error('Invalid numeric result');
           } else {
@@ -77,7 +79,7 @@ export class PreliminaryResultStore {
         };
         await conn.execute(
           'INSERT INTO \`lab_results\` (\`id\`, \`request_id\`, \`test_id\`, \`patient_id\`, \`status\`, \`has_critical\`, \`raw_json\`) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [id, requestId, testId, request.patient_id, 'draft', 0, JSON.stringify(record)],
+          [id, requestId, testId, request.patient_id, 'draft', null, JSON.stringify(record)],
         );
         await conn.execute(
           'INSERT INTO \`secure_record_versions\` (\`resource\`, \`record_id\`, \`version\`) VALUES (?, ?, 1)',
