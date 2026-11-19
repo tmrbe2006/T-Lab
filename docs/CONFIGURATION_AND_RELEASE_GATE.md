@@ -121,3 +121,14 @@ Quarantined reagent receipts now have a separate, server-enforced `inventoryQc` 
 The protected `GET /api/v2/inventory/reconciliation?limit=25` endpoint checks a bounded page of item balances against *QC-released, non-expired, available* lots in MySQL 5.5. It separately highlights expired previously-released lots, differences and invalid quantities. It returns `readOnly:true`; it NEVER corrects stock, credits or debits quantities, posts a journal, or treats quarantined lots as available. Owner/Chemist/Accountant can view by default; database grants control the API independently from the UI.
 
 The integrated MySQL test inserts an intentionally inconsistent item balance and asserts an explicit `quantity_mismatch` with a 5.000-unit discrepancy. Reconciliation is advisory until all pages, opening balances, units, rounding policy and physical stock counts are verified. No automatic inventory adjustment is approved.
+
+## Read-only finance integrity audits
+
+A server-side `financeAudit` permission (initially Owner and Accountant only) controls two paginated GET endpoints:
+
+- `/api/v2/finance/audit/invoices` verifies legacy invoice subtotal, discount, tax and net total arithmetic, compares recorded paid amount with actual sum of linked payment rows, flags overpayments and incorrect remaining amount.
+- `/api/v2/finance/audit/journals` checks debit versus credit **headers only**; the source schema does not establish complete line-level debit/credit evidence. Therefore `lineItemsVerified:false` is returned even if header numbers match.
+
+Both endpoints return only record IDs and error codes; they do not expose patient names, execute updates, issue official invoices, accept payments or post ledger entries. The Owner/Accountant staff panel displays findings. This is a diagnostic gate, not a replacement for double-entry accounting, fiscal controls, supplier reconciliation, cashbox closure, tax compliance, or accountant sign-off.
+
+The real MySQL 5.5 regression test includes synthetic balanced and deliberately mismatched invoices/journal headers and confirms the Receptionist cannot access these audits.
