@@ -9,12 +9,16 @@
   #error "خطأ: يجب وضع ملف tlab-setup.iss داخل الفولدر الرئيسي لمشروع T-Lab (بجوار ملف package.json و server.ts) قبل الضغط على Compile!"
 #endif
 
-#define MyAppName "T-Lab Medical Laboratory System"
+#if !FileExists(AddBackslash(SourcePath) + "dist\index.html")
+  #error "Run npm install and npm run build BEFORE compiling this test-only installer."
+#endif
+
+#define MyAppName "T-Lab LOCAL TEST PILOT (NO PATIENT DATA)"
 #define MyAppNameAr "نظام إدارة معمل التحاليل الطبية العالمي T-Lab"
 #define MyAppVersion "6.1.0"
 #define MyAppPublisher "T-Lab Medical Systems"
 #define MyAppURL "http://localhost:3007"
-#define MyAppExeName "start-tlab-production.bat"
+#define MyAppExeName "start-tlab-pilot.bat"
 
 ; =============================================================================
 ; إعداد أيقونة البرنامج تلقائياً من الصورة (lab-test.png أو lab-test.ico)
@@ -34,7 +38,7 @@
 #endif
 
 [Setup]
-AppId={{8F6E3D2A-9B4C-4E1F-A7D8-3C5B9E102471}
+AppId={{B4D4A936-37B3-4BF9-B980-18DA1D245ADD}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} v{#MyAppVersion}
@@ -43,12 +47,12 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 ; التثبيت في C:\T-Lab-System لتجنب قيود صلاحيات القراءة فقط (UAC) ومسافات المسار في Program Files
-DefaultDirName={sd}\T-Lab-System
+DefaultDirName={sd}\T-Lab-Pilot-Sandbox
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 ; مجلد حفظ ملف السيتاب النهائي (.exe)
 OutputDir=Output
-OutputBaseFilename=T-Lab_Setup_v{#MyAppVersion}
+OutputBaseFilename=T-Lab_PILOT_TEST_v{#MyAppVersion}
 #if MyAppIcon != ""
 SetupIconFile={#MyAppIcon}
 UninstallDisplayIcon={app}\{#MyAppIcon}
@@ -73,14 +77,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon} (إنشاء اختصا
 
 [InstallDelete]
 ; حذف أي نسخة قديمة من مجلد البناء المؤقت أو كاش Vite لضمان تشغيل أحدث كود فوراً
-Type: filesandordirs; Name: "{app}\dist"
 Type: filesandordirs; Name: "{app}\node_modules\.vite"
 
 [Files]
 ; نسخ ملفات المشروع الأساسية بالكامل مع استثناء مجلدات البناء المؤقتة وكاش المسارات القديمة
-Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Output\*,dist\*,dist-installer\*,.git\*,coverage\*,node_modules\.vite\*,*.iss,.env,.env.*,*.sql"
+Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Output\*,dist-installer\*,.git\*,coverage\*,node_modules\*,playwright-report\*,test-results\*,*.iss,.env,.env.*,*.sql"
 
 [Icons]
+Name: "{group}\Initialize empty SANDBOX once"; Filename: "{app}\init-tlab-pilot.bat"; WorkingDir: "{app}"
 #if MyAppIcon != ""
 ; استخدام أيقونة البرنامج المخصصة (lab-test.ico) لسطح المكتب وقائمة ابدأ
 Name: "{group}\{#MyAppName} (تشغيل النظام)"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppIcon}"
@@ -96,10 +100,6 @@ Name: "{group}\إيقاف السيرفر (Stop T-Lab Server)"; Filename: "{app}\
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 13; Tasks: desktopicon
 #endif
-
-[Run]
-; تشغيل النظام بعد انتهاء التثبيت
-Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "تشغيل نظام معمل التحاليل الطبية T-Lab الآن"; Flags: nowait postinstall skipifsilent shellexec
 
 [Code]
 var
@@ -129,7 +129,7 @@ begin
   ServerConfigPage.Values[2] := '3306';
   ServerConfigPage.Values[3] := 'tlab_app';
   ServerConfigPage.Values[4] := '';
-  ServerConfigPage.Values[5] := 'tlab_db';
+  ServerConfigPage.Values[5] := 'tlab_local_test';
   ServerConfigPage.Values[6] := '';
 end;
 
@@ -141,6 +141,22 @@ begin
   if CurPageID = ServerConfigPage.ID then
   begin
     Pwd := ServerConfigPage.Values[6];
+    if (Trim(ServerConfigPage.Values[1]) <> '127.0.0.1') and
+       (Trim(ServerConfigPage.Values[1]) <> 'localhost') then
+    begin
+      MsgBox('PILOT mode is restricted to a MySQL server on this PC (127.0.0.1).', mbError, MB_OK);
+      Result := False;
+    end;
+    if (Length(Trim(ServerConfigPage.Values[5])) < 6) or
+       ((Lowercase(Copy(Trim(ServerConfigPage.Values[5]),
+          Length(Trim(ServerConfigPage.Values[5]))-4, 5)) <> '_test') and
+        (Lowercase(Copy(Trim(ServerConfigPage.Values[5]),
+          Length(Trim(ServerConfigPage.Values[5]))-4, 5)) <> '_demo')) then
+    begin
+      MsgBox('PILOT must use a fresh, empty MySQL database whose name ends _test or _demo.', mbError, MB_OK);
+      Result := False;
+    end;
+
     if not FileExists(ExpandConstant('{app}\.env')) and (Length(Pwd) < 16) then
     begin
       MsgBox('A new installation needs a unique Developer password of at least 16 characters. No default password is installed.', mbError, MB_OK);
@@ -202,7 +218,7 @@ begin
     AdminPass := ServerConfigPage.Values[6];
 
     DbName := Trim(ServerConfigPage.Values[5]);
-    if DbName = '' then DbName := 'tlab_db';
+    if DbName = '' then DbName := 'tlab_local_test';
 
     // 1. كتابة ملف .env بتعليقات ASCII نقية لمنع أي تعارض ترميز مع cmd.exe أو dotenv
     EnvContent :=
@@ -212,7 +228,7 @@ begin
       '# ============================================================================' + #13#10 +
       '' + #13#10 +
       'PORT=' + AppPort + #13#10 +
-      'HOST=0.0.0.0' + #13#10 +
+      'HOST=127.0.0.1' + #13#10 +
       'NODE_ENV=production' + #13#10 +
       '' + #13#10 +
       'MYSQL_HOST=' + DbHost + #13#10 +
@@ -223,6 +239,7 @@ begin
       'MYSQL_CHARSET=utf8_general_ci' + #13#10 +
       'MYSQL_CONNECTION_TIMEOUT=8000' + #13#10 +
       'MYSQL_AUTO_SYNC=false' + #13#10 +
+      'TLAB_ENABLE_LEGACY_API=false' + #13#10 +
       'TLAB_ENABLE_UNSAFE_BULK_IMPORT=false' + #13#10 +
       'TLAB_ENABLE_SNAPSHOT_PULL=false' + #13#10 +
       'TLAB_ALLOW_SCHEMA_BOOTSTRAP=false' + #13#10 +
@@ -243,68 +260,18 @@ begin
     // (يتأكد من وجود Node.js، ويثبت الحزم تلقائياً إن لم تكن موجودة، ويمسح كاش Vite القديم، ويفتح المتصفح فور جاهزية البورت)
     StartBatContent :=
       '@echo off' + #13#10 +
-      'chcp 65001 >nul' + #13#10 +
-      'title T-Lab Medical Laboratory ^& ERP Server' + #13#10 +
       'cd /d "%~dp0"' + #13#10 +
-      '' + #13#10 +
-      'set "PATH=%PATH%;C:\Program Files\nodejs;C:\Program Files (x86)\nodejs;%APPDATA%\npm;%LOCALAPPDATA%\Programs\nodejs"' + #13#10 +
-      '' + #13#10 +
-      'set APP_PORT=' + AppPort + #13#10 +
-      'if exist ".env" (' + #13#10 +
-      '  for /f "tokens=2 delims==" %%a in (''findstr /B /I "PORT=" ".env" 2^>nul'') do (' + #13#10 +
-      '    set "APP_PORT=%%a"' + #13#10 +
-      '  )' + #13#10 +
-      ')' + #13#10 +
-      'set "APP_PORT=%APP_PORT: =%"' + #13#10 +
-      'if "%APP_PORT%"=="" set APP_PORT=' + AppPort + #13#10 +
-      '' + #13#10 +
-      'echo ============================================================================' + #13#10 +
-      'echo   T-Lab Medical Laboratory ^& ERP System (MySQL 5.5 / 8.0.28)' + #13#10 +
-      'echo   Working Directory: %CD%' + #13#10 +
-      'echo   Target URL       : http://localhost:%APP_PORT%' + #13#10 +
-      'echo ============================================================================' + #13#10 +
-      'echo.' + #13#10 +
-      '' + #13#10 +
-      'where node >nul 2>&1' + #13#10 +
-      'if %ERRORLEVEL% NEQ 0 (' + #13#10 +
-      '  echo [ERROR] Node.js was not found on this computer!' + #13#10 +
-      '  echo Please install Node.js LTS from https://nodejs.org/ and try again.' + #13#10 +
-      '  pause' + #13#10 +
-      '  exit /b 1' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'if not exist "node_modules\express\package.json" (' + #13#10 +
-      '  echo [1/2] Installing required packages ^(node_modules^) for first-time launch...' + #13#10 +
-      '  call npm install --legacy-peer-deps' + #13#10 +
-      '  echo.' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'if not exist "node_modules\tsx\dist\cli.mjs" (' + #13#10 +
-      '  echo [1/2] Installing tsx runtime...' + #13#10 +
-      '  call npm install --legacy-peer-deps' + #13#10 +
-      '  echo.' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'if exist "node_modules\.vite" (' + #13#10 +
-      '  rmdir /s /q "node_modules\.vite" >nul 2>&1' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'start "" /b powershell -NoProfile -WindowStyle Hidden -Command "for($i=0; $i -lt 30; $i++){ Start-Sleep -Seconds 1; try { $c = New-Object System.Net.Sockets.TcpClient(''127.0.0.1'', %APP_PORT%); if($c.Connected){ $c.Close(); Start-Process ''http://localhost:%APP_PORT%''; break } } catch {} }"' + #13#10 +
-      '' + #13#10 +
-      'set NODE_ENV=production' + #13#10 +
-      'if not exist "dist\index.html" (' + #13#10 +
-      '  call npm run build' + #13#10 +
-      '  if errorlevel 1 exit /b 1' + #13#10 +
-      ')' + #13#10 +
-      'if exist "node_modules\tsx\dist\cli.mjs" (' + #13#10 +
-      '  node "node_modules\tsx\dist\cli.mjs" server.ts --port %APP_PORT% --static-dist' + #13#10 +
-      ') else (' + #13#10 +
-      '  call npx tsx server.ts --port %APP_PORT% --static-dist' + #13#10 +
-      ')' + #13#10 +
-      'echo.' + #13#10 +
+      'echo T-Lab PILOT sandbox: synthetic data only; no production patients.' + #13#10 +
+      'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows-local-pilot.ps1"' + #13#10 +
       'pause' + #13#10;
+    SaveStringToFile(ExpandConstant('{app}\start-tlab-pilot.bat'), StartBatContent, False);
 
-    SaveStringToFile(ExpandConstant('{app}\start-tlab-production.bat'), StartBatContent, False);
+    SaveStringToFile(ExpandConstant('{app}\init-tlab-pilot.bat'),
+      '@echo off' + #13#10 +
+      'cd /d "%~dp0"' + #13#10 +
+      'echo This action initializes a NEW EMPTY test database only.' + #13#10 +
+      'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows-local-pilot.ps1" -InitializeEmptySandbox -CheckOnly' + #13#10 +
+      'pause' + #13#10, False);
 
     // 4. توليد ملف إيقاف السيرفر stop-tlab.bat وملف التشغيل الصامت launch-tlab.vbs
     StopBatContent :=
@@ -318,7 +285,7 @@ begin
       'Set WshShell = CreateObject("WScript.Shell")' + #13#10 +
       'strPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)' + #13#10 +
       'WshShell.CurrentDirectory = strPath' + #13#10 +
-      'WshShell.Run chr(34) & strPath & "\start-tlab-production.bat" & chr(34), 1, False' + #13#10 +
+      'WshShell.Run chr(34) & strPath & "\start-tlab-pilot.bat" & chr(34), 1, False' + #13#10 +
       'Set WshShell = Nothing' + #13#10;
     SaveStringToFile(ExpandConstant('{app}\launch-tlab.vbs'), VbsContent, False);
 
