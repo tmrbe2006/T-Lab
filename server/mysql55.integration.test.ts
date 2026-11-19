@@ -786,6 +786,17 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       const retry = await post(allowed, body);
       expect(retry.status).toBe(200);
       expect((await retry.json()).lotId).toBe(received.lotId);
+      const quarantineList = await fetch(base + '/api/v2/inventory/receipts/quarantine?limit=50', {
+        headers: { cookie: allowed },
+      });
+      expect(quarantineList.status).toBe(200);
+      const quarantined = (await quarantineList.json()).items.find((item: { lotId: string }) => item.lotId === received.lotId);
+      expect(quarantined.status).toBe('quarantined');
+      expect(quarantined.approved).toBe(false);
+      const unauthorizedList = await fetch(base + '/api/v2/inventory/receipts/quarantine', {
+        headers: { cookie: denied },
+      });
+      expect(unauthorizedList.status).toBe(403);
       expect((await post(allowed, { ...body, idempotencyKey: body.idempotencyKey + '_different' })).status).toBe(409);
       const issue = await fetch(base + '/api/v2/inventory/issue', {
         method: 'POST', headers: { cookie: allowed, 'content-type': 'application/json' },
