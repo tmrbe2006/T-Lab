@@ -342,16 +342,27 @@ export async function seedDatabase(forceReset = false): Promise<void> {
     const isDemoMode =
       typeof localStorage !== 'undefined' && localStorage.getItem('tlab_demo_mode') === 'true';
     if (!isDemoMode) {
-      // Default to Empty Database (all tables empty except Users, Roles, Permissions, Settings)
-      const isAlreadyClean =
-        typeof localStorage !== 'undefined' && localStorage.getItem('tlab_clean_db_mode') === 'true';
+      // Never erase existing local clinical records during application startup.
+      // A browser may have operational data even when localStorage flags are gone.
+      // Server authentication will provision Developer separately after login.
       const existingUsers = await db.users.count();
-      if (!isAlreadyClean || existingUsers === 0) {
-        await resetToEmptyExceptUsers();
-      } else {
-        await db.permissions.bulkPut(buildRolePermissions());
-        await syncGlobalMedicalCatalog(false);
+      if (existingUsers === 0) {
+        await db.users.put({
+          id: 'usr_dev',
+          username: 'developer',
+          passwordHash: '', // Not a credential; server session is authoritative.
+          fullNameAr: 'مبرمج النظام',
+          fullNameEn: 'System Developer',
+          role: 'Developer',
+          active: true,
+          createdAt: new Date().toISOString().slice(0, 10),
+        });
       }
+      const existingPerms = await db.permissions.toArray();
+      const keys = new Set(existingPerms.map((p) => p.id));
+      const missing = buildRolePermissions().filter((p) => !keys.has(p.id));
+      if (missing.length) await db.permissions.bulkPut(missing);
+      await syncGlobalMedicalCatalog(false);
       return;
     }
 
