@@ -58,7 +58,7 @@ export class PreliminaryResultStore {
           if (!p) throw new Error('Unexpected parameter');
           if (p.result_type === 'numeric') {
             const numericText = String(measurement.value).trim();
-            if (!/^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$/.test(numericText)) throw new Error('Invalid numeric formatting');
+            if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(numericText)) throw new Error('Invalid numeric formatting');
             const numeric = Number(numericText);
             if (!Number.isFinite(numeric) || String(measurement.value).trim() === '' ||
                 Math.abs(numeric) > 1e12) throw new Error('Invalid numeric result');
