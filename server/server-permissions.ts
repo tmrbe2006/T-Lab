@@ -36,6 +36,10 @@ export class ServerPermissionStore {
           Owner: ['view'], Doctor: ['view'],
           Chemist: ['view', 'add'], Technician: ['view', 'add'],
         },
+        invoiceDrafts: {
+          Owner: ['view', 'add'], Receptionist: ['view', 'add'],
+          Accountant: ['view', 'add'],
+        },
       };
       for (const [resource, policiesByRole] of Object.entries(policies)) {
         for (const role of ['Owner','Doctor','Chemist','Technician','Receptionist','Accountant']) {
@@ -67,7 +71,7 @@ export class ServerPermissionStore {
   }
   async set(role: string, resource: string, action: SecureAction, allowed: boolean): Promise<void> {
     if (!['Owner','Doctor','Chemist','Technician','Receptionist','Accountant'].includes(role) ||
-        !['patients', 'requests', 'samples', 'results'].includes(resource) || !['view','add','edit','delete'].includes(action) || typeof allowed !== 'boolean') {
+        !['patients', 'requests', 'samples', 'results', 'invoiceDrafts'].includes(resource) || !['view','add','edit','delete'].includes(action) || typeof allowed !== 'boolean') {
       throw new Error('Invalid role, resource or action');
     }
     const conn = await this.connect();
@@ -81,7 +85,7 @@ export class ServerPermissionStore {
     }
   }
   async list(resource: string): Promise<Array<{role: string; resource: string; action: string; allowed: boolean}>> {
-    if (!['patients', 'requests', 'samples'].includes(resource)) throw new Error('Unsupported resource');
+    if (!['patients', 'requests', 'samples', 'results', 'invoiceDrafts'].includes(resource)) throw new Error('Unsupported resource');
     const conn = await this.connect();
     try {
       const [rows] = await conn.execute<RowDataPacket[]>(
@@ -110,7 +114,7 @@ export function installPermissionAdminRoutes(
       catch { res.status(503).json({ ok: false, error: 'Server permissions unavailable' }); }
     };
   app.get('/api/v2/permissions', admin(async (req, res) => {
-    if (typeof req.query.resource !== 'string' || !['patients', 'requests', 'samples'].includes(req.query.resource)) { res.status(400).json({ ok: false }); return; }
+    if (typeof req.query.resource !== 'string' || !['patients', 'requests', 'samples', 'results', 'invoiceDrafts'].includes(req.query.resource)) { res.status(400).json({ ok: false }); return; }
     res.json({ ok: true, permissions: await store.list(req.query.resource as string) });
   }));
   app.put('/api/v2/permissions', admin(async (req, res) => {
