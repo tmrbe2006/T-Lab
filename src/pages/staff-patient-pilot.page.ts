@@ -1,3 +1,4 @@
+import { renderStaffReviewQueue } from '../components/staff-review-queue';
 import { renderStaffLabPilot } from '../components/staff-lab-pilot';
 import { authService } from '../auth/auth.service';
 import { escapeHtml } from '../components/common';
@@ -46,6 +47,7 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
           </div>
         </div>
         <div id="staff-lab-pilot-panel"></div>
+        <div id="staff-review-queue-panel"></div>
       </main>
     </div>`;
   const status = root.querySelector<HTMLElement>('#staff-pilot-status');
@@ -164,4 +166,6 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
   if (labPanel && ['Owner', 'Receptionist', 'Doctor', 'Chemist', 'Technician'].includes(user.role)) {
     await renderStaffLabPilot(labPanel, user);
   }
+  const reviewPanel = root.querySelector<HTMLElement>('#staff-review-queue-panel');
+  if (reviewPanel) await renderStaffReviewQueue(reviewPanel, user);
 }
