@@ -116,6 +116,20 @@ export class BranchRegistry {
     } finally { await db.end(); }
   }
 }
+export function installBranchIsolationGate(app: Express): void {
+  app.use('/api/v2', (req: Request, res: Response, next) => {
+    if (process.env.TLAB_MULTIBRANCH_MODE !== 'true') return next();
+    // The /api/v2/branches metadata APIs use server-checked memberships.
+    // All clinical, financial, inventory and reporting endpoints remain
+    // blocked until every DB query is formally branch-scoped and tested.
+    if (req.path === '/branches' || req.path.startsWith('/branches/')) return next();
+    return res.status(503).json({
+      ok: false,
+      error: 'Multi-branch operational endpoints are disabled pending database-level isolation',
+    });
+  });
+}
+
 export function installBranchRegistryRoutes(
   app: Express, store: BranchRegistry, identity: IdentityResolver,
 ): void {
