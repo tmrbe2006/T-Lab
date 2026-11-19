@@ -18,10 +18,10 @@ const db=await mysql.createConnection({
 });
 try{
   const [already]=await db.query('SHOW DATABASES LIKE ?', ['tlab_local_test']);
-  if((already as unknown[]).length)throw Error('Refusing to load schema into a non-fresh database');
+  if(already.length)throw Error('Refusing to load schema into a non-fresh database');
   for(const command of commands)await db.query(command);
   const [rows]=await db.query('SHOW TABLES');
-  const tables=(rows as Array<Record<string,unknown>>).map(r=>String(Object.values(r)[0]));
+  const tables=rows.map(r=>String(Object.values(r)[0]));
   const expected=commands.filter(s=>/^CREATE TABLE IF NOT EXISTS/i.test(s)).length;
   if(tables.length!==expected)throw Error('Mismatch: '+tables.length+' vs '+expected);
   for(const table of ['secure_branch_patients','secure_branch_requests','secure_branch_samples',
@@ -29,6 +29,6 @@ try{
     if(!tables.includes(table))throw Error('Missing required '+table);
   }
   const [live]=await db.query('SELECT COUNT(*) AS n FROM secure_branch_patients');
-  if(Number((live as Array<{n:number}>)[0].n)!==0)throw Error('Schema populated real patient data');
+  if(Number(live[0].n)!==0)throw Error('Schema populated real patient data');
   console.log('PASS: '+tables.length+' MySQL 5.5 DDL tables in isolated, empty tlab_local_test.');
 }finally{await db.end();}
