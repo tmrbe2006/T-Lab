@@ -446,6 +446,23 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       const duplicate = await fetch(base + '/api/v2/results/drafts', { method: 'POST',
         headers: { cookie: techCookie, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
       expect(duplicate.status).toBe(422);
+      const reviewUrl = base + '/api/v2/results/' + draft.record.id + '/submit-review';
+      const doctorReview = await fetch(reviewUrl, {
+        method: 'POST', headers: { cookie: doctorCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ version: 1 }),
+      });
+      expect(doctorReview.status).toBe(403);
+      const review = await fetch(reviewUrl, {
+        method: 'POST', headers: { cookie: techCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ version: 1 }),
+      });
+      expect(review.status).toBe(200);
+      expect((await review.json()).approved).toBe(false);
+      const staleReview = await fetch(reviewUrl, {
+        method: 'POST', headers: { cookie: techCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ version: 1 }),
+      });
+      expect(staleReview.status).toBe(409);
       const noApproval = await fetch(base + '/api/v2/results/' + draft.record.id + '/approve', {
         method: 'POST', headers: { cookie: doctorCookie },
       });
@@ -455,7 +472,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         const [rows] = await check.execute<mysql.RowDataPacket[]>(
           'SELECT \`status\`, \`has_critical\`, \`approved_by\` FROM \`lab_results\` WHERE \`id\` = ?', [draft.record.id],
         );
-        expect(rows[0].status).toBe('draft');
+        expect(rows[0].status).toBe('pending_review');
         expect(rows[0].approved_by).toBeNull();
         expect(rows[0].has_critical).toBeNull();
       } finally { await check.end(); }
