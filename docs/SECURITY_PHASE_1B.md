@@ -59,3 +59,12 @@ Added `/api/v2/patients/:id` (GET/PATCH/DELETE) and `/api/v2/patients` (POST). T
 **Important:** The old patient page continues to use Dexie/IndexedDB and is NOT connected to this API. Server-backed clinical screens must be migrated and regression tested before enabling real staff workflows. No direct browser password authentication and no automatic IndexedDB-to-MySQL raw writes may be restored. Medical images/clinical results, accounting, stock and offline queue need corresponding secure domains.
 
 Testing: `server/mysql55.integration.test.ts` now exercises backend patient create/update/409 stale conflict/403 denial/permission change/audit on real MySQL 5.5. CI must be green before referencing it as verified.
+
+## Phase 3 pilot UI: server-authenticated reception / patient records
+
+- Server-side staff sessions can now access a **restricted patient-only UI** after authentication. Legacy accounting, samples, results, inventory and developer settings are not exposed to staff.
+- Receptionists can create patients and edit names via `/api/v2/patients`. Doctors, chemists and technicians have view-only permissions by default; the Owner has an additional soft-deactivate action. All actions are finally authorized by MySQL `secure_role_permissions`, not the browser UI.
+- The UI obtains records through paginated MySQL reads, never imports a full database snapshot or writes patient records to Dexie. If two devices edit the same patient, stale revisions are rejected with HTTP 409.
+- Clinical domain remains **experimental**: only minimal patient fields are supported. The historical full patient file, medical histories, analyzers, test results, referrals, insurance, payments, stock, reporting and offline sync remain inaccessible for non-Developer users. Do not use with real patients until the entire workflow is moved to secure server operations and tested.
+- The original Developer-only pages still use local IndexedDB and are **not** suitable for clinical deployment.
+- CI includes a separate Chromium test on real MySQL 5.5 for reception login, patient addition and denial of legacy MySQL APIs. It must pass along with the full unit/build/schema suite.
