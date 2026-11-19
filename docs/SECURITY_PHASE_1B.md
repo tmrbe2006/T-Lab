@@ -105,3 +105,17 @@ A results author can now call `POST /api/v2/results/:id/submit-review` with an e
 
 ### Latest integration coverage
 GitHub Actions validates submitting an authored result, stale submission rejection, role restrictions on the queue, preservation of unapproved status and no clinical approval route.
+
+## Phase 7 — Controlled reagent stock issuance (pilot, no purchase receiving)
+
+A new server-authorized `POST /api/v2/inventory/issue` endpoint supports manually requested stock removal against a SPECIFIC lot in MySQL 5.5. Only Developer, Owner and Chemist are allowed by initial server policy; Technician and Receptionist cannot write stock movements by default. The Developer may change the permissions matrix.
+
+- Quantity is checked at 0.001 precision using integer milliquantity arithmetic. A request with negative, zero, excessively large or invalid quantity is rejected.
+- The code locks the inventory item and target lot in InnoDB; it verifies active item, explicitly released/approved QC lot status, an allowed active/available lot, valid expiry date and sufficient item AND lot balance.
+- Simplified FEFO requires an earlier-expiring eligible lot to be selected when it alone can fulfill the requested quantity. This is a *single-lot manual operation*, not a fully optimized split-lot picking workflow.
+- It decrements the lot and item balances and creates one `stock_movements` record, along with an `secure_stock_operations` idempotency proof, within one transaction. Replaying the identical key returns the original movement without double deduction.
+- This only handles manual ISSUE. It does NOT accept purchases/receipts, transfers, returns, reagent consumption based on instrument runs, stocktaking adjustments, automatic BOM issue, purchase accounting or general ledger entries.
+
+**Never enable on live stock yet:** The existing lot/QC workflow must be assessed for accurate states, storage location, stock unit conversion, expiry date semantics, reconciled opening balances and FEFO mixed-lot rules. Do not bypass a lab's release policy; missing QC or expiry denies issue. This new operation is not exposed through the staff pilot UI until those business rules are approved.
+
+Automated coverage: `server/mysql55.integration.test.ts` inserts two lots with different expiries, proves RBAC, early expiry selection, idempotent replay, one movement and exact item/lot balance.
