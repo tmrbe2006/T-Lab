@@ -5,6 +5,17 @@ import { mysqlSyncService } from '../services/mysql-sync.service';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
 
 const SESSION_KEY = 'medlab_current_user';
+const serverDeveloperUser = (): User => ({
+  id: 'server-developer',
+  username: 'developer',
+  passwordHash: '', // No browser-stored credential.
+  fullNameAr: 'مبرمج النظام',
+  fullNameEn: 'System Developer',
+  role: 'Developer',
+  active: true,
+  createdAt: '2026-01-01',
+});
+
 
 class AuthService {
   private currentUser: User | null = null;
@@ -20,8 +31,8 @@ class AuthService {
       if (!data.ok || data.username !== 'developer' || data.role !== 'Developer') return;
       await mysqlSyncService.autoSyncOnStartup();
       await this.reloadPermissionsCache();
-      const freshUser = await usersRepository.getByUsername('developer');
-      if (freshUser && freshUser.active && freshUser.role === 'Developer') this.currentUser = freshUser;
+      // Identity and role are derived from server session, never local IndexedDB.
+      this.currentUser = serverDeveloperUser();
     } catch {
       // Fail closed if server-side session cannot be established.
     }
@@ -108,11 +119,12 @@ class AuthService {
       if (!response.ok) return { ok: false };
       await mysqlSyncService.autoSyncOnStartup();
       await this.reloadPermissionsCache();
-      const user = await usersRepository.getByUsername('developer');
-      if (!user || !user.active || user.role !== 'Developer') {
+      const payload = await response.json() as { ok?: boolean; role?: string; username?: string };
+      if (!payload.ok || payload.username !== 'developer' || payload.role !== 'Developer') {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
         return { ok: false };
       }
+      const user = serverDeveloperUser();
       this.currentUser = user;
       await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id);
       return { ok: true, user };
