@@ -17,6 +17,12 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
     data: { username, password, role: 'Receptionist' },
   });
   expect(provision.status()).toBe(201);
+  const techUsername = 'tech_ci_' + Date.now().toString(36);
+  const techPassword = 'Technician-ui-test-password-8975!';
+  const techProvision = await page.request.post('/api/auth/staff', {
+    data: { username: techUsername, password: techPassword, role: 'Technician' },
+  });
+  expect(techProvision.status()).toBe(201);
   await page.locator('#top-logout-btn').click();
   await expect(page.locator('#login-form')).toBeVisible();
   await page.locator('#login-username').fill(username);
@@ -32,6 +38,24 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
   await page.locator('#staff-pilot-create [name="phone"]').fill('01000000000');
   await page.locator('#staff-pilot-create button[type="submit"]').click();
   await expect(page.locator('#staff-pilot-list')).toContainText(name, { timeout: 20_000 });
+  const patientRow = page.locator('#staff-pilot-list tr').filter({ hasText: name });
+  await patientRow.locator('[data-patient-action="select"]').click();
+  await expect(page.locator('#lab-pilot-request [name="patientId"]')).not.toHaveValue('');
+  await expect(page.locator('#lab-pilot-request select[name="testId"] option')).not.toHaveCount(1, { timeout: 20_000 });
+  await page.locator('#lab-pilot-request select[name="testId"]').selectOption({ index: 1 });
+  await page.locator('#lab-pilot-request button[type="submit"]').click();
+  await expect(page.locator('#lab-pilot-requests')).toContainText('awaiting_sample', { timeout: 20_000 });
+
+  await page.locator('#staff-pilot-logout').click();
+  await expect(page.locator('#login-form')).toBeVisible();
+  await page.locator('#login-username').fill(techUsername);
+  await page.locator('#login-password').fill(techPassword);
+  await page.locator('#login-form button[type="submit"]').click();
+  await expect(page.locator('#lab-pilot-requests')).toContainText('awaiting_sample', { timeout: 20_000 });
+  await expect(page.locator('#lab-pilot-request')).toHaveCount(0);
+  page.once('dialog', dialog => dialog.accept('Blood'));
+  await page.locator('#lab-pilot-requests button[data-receive-index]').first().click();
+  await expect(page.locator('#lab-pilot-requests')).toContainText('sample_received', { timeout: 20_000 });
   expect(errors, errors.join('\n')).toEqual([]);
 
   await page.locator('#staff-pilot-logout').click();
