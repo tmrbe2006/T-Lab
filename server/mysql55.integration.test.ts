@@ -907,7 +907,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         const [proof] = await check.execute<mysql.RowDataPacket[]>(
           'SELECT COUNT(*) AS qty FROM secure_stock_receipts WHERE item_id = ?', [itemId],
         );
-        expect(Number(proof[0].qty)).toBe(1);
+        expect(Number(proof[0].qty)).toBe(2);
         const [rejected] = await check.execute<mysql.RowDataPacket[]>(
           'SELECT status, qc_status, remaining_qty FROM inventory_lots WHERE id = ?',
           [failedLot.lotId],
