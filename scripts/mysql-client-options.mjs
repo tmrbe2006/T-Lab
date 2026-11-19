@@ -28,3 +28,13 @@ export async function temporaryMysqlOptions({ host, port, user, password }) {
     cleanup: async () => rm(directory, { recursive: true, force: true }),
   };
 }
+
+export function allowPlaintextMysqlConnection(host) {
+  // MySQL 5.5 has limited/obsolete TLS; allow loopback traffic only by default.
+  if (['127.0.0.1', 'localhost', '::1'].includes(host)) return true;
+  const privateIPv4 =
+    /^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/.test(host) ||
+    /^192\\.168\\.\\d{1,3}\\.\\d{1,3}$/.test(host) ||
+    /^172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}$/.test(host);
+  return privateIPv4 && process.env.TLAB_BACKUP_ALLOW_PLAINTEXT_LAN === 'true';
+}
