@@ -20,7 +20,7 @@ import { StockQcReviewStore, installStockQcReviewRoutes } from './server/stock-q
 import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './server/finance-reconciliation';
 import { JournalDraftStore, installJournalDraftRoutes } from './server/journal-drafts';
 import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './server/financial-posting-preflight';
-import { BranchRegistry, installBranchRegistryRoutes } from './server/branch-registry';
+import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate } from './server/branch-registry';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -345,12 +345,7 @@ async function startServer() {
     // Branch metadata is safe to manage, but legacy patient/finance workflows
     // are not scoped to branch_id. Fail closed in explicit multibranch mode.
     installBranchRegistryRoutes(secureApp, branches, resolveIdentity);
-    if (process.env.TLAB_MULTIBRANCH_MODE === 'true') {
-      secureApp.use('/api/v2', (req, res, next) => {
-        if (req.path === '/branches' || req.path.startsWith('/branches/')) return next();
-        return res.status(503).json({ ok: false, error: 'Multibranch operational endpoints blocked until branch-scoped data migration is validated' });
-      });
-    }
+    installBranchIsolationGate(secureApp);
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
     installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
