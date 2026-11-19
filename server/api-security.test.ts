@@ -7,9 +7,11 @@ import { installApiSecurity } from './api-security';
 let server: Server;
 let base = '';
 const previous = process.env.TLAB_ADMIN_PASSWORD;
+const previousLegacy = process.env.TLAB_ENABLE_LEGACY_API;
 
 beforeAll(async () => {
   process.env.TLAB_ADMIN_PASSWORD = 'local-test-only-security-password-123456';
+  delete process.env.TLAB_ENABLE_LEGACY_API;
   const app = express();
   app.use(express.json());
   installApiSecurity(app);
@@ -26,6 +28,8 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
   if (previous === undefined) delete process.env.TLAB_ADMIN_PASSWORD;
   else process.env.TLAB_ADMIN_PASSWORD = previous;
+  if (previousLegacy === undefined) delete process.env.TLAB_ENABLE_LEGACY_API;
+  else process.env.TLAB_ENABLE_LEGACY_API = previousLegacy;
 });
 
 describe('Protected API', () => {
@@ -63,7 +67,14 @@ describe('Protected API', () => {
     expect(cookie).toMatch(/^tlab_session=/);
     expect(login.headers.get('set-cookie')).toContain('HttpOnly');
     const access = await fetch(base + '/api/mysql/env-config', { headers: { cookie } });
-    expect(access.status).toBe(200);
+    expect(access.status).toBe(403);
+    expect((await access.json()).error).toContain('Legacy API disabled');
+    // A deliberate development-only opt-in is still Developer-only.
+    process.env.TLAB_ENABLE_LEGACY_API = 'true';
+    try {
+      const explicit = await fetch(base + '/api/mysql/env-config', { headers: { cookie } });
+      expect(explicit.status).toBe(200);
+    } finally { delete process.env.TLAB_ENABLE_LEGACY_API; }
     const logout = await fetch(base + '/api/auth/logout', { method: 'POST', headers: { cookie } });
     expect(logout.status).toBe(200);
     const blocked = await fetch(base + '/api/mysql/env-config', { headers: { cookie } });
