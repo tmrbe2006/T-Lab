@@ -50,6 +50,61 @@ export class SafeInventoryStore {
     } finally { await conn.end(); }
   }
 
+  async reconcile(cursor: string, limit: number) {
+    if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 25) {
+      throw new Error('Invalid reconciliation pagination');
+    }
+    const db = await this.connect();
+    try {
+      // This is read-only: no unsafe balance overwrite, no auto stock-taking.
+      const [items] = await db.execute<(ItemRow & { code: string })[]>(
+        'SELECT id, code, active, current_stock FROM inventory_items ' +
+        'WHERE id > ? ORDER BY id LIMIT ?', [cursor, limit],
+      );
+      const checks = [];
+      for (const item of items) {
+        const [totals] = await db.execute<RowDataPacket[]>(
+          'SELECT COALESCE(SUM(remaining_qty), 0) AS available_lots, ' +
+          'COALESCE(SUM(CASE WHEN status IN (\'active\',\'available\') ' +
+          'AND qc_status IN (\'approved\',\'released\') ' +
+          'AND expiry_date < ? THEN remaining_qty ELSE 0 END), 0) AS expired_stock ' +
+          'FROM inventory_lots WHERE item_id = ? ' +
+          'AND status IN (\'active\',\'available\') ' +
+          'AND qc_status IN (\'approved\',\'released\')',
+          [new Date().toISOString().slice(0,10), item.id],
+        );
+        // Exclude expired lots even when legacy balances incorrectly include them.
+        const [eligible] = await db.execute<RowDataPacket[]>(
+          'SELECT COALESCE(SUM(remaining_qty), 0) AS qty FROM inventory_lots ' +
+          'WHERE item_id = ? AND status IN (\'active\',\'available\') ' +
+          'AND qc_status IN (\'approved\',\'released\') AND expiry_date >= ?',
+          [item.id, new Date().toISOString().slice(0, 10)],
+        );
+        let itemMilli: number | null = null, lotsMilli: number | null = null;
+        try {
+          itemMilli = toMilli(String(item.current_stock), false);
+          lotsMilli = toMilli(String(eligible[0]?.qty || '0'), false);
+        } catch {
+          // Return integrity warning; do not guess or correct corrupted data.
+        }
+        const difference = itemMilli !== null && lotsMilli !== null
+          ? itemMilli - lotsMilli : null;
+        checks.push({
+          itemId: item.id, code: String(item.code || ''),
+          itemQty: String(item.current_stock), availableLotQty: String(eligible[0]?.qty || '0'),
+          expiredReleasedQty: String(totals[0]?.expired_stock || '0'),
+          differenceMilli: difference,
+          balanced: difference === 0 && Number(totals[0]?.expired_stock || 0) === 0,
+          status: difference === null ? 'invalid_quantity' : difference !== 0
+            ? 'quantity_mismatch' : Number(totals[0]?.expired_stock || 0) > 0
+            ? 'expired_released_stock' : 'balanced',
+        });
+      }
+      return { items: checks, nextCursor: items.length === limit ? items[items.length-1].id : null,
+        readOnly: true };
+    } finally { await db.end(); }
+  }
+
   async issue(itemId: string, lotId: string, quantity: unknown, key: string, actor: ServerIdentity) {
     if (!validId(itemId) || !validId(lotId) || !validKey(key)) throw new Error('Invalid stock identifiers');
     const qty = toMilli(quantity);
@@ -125,6 +180,23 @@ export function installSafeInventoryRoutes(
   app: Express, store: SafeInventoryStore,
   permissions: ServerPermissionStore, identity: IdentityResolver
 ): void {
+  app.get('/api/v2/inventory/reconciliation', async (req: Request, res: Response) => {
+    const actor = await identity(req);
+    if (!actor) return res.status(401).json({ ok: false });
+    try {
+      if (!(await permissions.can(actor.role, 'inventoryMovements', 'view'))) {
+        return res.status(403).json({ ok: false });
+      }
+      const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+      const limit = req.query.limit === undefined ? 25 : Number(req.query.limit);
+      if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 25) {
+        return res.status(400).json({ ok: false });
+      }
+      return res.json({ ok: true, ...(await store.reconcile(cursor, limit)) });
+    } catch {
+      return res.status(503).json({ ok: false, error: 'Inventory reconciliation unavailable' });
+    }
+  });
   app.post('/api/v2/inventory/issue', async (req: Request, res: Response) => {
     const actor = await identity(req);
     if (!actor) return res.status(401).json({ ok: false });
