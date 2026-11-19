@@ -40,3 +40,35 @@ jobs:
             playwright-report/
             test-results/
           if-no-files-found: ignore
+
+  mysql55:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:5.5
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-mysql-password
+          MYSQL_DATABASE: tlab_mysql55_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping --protocol=tcp --host=127.0.0.1 --user=root --password=ci-only-mysql-password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - name: MySQL 5.5 schema and transactional integrity
+        env:
+          TLAB_RUN_MYSQL55_TESTS: 'true'
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-only-mysql-password
+          MYSQL_DATABASE: tlab_mysql55_ci
+        run: npx vitest run server/mysql55.integration.test.ts
