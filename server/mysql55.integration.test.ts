@@ -18,6 +18,7 @@ import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate
 import { BranchPatientStore, installBranchPatientRoutes } from './branch-patient-domain';
 import { BranchLabWorkflowStore, installBranchLabWorkflowRoutes } from './branch-lab-workflow';
 import { BranchPreliminaryResultsStore, installBranchResultRoutes } from './branch-results';
+import { BranchBillingPilotStore, installBranchBillingPilotRoutes } from './branch-billing-pilot';
 import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './clinical-preflight';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
