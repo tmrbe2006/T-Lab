@@ -25,6 +25,7 @@ import { BranchPatientStore, installBranchPatientRoutes } from './server/branch-
 import { BranchLabWorkflowStore, installBranchLabWorkflowRoutes } from './server/branch-lab-workflow';
 import { BranchSummaryStore, installBranchReportRoutes } from './server/branch-reports';
 import { BranchPreliminaryResultsStore, installBranchResultRoutes } from './server/branch-results';
+import { BranchBillingPilotStore, installBranchBillingPilotRoutes } from './server/branch-billing-pilot';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -349,6 +350,7 @@ async function startServer() {
   const branchLab = new BranchLabWorkflowStore(safeDbConnection);
   const branchReports = new BranchSummaryStore(safeDbConnection);
   const branchResults = new BranchPreliminaryResultsStore(safeDbConnection);
+  const branchBilling = new BranchBillingPilotStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     // Branch metadata is safe to manage, but legacy patient/finance workflows
     // are not scoped to branch_id. Fail closed in explicit multibranch mode.
@@ -357,6 +359,7 @@ async function startServer() {
     installBranchLabWorkflowRoutes(secureApp, branchLab, branches, serverPermissions, resolveIdentity);
     installBranchReportRoutes(secureApp, branchReports, branches, resolveIdentity);
     installBranchResultRoutes(secureApp, branchResults, branches, serverPermissions, resolveIdentity);
+    installBranchBillingPilotRoutes(secureApp, branchBilling, branches, serverPermissions, resolveIdentity);
     installBranchIsolationGate(secureApp);
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
@@ -1022,6 +1025,7 @@ Return a strict JSON object with these exact keys:
           await branchPatients.ensureTables();
           await branchLab.ensureTables();
           await branchResults.ensureTables();
+          await branchBilling.ensureTables();
           console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
         } else {
           const connection = await getMySQLConnection(envCfg, true);
