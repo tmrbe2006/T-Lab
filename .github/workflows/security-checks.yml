@@ -90,7 +90,12 @@ jobs:
         run: |
           node --input-type=module -e "import mysql from 'mysql2/promise'; const db=await mysql.createConnection({host:'127.0.0.1',user:'root',password:'ci-only-mysql-password'});await db.query('CREATE DATABASE tlab_ci_fresh_test CHARACTER SET utf8 COLLATE utf8_general_ci');await db.end()"
           node --import tsx scripts/init-sandbox.ts
+          TLAB_SANDBOX_SEED=CONFIRM_SYNTHETIC_DEMO_DATA node --import tsx scripts/seed-sandbox-demo.ts
           node --import tsx scripts/check-local-sandbox.ts
+          if TLAB_SANDBOX_SEED=CONFIRM_SYNTHETIC_DEMO_DATA node --import tsx scripts/seed-sandbox-demo.ts; then
+            echo 'ERROR: repeating the synthetic seed was allowed'
+            exit 1
+          fi
           if node --import tsx scripts/init-sandbox.ts; then
             echo 'ERROR: second sandbox initialization unexpectedly succeeded'
             exit 1
