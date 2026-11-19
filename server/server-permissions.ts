@@ -32,6 +32,10 @@ export class ServerPermissionStore {
           Owner: ['view', 'add'], Chemist: ['view', 'add'],
           Technician: ['view', 'add'], Doctor: ['view'], Receptionist: ['view'],
         },
+        results: {
+          Owner: ['view'], Doctor: ['view'],
+          Chemist: ['view', 'add'], Technician: ['view', 'add'],
+        },
       };
       for (const [resource, policiesByRole] of Object.entries(policies)) {
         for (const role of ['Owner','Doctor','Chemist','Technician','Receptionist','Accountant']) {
@@ -63,7 +67,7 @@ export class ServerPermissionStore {
   }
   async set(role: string, resource: string, action: SecureAction, allowed: boolean): Promise<void> {
     if (!['Owner','Doctor','Chemist','Technician','Receptionist','Accountant'].includes(role) ||
-        !['patients', 'requests', 'samples'].includes(resource) || !['view','add','edit','delete'].includes(action) || typeof allowed !== 'boolean') {
+        !['patients', 'requests', 'samples', 'results'].includes(resource) || !['view','add','edit','delete'].includes(action) || typeof allowed !== 'boolean') {
       throw new Error('Invalid role, resource or action');
     }
     const conn = await this.connect();
