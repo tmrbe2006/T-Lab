@@ -494,6 +494,10 @@ async function startServer() {
 
   // 4. Pull All Data from MySQL Server into T-Lab
   app.post('/api/mysql/pull-all', async (req, res) => {
+    if (process.env.TLAB_ENABLE_SNAPSHOT_PULL !== 'true') {
+      res.status(423).json({ ok: false, error: 'Snapshot import is disabled pending reviewed backup and conflict migration' });
+      return;
+    }
     const cfg = resolveConfig(req.body?.config);
     try {
       try {
