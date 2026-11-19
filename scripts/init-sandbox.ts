@@ -13,6 +13,9 @@ import { JournalDraftStore } from '../server/journal-drafts';
 
 async function main(): Promise<void> {
   const dbName = process.env.MYSQL_DATABASE || '';
+  if (!['127.0.0.1', 'localhost', '::1'].includes(process.env.MYSQL_HOST || '127.0.0.1')) {
+    throw new Error('Refusing to initialize a remote MySQL host from the local sandbox tool.');
+  }
   if (!/^[a-zA-Z][a-zA-Z0-9_]{2,54}_(test|demo)$/.test(dbName) ||
       process.env.TLAB_SANDBOX_INIT !== 'CONFIRM_EMPTY_TEST_DATABASE' ||
       (process.env.TLAB_ADMIN_PASSWORD || '').length < 16) {
