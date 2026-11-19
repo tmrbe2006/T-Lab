@@ -1561,6 +1561,14 @@ export class MedicalLabApp {
       return;
     }
 
+    // Server-backed staff accounts use only the restricted patient pilot.
+    // Never render old IndexedDB medical / financial screens to staff.
+    if (user.role !== 'Developer') {
+      const { renderStaffPatientPilot } = await import('./pages/staff-patient-pilot.page');
+      await renderStaffPatientPilot(this.rootEl, user);
+      return;
+    }
+
     if (currentRoute === 'login') {
       router.navigate('dashboard');
       return;
