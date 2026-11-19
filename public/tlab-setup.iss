@@ -47,7 +47,7 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 ; التثبيت في C:\T-Lab-System لتجنب قيود صلاحيات القراءة فقط (UAC) ومسافات المسار في Program Files
-DefaultDirName={sd}\T-Lab-Pilot-Sandbox
+DefaultDirName={localappdata}\T-Lab-Pilot-Sandbox
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 ; مجلد حفظ ملف السيتاب النهائي (.exe)
@@ -60,7 +60,7 @@ UninstallDisplayIcon={app}\{#MyAppIcon}
 Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
