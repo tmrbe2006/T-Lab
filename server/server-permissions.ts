@@ -34,7 +34,7 @@ export class ServerPermissionStore {
         },
         results: {
           Owner: ['view'], Doctor: ['view'],
-          Chemist: ['view', 'add'], Technician: ['view', 'add'],
+          Chemist: ['view', 'add', 'edit'], Technician: ['view', 'add', 'edit'],
         },
         invoiceDrafts: {
           Owner: ['view', 'add'], Receptionist: ['view', 'add'],
