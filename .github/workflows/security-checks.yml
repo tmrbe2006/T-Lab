@@ -132,6 +132,17 @@ jobs:
           MYSQL_PASSWORD: ci-only-mysql-password
           MYSQL_DATABASE: tlab_mysql55_ci
         run: npx playwright test tests/e2e/staff-pilot.e2e.ts
+      - name: Browser multibranch staff isolation against MySQL 5.5
+        env:
+          TLAB_BRANCH_E2E: 'true'
+          TLAB_MULTIBRANCH_MODE: 'true'
+          TLAB_ADMIN_PASSWORD: ci-test-only-not-for-production-507218
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-only-mysql-password
+          MYSQL_DATABASE: tlab_mysql55_ci
+        run: npx playwright test tests/e2e/branches.e2e.ts
       - name: Upload staff browser evidence
         if: always()
         uses: actions/upload-artifact@v4
