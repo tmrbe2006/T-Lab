@@ -138,8 +138,9 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
-  // إيقاف أي سيرفر قديم يعمل في الخلفية قبل نسخ الملفات الجديدة
-  Exec('cmd.exe', '/c taskkill /F /IM node.exe /T >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Never terminate every node.exe on the customer computer.
+  // Side-by-side app instances must be stopped explicitly by their owners.
+  // Do not silently kill unrelated laboratory or accounting servers.
   Result := '';
 end;
 
@@ -282,8 +283,8 @@ begin
     // 4. توليد ملف إيقاف السيرفر stop-tlab.bat وملف التشغيل الصامت launch-tlab.vbs
     StopBatContent :=
       '@echo off' + #13#10 +
-      'taskkill /F /IM node.exe /T >nul 2>&1' + #13#10 +
-      'echo T-Lab Server stopped.' + #13#10 +
+      'echo Do not stop unrelated Node.js services.' + #13#10 +
+      'echo Close the T-Lab server window or stop the dedicated T-Lab service only.' + #13#10 +
       'timeout /t 2 >nul' + #13#10;
     SaveStringToFile(ExpandConstant('{app}\stop-tlab.bat'), StopBatContent, False);
 
