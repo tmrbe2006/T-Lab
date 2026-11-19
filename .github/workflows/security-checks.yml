@@ -112,3 +112,20 @@ jobs:
             playwright-report/
             test-results/
           if-no-files-found: ignore
+
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress --limit-output
+      - name: Validate Windows setup script by compiling it
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 compiler missing' }
+          & $iscc '.\tlab-setup.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
+      # Safety: do NOT publish the installer until clinical and finance acceptance.
