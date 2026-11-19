@@ -541,6 +541,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       expect(retryData.replayed).toBe(true);
       expect(retryData.draft.id).toBe(data.draft.id);
       expect((await mutate(recCookie, { ...input, requestVersion: 2 })).status).toBe(409);
+      expect((await mutate(recCookie, { ...input, idempotencyKey: key + '_another' })).status).toBe(409);
 
       const getQuote = await fetch(base + '/api/v2/finance/quotes/' + data.draft.id, {
         headers: { cookie: recCookie },
