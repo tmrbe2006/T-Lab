@@ -108,4 +108,59 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('requires Developer session for user administration and never exposes password hashes', async () => {
+    const store = new StaffAccountStore(() => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    }));
+    await store.ensureTable();
+    const previous = process.env.TLAB_ADMIN_PASSWORD;
+    process.env.TLAB_ADMIN_PASSWORD = 'integration-only-developer-password-97038';
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, store);
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + address.port;
+      const anonymous = await fetch(base + '/api/auth/staff');
+      expect(anonymous.status).toBe(401);
+      const adminLogin = await fetch(base + '/api/auth/login', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: 'developer', password: process.env.TLAB_ADMIN_PASSWORD }),
+      });
+      expect(adminLogin.status).toBe(200);
+      const cookie = adminLogin.headers.get('set-cookie')!.split(';')[0];
+      const username = 'api_ci_' + Date.now().toString(36);
+      const created = await fetch(base + '/api/auth/staff', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password: 'Api-integration-secret-12345!', role: 'Doctor' }),
+      });
+      expect(created.status).toBe(201);
+      const user = (await created.json()).user;
+      expect(user.password_hash).toBeUndefined();
+      const list = await fetch(base + '/api/auth/staff', { headers: { cookie } });
+      expect(list.status).toBe(200);
+      const listed = await list.text();
+      expect(listed).not.toContain('password_hash');
+      expect(listed).not.toContain('Api-integration-secret-12345!');
+      const change = await fetch(base + '/api/auth/staff/' + user.id, {
+        method: 'PATCH', headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ active: false }),
+      });
+      expect(change.status).toBe(200);
+      expect((await store.find(username))?.account.active).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.TLAB_ADMIN_PASSWORD;
+      else process.env.TLAB_ADMIN_PASSWORD = previous;
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
 });
