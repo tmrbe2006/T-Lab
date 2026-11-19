@@ -74,6 +74,22 @@ jobs:
           MYSQL_PASSWORD: ci-only-mysql-password
           MYSQL_DATABASE: tlab_mysql55_ci
         run: npx vitest run server/mysql55.integration.test.ts
+      - name: Encrypted backup of synthetic MySQL 5.5 CI database
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-only-mysql-password
+          MYSQL_DATABASE: tlab_mysql55_ci
+          TLAB_BACKUP_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+          TLAB_BACKUP_DIR: /tmp/tlab-test-backups
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+          node scripts/backup-mysql.mjs
+          archive=$(find /tmp/tlab-test-backups -name '*.sql.gz.enc' -print -quit)
+          test -n "$archive"
+          node scripts/verify-backup.mjs "$archive"
       - name: Install Chromium for MySQL integration
         run: npx playwright install --with-deps chromium
       - name: Browser staff pilot against MySQL 5.5
