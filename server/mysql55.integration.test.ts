@@ -5,6 +5,7 @@ import express from 'express';
 import { installApiSecurity } from './api-security';
 import { PatientDomainStore, installPatientRoutes } from './patient-domain';
 import { ServerPermissionStore } from './server-permissions';
+import { LabWorkflowStore, installLabWorkflowRoutes } from './lab-workflow';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -244,6 +245,129 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       } finally { await conn.end(); }
     } finally {
       await permissions.set('Receptionist', 'patients', 'edit', true);
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
+  it('creates a linked request and receives exactly one sample with stale-version prevention', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const permissions = new ServerPermissionStore(connect);
+    const patients = new PatientDomainStore(connect);
+    const lab = new LabWorkflowStore(connect);
+    const staff = new StaffAccountStore(connect);
+    await permissions.ensureTable();
+    await patients.ensureTables();
+    await lab.ensureTables();
+    await staff.ensureTable();
+
+    const receptionist = await staff.create('lab_rec_' + Date.now().toString(36), 'Reception-ci-password-2026!', 'Receptionist');
+    const technician = await staff.create('lab_tech_' + Date.now().toString(36), 'Technician-ci-password-2026!', 'Technician');
+    const patient = await patients.create({ name: 'Integration Laboratory Patient' }, receptionist.id);
+
+    const testId = 'test_ci_' + Date.now().toString(36);
+    const conn = await connect();
+    try {
+      await conn.execute(
+        'INSERT INTO \`lab_tests\` (\`id\`, \`code\`, \`name_ar\`, \`price\`, \`active\`) VALUES (?, ?, ?, ?, 1)',
+        [testId, 'CI', 'تحليل اختباري', 125.50],
+      );
+    } finally { await conn.end(); }
+
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, staff, (secureApp, identity) => {
+      installLabWorkflowRoutes(secureApp, lab, permissions, identity);
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No test server');
+      const base = 'http://127.0.0.1:' + address.port;
+      const login = async (username: string, password: string) => {
+        const res = await fetch(base + '/api/auth/login', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        expect(res.status).toBe(200);
+        return res.headers.get('set-cookie')!.split(';')[0];
+      };
+      const receptionCookie = await login(receptionist.username, 'Reception-ci-password-2026!');
+      const technicianCookie = await login(technician.username, 'Technician-ci-password-2026!');
+      const headers = (cookie: string) => ({ cookie, 'content-type': 'application/json' });
+
+      const untrustedPrice = await fetch(base + '/api/v2/requests', {
+        method: 'POST', headers: headers(receptionCookie),
+        body: JSON.stringify({ patientId: patient.record.id, testIds: [testId], subtotal: 0 }),
+      });
+      expect(untrustedPrice.status).toBe(422);
+      const badTest = await fetch(base + '/api/v2/requests', {
+        method: 'POST', headers: headers(receptionCookie),
+        body: JSON.stringify({ patientId: patient.record.id, testIds: ['unknown_test'] }),
+      });
+      expect(badTest.status).toBe(422);
+
+      const requestResponse = await fetch(base + '/api/v2/requests', {
+        method: 'POST', headers: headers(receptionCookie),
+        body: JSON.stringify({ patientId: patient.record.id, testIds: [testId] }),
+      });
+      expect(requestResponse.status).toBe(201);
+      const created = await requestResponse.json();
+      expect(created.record.patientId).toBe(patient.record.id);
+      expect(created.record.subtotal).toBe(125.5);
+      expect(created.record.status).toBe('awaiting_sample');
+
+      const technicianCannotRequest = await fetch(base + '/api/v2/requests', {
+        method: 'POST', headers: headers(technicianCookie),
+        body: JSON.stringify({ patientId: patient.record.id, testIds: [testId] }),
+      });
+      expect(technicianCannotRequest.status).toBe(403);
+      const receptionCannotReceive = await fetch(base + '/api/v2/requests/' + created.record.id + '/samples/receive', {
+        method: 'POST', headers: headers(receptionCookie),
+        body: JSON.stringify({ version: 1, sampleType: 'Blood' }),
+      });
+      expect(receptionCannotReceive.status).toBe(403);
+
+      const received = await fetch(base + '/api/v2/requests/' + created.record.id + '/samples/receive', {
+        method: 'POST', headers: headers(technicianCookie),
+        body: JSON.stringify({ version: 1, sampleType: 'Blood' }),
+      });
+      expect(received.status).toBe(201);
+      const receipt = await received.json();
+      expect(receipt.sample.patientId).toBe(patient.record.id);
+      expect(receipt.requestVersion).toBe(2);
+
+      const stale = await fetch(base + '/api/v2/requests/' + created.record.id + '/samples/receive', {
+        method: 'POST', headers: headers(technicianCookie),
+        body: JSON.stringify({ version: 1, sampleType: 'Blood' }),
+      });
+      expect(stale.status).toBe(409);
+      const actual = await lab.getRequest(created.record.id);
+      expect(actual?.record.status).toBe('sample_received');
+      expect(actual?.version).toBe(2);
+
+      const checkConn = await connect();
+      try {
+        const [items] = await checkConn.execute<mysql.RowDataPacket[]>(
+          'SELECT \`price\` FROM \`request_items\` WHERE \`request_id\` = ?', [created.record.id],
+        );
+        expect(Number(items[0].price)).toBe(125.5);
+        const [audit] = await checkConn.execute<mysql.RowDataPacket[]>(
+          'SELECT \`operation\`, \`actor_id\` FROM \`secure_lab_audit\` WHERE \`resource\` = ? AND \`record_id\` = ? ORDER BY \`version\`',
+          ['requests', created.record.id],
+        );
+        expect(audit.map(row => row.operation)).toEqual(['create', 'sample_received']);
+        expect(audit[0].actor_id).toBe(receptionist.id);
+        expect(audit[1].actor_id).toBe(technician.id);
+      } finally { await checkConn.end(); }
+    } finally {
       await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
     }
   });
