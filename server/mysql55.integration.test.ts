@@ -1091,6 +1091,19 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       expect(created.totalMinor).toBe(12575);
       expect(created.lineCount).toBe(2);
       expect(created.posted).toBe(false);
+      const details = await fetch(base + '/api/v2/finance/journal-drafts/' + created.draftId, {
+        headers: { cookie: allowed },
+      });
+      expect(details.status).toBe(200);
+      const detailsBody = (await details.json()).draft;
+      expect(detailsBody.posted).toBe(false);
+      expect(detailsBody.approved).toBe(false);
+      expect(detailsBody.lines).toHaveLength(2);
+      expect(detailsBody.lines[0].debitMinor).toBe(12575);
+      expect((await fetch(base + '/api/v2/finance/journal-drafts/' + created.draftId, {
+        headers: { cookie: denied },
+      })).status).toBe(403);
+
       const replay = await send(allowed, data);
       expect(replay.status).toBe(200);
       expect((await replay.json()).draftId).toBe(created.draftId);
