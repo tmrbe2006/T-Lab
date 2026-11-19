@@ -17,6 +17,7 @@ import { InvoiceDraftStore, installInvoiceDraftRoutes } from './server/invoice-d
 import { SafeInventoryStore, installSafeInventoryRoutes } from './server/safe-inventory';
 import { StockReceiptStore, installStockReceiptRoutes } from './server/stock-receiving';
 import { StockQcReviewStore, installStockQcReviewRoutes } from './server/stock-qc-review';
+import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './server/finance-reconciliation';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -332,6 +333,7 @@ async function startServer() {
   const safeInventory = new SafeInventoryStore(safeDbConnection);
   const stockReceipts = new StockReceiptStore(safeDbConnection);
   const stockQc = new StockQcReviewStore(safeDbConnection);
+  const financialAudit = new FinancialReconciliationStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
@@ -341,6 +343,7 @@ async function startServer() {
     installSafeInventoryRoutes(secureApp, safeInventory, serverPermissions, resolveIdentity);
     installStockReceiptRoutes(secureApp, stockReceipts, serverPermissions, resolveIdentity);
     installStockQcReviewRoutes(secureApp, stockQc, serverPermissions, resolveIdentity);
+    installFinancialReconciliationRoutes(secureApp, financialAudit, serverPermissions, resolveIdentity);
     installReadinessRoutes(secureApp, safeDbConnection, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
