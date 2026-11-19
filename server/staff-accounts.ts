@@ -1,8 +1,13 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { Connection, RowDataPacket } from 'mysql2/promise';
 
-const scrypt = promisify(scryptCallback);
+const deriveKey = (password: string, salt: Buffer): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    scryptCallback(password, salt, 64, SCRYPT_PARAMS, (error, key) => {
+      if (error) reject(error);
+      else resolve(key);
+    });
+  });
 export const STAFF_ROLES = ['Owner', 'Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as const;
 export type StaffRole = typeof STAFF_ROLES[number];
 
@@ -33,7 +38,7 @@ export async function hashPassword(password: string): Promise<string> {
     throw new Error('Password must contain at least 12 characters and must not exceed 1024 bytes');
   }
   const salt = randomBytes(16);
-  const key = await scrypt(password, salt, 64, SCRYPT_PARAMS) as Buffer;
+  const key = await deriveKey(password, salt);
   return `scrypt-v1:${salt.toString('hex')}:${key.toString('hex')}`;
 }
 
@@ -41,7 +46,7 @@ export async function verifyPassword(password: string, encoded: string): Promise
   if (typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 1024) return false;
   const parts = String(encoded).split(':');
   if (parts.length !== 3 || parts[0] !== 'scrypt-v1' || !/^[0-9a-f]{32}$/.test(parts[1]) || !/^[0-9a-f]{128}$/.test(parts[2])) return false;
-  const actual = await scrypt(password, Buffer.from(parts[1], 'hex'), 64, SCRYPT_PARAMS) as Buffer;
+  const actual = await deriveKey(password, Buffer.from(parts[1], 'hex'));
   return timingSafeEqual(actual, Buffer.from(parts[2], 'hex'));
 }
 
@@ -114,7 +119,7 @@ export class StaffAccountStore {
   async update(id: string, changes: { active?: boolean; role?: StaffRole; password?: string }): Promise<boolean> {
     if (!/^[a-f0-9]{32}$/.test(id)) throw new Error('Invalid account identifier');
     const entries: string[] = [];
-    const params: unknown[] = [];
+    const params: Array<string | number> = [];
     if (changes.active !== undefined) {
       if (typeof changes.active !== 'boolean') throw new Error('Invalid active value');
       entries.push('`active` = ?'); params.push(changes.active ? 1 : 0);
