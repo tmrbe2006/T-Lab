@@ -75,7 +75,7 @@ export class StockQcReviewStore {
         if (existing.length) {
           const saved = existing[0];
           if (saved.idempotency_key !== key || saved.reviewer_id !== actor.userId ||
-              saved.verdict !== verdict || saved.evidence !== evidence) {
+              saved.verdict !== verdict || saved.evidence !== evidence.trim()) {
             throw new Error('A different QC decision already exists');
           }
           await db.commit();
