@@ -90,6 +90,7 @@ jobs:
           archive=$(find /tmp/tlab-test-backups -name '*.sql.gz.enc' -print -quit)
           test -n "$archive"
           node scripts/verify-backup.mjs "$archive"
+          TLAB_ALLOW_TEST_RESTORE=true TLAB_RESTORE_TEST_DATABASE=tlab_ci_restore_check node scripts/restore-check.mjs "$archive"
       - name: Install Chromium for MySQL integration
         run: npx playwright install --with-deps chromium
       - name: Browser staff pilot against MySQL 5.5
