@@ -43,7 +43,9 @@ test('two branches are isolated in staff browser and only authorized staff recei
   } finally { await db.end(); }
 
   const login=async(username:string,password:string)=>{
-    await page.goto('/');
+    if (await page.locator('#login-form').count() === 0) {
+      await page.goto('/', {waitUntil:'domcontentloaded'});
+    }
     await expect(page.locator('#login-form')).toBeVisible({timeout:30_000});
     await page.locator('#login-username').fill(username);
     await page.locator('#login-password').fill(password);
@@ -63,12 +65,14 @@ test('two branches are isolated in staff browser and only authorized staff recei
   await expect(page.locator('#branch-lab-orders')).toContainText('awaiting_sample',{timeout:20_000});
 
   await page.locator('#branch-patients-logout').click();
+  await expect(page.locator('#login-form')).toBeVisible({timeout:30_000});
   await login(receptionistB.username,'Branch-Web-EmployeeB-2026!');
   await expect(page.locator('#branch-patients-select option')).toHaveCount(2);
   await page.locator('#branch-patients-select').selectOption(branchB.id);
   await expect(page.locator('#branch-patients-list')).not.toContainText('Synthetic patient A');
   await expect(page.locator('#branch-lab-orders')).not.toContainText('awaiting_sample');
   await page.locator('#branch-patients-logout').click();
+  await expect(page.locator('#login-form')).toBeVisible({timeout:30_000});
 
   await login(techA.username,'Branch-Web-TechA-2026!');
   await page.locator('#branch-patients-select').selectOption(branchA.id);
