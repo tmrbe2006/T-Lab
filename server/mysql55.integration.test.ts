@@ -10,6 +10,7 @@ import { PreliminaryResultStore, installPreliminaryResultRoutes } from './prelim
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './invoice-drafts';
 import { SafeInventoryStore, installSafeInventoryRoutes } from './safe-inventory';
 import { StockReceiptStore, installStockReceiptRoutes } from './stock-receiving';
+import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './clinical-preflight';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -414,7 +415,10 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
 
     const app = express();
     app.use(express.json());
-    installApiSecurity(app, accountStore, (secureApp, identity) => installPreliminaryResultRoutes(secureApp, resultStore, permissionStore, identity));
+    installApiSecurity(app, accountStore, (secureApp, identity) => {
+      installPreliminaryResultRoutes(secureApp, resultStore, permissionStore, identity);
+      installClinicalPreflightRoutes(secureApp, new ClinicalPreflightStore(connect), permissionStore, identity);
+    });
     const server = await new Promise<import('node:http').Server>(resolve => {
       const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
     });
@@ -479,6 +483,21 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         headers: { cookie: receptionistCookie },
       });
       expect(deniedQueue.status).toBe(403);
+
+      const preflight = await fetch(base + '/api/v2/results/' + draft.record.id + '/clinical-preflight', {
+        headers: { cookie: doctorCookie },
+      });
+      expect(preflight.status).toBe(200);
+      const assessment = (await preflight.json()).report;
+      expect(assessment.releaseAllowed).toBe(false);
+      expect(assessment.status).toBe('blocked');
+      expect(assessment.reasons).toContain('AGE_AND_SPECIMEN_REFERENCE_INTERVALS_NOT_VALIDATED');
+      expect(assessment.reasons).toContain('CRITICAL_LIMIT_ESCALATION_NOT_VALIDATED');
+      expect(assessment.reasons).toContain('ANALYZER_QC_AND_SECOND_SIGNOFF_NOT_VALIDATED');
+      const unauthorizedPreflight = await fetch(base + '/api/v2/results/' + draft.record.id + '/clinical-preflight', {
+        headers: { cookie: receptionistCookie },
+      });
+      expect(unauthorizedPreflight.status).toBe(403);
 
       const noApproval = await fetch(base + '/api/v2/results/' + draft.record.id + '/approve', {
         method: 'POST', headers: { cookie: doctorCookie },
