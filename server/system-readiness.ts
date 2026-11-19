@@ -10,7 +10,7 @@ const REQUIRED_TABLES = [
   'secure_patient_audit', 'secure_lab_audit', 'secure_invoice_drafts',
   'secure_stock_operations', 'secure_stock_receipts', 'secure_stock_qc_reviews', 'secure_journal_drafts', 'secure_journal_draft_lines',
   'secure_lab_branches', 'secure_staff_branch_grants',
-  'secure_branch_patients', 'secure_branch_patient_audit', 'secure_branch_requests', 'secure_branch_request_items', 'secure_branch_samples', 'secure_branch_lab_audit', 'secure_branch_result_drafts', 'secure_branch_result_values', 'secure_branch_result_review_audit', 'secure_branch_invoice_drafts', 'secure_branch_mock_payments', 'secure_branch_billing_audit',
+  'secure_branch_patients', 'secure_branch_patient_audit', 'secure_branch_requests', 'secure_branch_request_items', 'secure_branch_samples', 'secure_branch_lab_audit', 'secure_branch_result_drafts', 'secure_branch_result_values', 'secure_branch_result_review_audit', 'secure_branch_invoice_drafts', 'secure_branch_mock_payments', 'secure_branch_billing_audit', 'secure_branch_demo_stock', 'secure_branch_demo_transfers',
 ] as const;
 
 export interface ReadinessReport {
