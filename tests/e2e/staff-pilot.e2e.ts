@@ -45,7 +45,9 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
   await page.locator('#lab-pilot-request select[name="testId"]').selectOption({ index: 1 });
   await page.locator('#lab-pilot-request button[type="submit"]').click();
   await expect(page.locator('#lab-pilot-requests')).toContainText('awaiting_sample', { timeout: 20_000 });
-  await page.locator('#lab-pilot-requests button[data-quote-index]').first().click();
+  const requestNumber = (await page.locator('#lab-pilot-status').innerText()).match(/REQ-[A-Z0-9]+/)?.[0];
+  expect(requestNumber).toBeTruthy();
+  await page.locator('#lab-pilot-requests tr').filter({ hasText: requestNumber! }).locator('button[data-quote-index]').click();
   await expect(page.locator('#lab-pilot-quote')).toContainText('ليست فاتورة', { timeout: 20000 });
 
   await page.locator('#staff-pilot-logout').click();
