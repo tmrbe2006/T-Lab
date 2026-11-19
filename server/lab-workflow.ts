@@ -143,6 +143,47 @@ export class LabWorkflowStore {
     } finally { await conn.end(); }
   }
 
+  async listCatalogue(cursor: string, limit: number) {
+    if (cursor && !validId(cursor)) throw new Error('Invalid catalogue cursor');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid page size');
+    const conn = await this.connect();
+    try {
+      const [rows] = await conn.execute<RowDataPacket[]>(
+        'SELECT \`id\`, \`code\`, \`name_ar\`, \`name_en\`, \`price\` FROM \`lab_tests\` WHERE \`active\` = 1 AND \`id\` > ? ORDER BY \`id\` ASC LIMIT ?',
+        [cursor, limit],
+      );
+      const items = rows.map(row => ({
+        id: String(row.id), code: String(row.code),
+        nameAr: String(row.name_ar || ''), nameEn: String(row.name_en || ''),
+        price: Number(row.price),
+      }));
+      return { items, nextCursor: rows.length === limit ? String(rows[rows.length - 1].id) : null };
+    } finally { await conn.end(); }
+  }
+
+  async listRequests(cursor: string, limit: number) {
+    if (cursor && !validId(cursor)) throw new Error('Invalid request cursor');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid page size');
+    const conn = await this.connect();
+    try {
+      const [rows] = await conn.execute<RowDataPacket[]>(
+        `SELECT r.\`id\`, r.\`request_number\`, r.\`patient_id\`, r.\`status\`, COALESCE(v.\`version\`, 1) AS version
+         FROM \`lab_requests\` r
+         LEFT JOIN \`secure_record_versions\` v ON v.\`resource\` = 'requests' AND v.\`record_id\` = r.\`id\`
+         WHERE r.\`id\` > ?
+         ORDER BY r.\`id\` ASC LIMIT ?`,
+        [cursor, limit],
+      );
+      return {
+        items: rows.map(row => ({
+          id: String(row.id), requestNumber: String(row.request_number),
+          patientId: String(row.patient_id), status: String(row.status), version: Number(row.version),
+        })),
+        nextCursor: rows.length === limit ? String(rows[rows.length - 1].id) : null,
+      };
+    } finally { await conn.end(); }
+  }
+
   async getRequest(id: string) {
     if (!validId(id)) throw new Error('Invalid request identifier');
     const conn = await this.connect();
@@ -180,6 +221,24 @@ export function installLabWorkflowRoutes(
         res.status(503).json({ ok: false, error: 'Laboratory operation unavailable' });
       }
     };
+
+  const parsePage = (req: Request, res: Response): { cursor: string; limit: number } | null => {
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+    const limit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+    if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ ok: false, error: 'Invalid pagination' }); return null;
+    }
+    return { cursor, limit };
+  };
+
+  app.get('/api/v2/catalog/tests', route('requests', 'view', async (req, res) => {
+    const page = parsePage(req, res);
+    if (page) res.json({ ok: true, ...(await store.listCatalogue(page.cursor, page.limit)) });
+  }));
+  app.get('/api/v2/requests', route('requests', 'view', async (req, res) => {
+    const page = parsePage(req, res);
+    if (page) res.json({ ok: true, ...(await store.listRequests(page.cursor, page.limit)) });
+  }));
 
   app.post('/api/v2/requests', route('requests', 'add', async (req, res, actor) => {
     try {
