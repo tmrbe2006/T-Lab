@@ -9,6 +9,7 @@ import { LabWorkflowStore, installLabWorkflowRoutes } from './lab-workflow';
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './preliminary-results';
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './invoice-drafts';
 import { SafeInventoryStore, installSafeInventoryRoutes } from './safe-inventory';
+import { StockReceiptStore, installStockReceiptRoutes } from './stock-receiving';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -692,6 +693,107 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         expect(Number(lots[0].remaining_qty)).toBe(2.5);
         const [movements] = await check.execute<mysql.RowDataPacket[]>('SELECT COUNT(*) AS qty FROM stock_movements WHERE item_id = ?', [itemId]);
         expect(Number(movements[0].qty)).toBe(1);
+      } finally { await check.end(); }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
+  it('quarantines new reagent lots without affecting usable stock or bypassing QC', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const accounts = new StaffAccountStore(connect);
+    const grants = new ServerPermissionStore(connect);
+    const receipts = new StockReceiptStore(connect);
+    const stock = new SafeInventoryStore(connect);
+    await accounts.ensureTable();
+    await grants.ensureTable();
+    await receipts.ensureTable();
+    await stock.ensureTables();
+    const suffix = Date.now().toString(36);
+    const itemId = 'receiving_' + suffix;
+    const chemist = await accounts.create('recv_chem_' + suffix, 'Chemist-stock-receive-2026!', 'Chemist');
+    const receptionist = await accounts.create('recv_rec_' + suffix, 'Reception-stock-receive-2026!', 'Receptionist');
+    const seed = await connect();
+    try {
+      await seed.execute(
+        'INSERT INTO inventory_items (id, code, name_ar, current_stock, active) VALUES (?, ?, ?, 0, 1)',
+        [itemId, 'RECEIVE', 'Quarantined reagent']);
+    } finally { await seed.end(); }
+
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, accounts, (secureApp, identity) => {
+      installStockReceiptRoutes(secureApp, receipts, grants, identity);
+      installSafeInventoryRoutes(secureApp, stock, grants, identity);
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + addr.port;
+      const login = async (username: string, password: string) => {
+        const response = await fetch(base + '/api/auth/login', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        expect(response.status).toBe(200);
+        return response.headers.get('set-cookie')!.split(';')[0];
+      };
+      const allowed = await login(chemist.username, 'Chemist-stock-receive-2026!');
+      const denied = await login(receptionist.username, 'Reception-stock-receive-2026!');
+      const body = {
+        itemId, lotNumber: 'LOT-' + suffix, quantity: '3.500',
+        expiryDate: '2031-12-31', idempotencyKey: 'receive_' + suffix + '_unique',
+      };
+      const post = (cookie: string, payload: unknown) => fetch(base + '/api/v2/inventory/receipts/quarantine', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      expect((await post(denied, body)).status).toBe(403);
+      expect((await post(allowed, { ...body, expiryDate: '2000-01-01' })).status).toBe(409);
+      expect((await post(allowed, { ...body, quantity: '0' })).status).toBe(409);
+      expect((await post(allowed, { ...body, quantity: '3.5', qcStatus: 'released' })).status).toBe(422);
+      const first = await post(allowed, body);
+      expect(first.status).toBe(201);
+      const received = await first.json();
+      expect(received.status).toBe('quarantined');
+      const retry = await post(allowed, body);
+      expect(retry.status).toBe(200);
+      expect((await retry.json()).lotId).toBe(received.lotId);
+      expect((await post(allowed, { ...body, idempotencyKey: body.idempotencyKey + '_different' })).status).toBe(409);
+      const issue = await fetch(base + '/api/v2/inventory/issue', {
+        method: 'POST', headers: { cookie: allowed, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemId, lotId: received.lotId, quantity: '1.000',
+          idempotencyKey: 'issue_unreleased_' + suffix,
+        }),
+      });
+      expect(issue.status).toBe(409);
+
+      const check = await connect();
+      try {
+        const [lots] = await check.execute<mysql.RowDataPacket[]>(
+          'SELECT initial_qty, remaining_qty, status, qc_status FROM inventory_lots WHERE id = ?', [received.lotId],
+        );
+        expect(Number(lots[0].initial_qty)).toBe(3.5);
+        expect(Number(lots[0].remaining_qty)).toBe(0);
+        expect(lots[0].status).toBe('quarantine');
+        expect(lots[0].qc_status).toBe('pending');
+        const [item] = await check.execute<mysql.RowDataPacket[]>(
+          'SELECT current_stock FROM inventory_items WHERE id = ?', [itemId],
+        );
+        expect(Number(item[0].current_stock)).toBe(0);
+        const [proof] = await check.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS qty FROM secure_stock_receipts WHERE item_id = ?', [itemId],
+        );
+        expect(Number(proof[0].qty)).toBe(1);
       } finally { await check.end(); }
     } finally {
       await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
