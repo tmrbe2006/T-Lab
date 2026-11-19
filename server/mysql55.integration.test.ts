@@ -851,6 +851,16 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       });
       expect(issue.status).toBe(409);
 
+      const reconciliation = await fetch(base + '/api/v2/inventory/reconciliation?limit=25', {
+        headers: { cookie: allowedCookie },
+      });
+      expect(reconciliation.status).toBe(200);
+      const reconciliationData = await reconciliation.json();
+      expect(reconciliationData.readOnly).toBe(true);
+      const unauthorizedReconciliation = await fetch(base + '/api/v2/inventory/reconciliation', {
+        headers: { cookie: deniedCookie },
+      });
+      expect(unauthorizedReconciliation.status).toBe(403);
       const check = await connect();
       try {
         const [lots] = await check.execute<mysql.RowDataPacket[]>(
