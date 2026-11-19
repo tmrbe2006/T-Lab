@@ -964,14 +964,26 @@ Return a strict JSON object with these exact keys:
       console.log(`🌐 Open in browser: http://localhost:${portToTry}`);
       console.log(`🗄️  Target MySQL: ${envCfg.user}@${envCfg.host}:${envCfg.port}/${envCfg.database}`);
       try {
-        const info = await ensureDatabaseAndSchema(envCfg);
-        await staffAccounts.ensureTable();
-        await serverPermissions.ensureTable();
-        await patientDomain.ensureTables();
-        await labWorkflow.ensureTables();
-        await invoiceDrafts.ensureTables();
-        await safeInventory.ensureTables();
-        console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
+        // Never alter a customer's production schema just because the server
+        // was restarted. Schema bootstrap requires explicit change approval.
+        const schemaBootstrapAllowed =
+          process.env.NODE_ENV !== 'production' ||
+          process.env.TLAB_ALLOW_SCHEMA_BOOTSTRAP === 'true';
+        if (schemaBootstrapAllowed) {
+          const info = await ensureDatabaseAndSchema(envCfg);
+          await staffAccounts.ensureTable();
+          await serverPermissions.ensureTable();
+          await patientDomain.ensureTables();
+          await labWorkflow.ensureTables();
+          await invoiceDrafts.ensureTables();
+          await safeInventory.ensureTables();
+          console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
+        } else {
+          const connection = await getMySQLConnection(envCfg, true);
+          try { await connection.query('SELECT 1'); }
+          finally { await connection.end(); }
+          console.log('MySQL reachable. Automatic schema creation/upgrade disabled for production.');
+        }
       } catch (dbErr: unknown) {
         console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
       }
