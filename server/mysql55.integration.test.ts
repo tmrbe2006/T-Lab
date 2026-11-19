@@ -1528,4 +1528,85 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('keeps branch preliminary results scoped, independently reviewed and never clinically approved', async () => {
+    const connect=()=>mysql.createConnection({
+      host:process.env.MYSQL_HOST||'127.0.0.1',port:Number(process.env.MYSQL_PORT||3306),
+      user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',
+      database:process.env.MYSQL_DATABASE||'tlab_mysql55_ci',
+    });
+    const branches=new BranchRegistry(connect),patients=new BranchPatientStore(connect),
+      orders=new BranchLabWorkflowStore(connect),results=new BranchPreliminaryResultsStore(connect),
+      accounts=new StaffAccountStore(connect),permissions=new ServerPermissionStore(connect);
+    await accounts.ensureTable();await permissions.ensureTable();await branches.ensureTables();
+    await patients.ensureTables();await orders.ensureTables();await results.ensureTables();
+    const suffix=Date.now().toString(36);
+    const chem1=await accounts.create('result_ch1_'+suffix,'Result-Chemist-One-2026!','Chemist');
+    const chem2=await accounts.create('result_ch2_'+suffix,'Result-Chemist-Two-2026!','Chemist');
+    const tech=await accounts.create('result_tech_'+suffix,'Result-Tech-User-2026!','Technician');
+    const branch1=await branches.create('result_br1_'+suffix,'Clinical pilot branch');
+    const branch2=await branches.create('result_br2_'+suffix,'Isolated branch');
+    await branches.grant(chem1.id,branch1.id);
+    await branches.grant(chem2.id,branch1.id);
+    await branches.grant(tech.id,branch2.id);
+    const owner={userId:chem1.id,username:chem1.username,role:chem1.role};
+    const reviewer={userId:chem2.id,username:chem2.username,role:chem2.role};
+    const patient=await patients.create(branch1.id,{name:'Internal result QA synthetic'},chem1.id);
+    const code='testbr_'+suffix,parameter='parbr_'+suffix;
+    const db=await connect();
+    try{
+      await db.execute('INSERT INTO lab_tests (id,code,name_ar,price,active) VALUES (?,?,?,?,1)',
+        [code,'BRRES','Synthetic result laboratory test',0]);
+      await db.execute(
+        'INSERT INTO test_parameters (id,test_id,code,name_ar,result_type,active,is_calculated) '+
+        'VALUES (?,?,?,?,?,1,0)',
+        [parameter,code,'RES','Synthetic measurement','numeric']);
+    }finally{await db.end();}
+    const request=await orders.create(branch1.id,patient.id,[code],owner);
+    expect((await orders.receive(branch1.id,request.id,1,'blood',owner)).status).toBe('ok');
+    const draft=await results.create(branch1.id,request.id,code,
+      [{parameterId:parameter,value:'5.50'}],owner);
+    expect(draft.clinicallyApproved).toBe(false);
+    expect((await results.review(branch1.id,draft.id,1,'accept',owner)).status).toBe('same_actor');
+    expect((await results.review(branch2.id,draft.id,1,'accept',reviewer)).status).toBe('not_found');
+    const reviewed=await results.review(branch1.id,draft.id,1,'accept',reviewer);
+    expect(reviewed.status).toBe('ok');
+    expect(reviewed.clinicallyApproved).toBe(false);
+    expect(reviewed.reportIssued).toBe(false);
+    expect((await results.review(branch1.id,draft.id,1,'accept',reviewer)).status).toBe('conflict');
+    const app=express();app.use(express.json());
+    installBranchResultRoutes(app,results,branches,permissions,async req=>{
+      const who=req.get('x-ci-user');
+      return who==='first'?owner:who==='second'?reviewer:
+        who==='unassigned'?{userId:tech.id,username:tech.username,role:tech.role}:undefined;
+    });
+    const previous=process.env.TLAB_MULTIBRANCH_MODE;
+    process.env.TLAB_MULTIBRANCH_MODE='true';
+    const server=await new Promise<import('node:http').Server>(resolve=>{
+      const instance=app.listen(0,'127.0.0.1',()=>resolve(instance));
+    });
+    try{
+      const address=server.address();if(!address||typeof address==='string')throw Error('No port');
+      const endpoint='http://127.0.0.1:'+address.port+'/api/v3/branches/';
+      const get=(branch:string,who:string)=>fetch(endpoint+branch+'/requests/'+request.id+
+        '/results/drafts',{headers:{'x-ci-user':who}});
+      expect((await get(branch1.id,'second')).status).toBe(200);
+      expect((await get(branch1.id,'unassigned')).status).toBe(404);
+      expect((await get(branch2.id,'unassigned')).status).toBe(200);
+      expect((await get(branch1.id,'unknown')).status).toBe(401);
+      const db2=await connect();
+      try{
+        const [rows]=await db2.execute<mysql.RowDataPacket[]>(
+          'SELECT status,version,reviewer_id FROM secure_branch_result_drafts WHERE id=? AND branch_id=?',
+          [draft.id,branch1.id]);
+        expect(rows[0].status).toBe('internally_reviewed');
+        expect(Number(rows[0].version)).toBe(2);
+        expect(rows[0].reviewer_id).toBe(chem2.id);
+      }finally{await db2.end();}
+    }finally{
+      if(previous===undefined)delete process.env.TLAB_MULTIBRANCH_MODE;
+      else process.env.TLAB_MULTIBRANCH_MODE=previous;
+      await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+    }
+  });
+
 });
