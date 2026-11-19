@@ -14,7 +14,7 @@ if (-not (Test-Path '.env')) {
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw 'Install Node.js 22 LTS (or the verified compatible version) first.'
 }
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
   throw 'npm is required for test build. Installation was not changed.'
 }
 
@@ -27,7 +27,7 @@ $env:MYSQL_AUTO_SYNC = 'false'
 
 if (-not (Test-Path 'node_modules\tsx\dist\cli.mjs')) {
   Write-Host 'Installing the pinned application dependencies...'
-  & npm install --no-audit --no-fund
+  & npm.cmd install --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
 }
 if ($InitializeEmptySandbox) {
@@ -46,9 +46,9 @@ if ($CheckOnly) {
   exit 0
 }
 Write-Host 'Validating TypeScript and building static front-end...'
-& npm run lint
+& npm.cmd run lint
 if ($LASTEXITCODE -ne 0) { throw 'TypeScript errors; server not started' }
-& npm run build
+& npm.cmd run build
 if ($LASTEXITCODE -ne 0) { throw 'Build failed; server not started' }
 Write-Host 'Launching local sandbox UI: http://localhost:3007 (port follows .env)' -ForegroundColor Green
 Write-Host 'Use synthetic data only. Close this PowerShell window to stop the test server.'
