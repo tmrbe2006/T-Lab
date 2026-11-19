@@ -17,6 +17,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 export async function renderStaffLabPilot(root: HTMLElement, user: User): Promise<void> {
   const canCreate = user.role === 'Owner' || user.role === 'Receptionist';
   const canReceive = user.role === 'Owner' || user.role === 'Technician' || user.role === 'Chemist';
+  const quoteKeys = new Map<string, string>();
   root.innerHTML = `
     <section class="bg-white rounded-xl border p-4 space-y-3" dir="rtl">
       <h2 class="font-bold">طلبات التحاليل والعينات — نسخة تجريبية مؤمّنة</h2>
@@ -37,6 +38,7 @@ export async function renderStaffLabPilot(root: HTMLElement, user: User): Promis
         <button type="button" id="lab-pilot-refresh" class="rounded border px-2 py-1 text-xs">تحديث</button>
       </div>
       <div id="lab-pilot-requests" class="overflow-x-auto text-xs">جاري التحميل...</div>
+      <p id="lab-pilot-quote" role="status" class="text-sm font-semibold text-indigo-900"></p>
     </section>`;
 
   const status = root.querySelector<HTMLElement>('#lab-pilot-status');
@@ -56,11 +58,40 @@ export async function renderStaffLabPilot(root: HTMLElement, user: User): Promis
               <td class="border p-2 font-mono">${escapeHtml(item.patientId)}</td>
               <td class="border p-2">${escapeHtml(item.status)}</td>
               <td class="border p-2">${item.version}</td>
-              <td class="border p-2">${canReceive && item.status === 'awaiting_sample'
+              <td class="border p-2">
+                ${canReceive && item.status === 'awaiting_sample'
                 ? `<button type="button" data-receive-index="${index}" class="rounded bg-emerald-700 text-white px-2 py-1">استلام عينة</button>`
-                : ''}</td>
+                : ''}
+                ${canCreate ? `<button type="button" data-quote-index="${index}" class="rounded border border-indigo-500 px-2 py-1">عرض سعر غير صادر</button>` : ''}
+              </td>
             </tr>`).join('')}</tbody>
         </table>` : '<p>لا توجد طلبات في قاعدة الاختبار.</p>';
+      output.querySelectorAll<HTMLButtonElement>('button[data-quote-index]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const item = requests.items[Number(btn.dataset.quoteIndex)];
+          if (!item) return;
+          btn.disabled = true;
+          let key = quoteKeys.get(item.id);
+          if (!key) {
+            key = 'quote_' + crypto.randomUUID();
+            quoteKeys.set(item.id, key);
+          }
+          const quoteStatus = root.querySelector<HTMLElement>('#lab-pilot-quote');
+          try {
+            const value = await api<{ draft: { amountMinor: number; state: string; payable: boolean }; replayed: boolean }>(
+              '/api/v2/finance/quotes', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId: item.id, requestVersion: item.version, idempotencyKey: key }),
+              },
+            );
+            if (quoteStatus) quoteStatus.textContent =
+              'مسودة عرض سعر فقط — المجموع ' + (value.draft.amountMinor / 100).toFixed(2) +
+              ' (قبل الضرائب والخصومات). ليست فاتورة ولا يجوز تحصيلها.';
+          } catch (error) {
+            if (quoteStatus) quoteStatus.textContent = error instanceof Error ? error.message : 'تعذر تجهيز عرض السعر.';
+          } finally { btn.disabled = false; }
+        });
+      });
       output.querySelectorAll<HTMLButtonElement>('button[data-receive-index]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const item = requests.items[Number(btn.dataset.receiveIndex)];
