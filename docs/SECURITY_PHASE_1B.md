@@ -44,3 +44,18 @@ A separate `secure_auth_users` table is created in the configured MySQL 5.5 sche
 - Do not leave the historical source SQL dumps with demo credentials on any web-accessible production host.
 - Set `TLAB_ENABLE_UNSAFE_BULK_IMPORT` and `TLAB_ENABLE_SNAPSHOT_PULL` unset/false in production. They exist only for explicitly controlled test-database migrations.
 - The old Windows installer indiscriminately killed every Node.js process; this unsafe action was removed. Its generated stop script is deliberately nonfunctional until a dedicated service/PID-based shutdown command is implemented.
+
+## Phase 3 — First protected clinical domain: patients (experimental)
+
+Added `/api/v2/patients/:id` (GET/PATCH/DELETE) and `/api/v2/patients` (POST). The new API has the following properties:
+
+- Uses the server-verified user identity, never a role supplied by the browser.
+- Checks the `secure_role_permissions` table for `patients` and `view/add/edit/delete`, default-denying missing rows; Developer alone manages permissions through `GET/PUT /api/v2/permissions`.
+- Uses new server-generated record IDs and client-visible version numbers; PATCH/DELETE require `version`, return HTTP 409 for stale updates, and serialize mutations using InnoDB `SELECT ... FOR UPDATE`.
+- Changes patients and version records in the same MySQL transaction. Audit entries are written in the same transaction, recording actor, action, record ID and version (without patient medical details).
+- DELETE performs soft-deactivation rather than irreversible destruction.
+- Developer settings has an experimental permission grid for the patient domain.
+
+**Important:** The old patient page continues to use Dexie/IndexedDB and is NOT connected to this API. Server-backed clinical screens must be migrated and regression tested before enabling real staff workflows. No direct browser password authentication and no automatic IndexedDB-to-MySQL raw writes may be restored. Medical images/clinical results, accounting, stock and offline queue need corresponding secure domains.
+
+Testing: `server/mysql55.integration.test.ts` now exercises backend patient create/update/409 stale conflict/403 denial/permission change/audit on real MySQL 5.5. CI must be green before referencing it as verified.
