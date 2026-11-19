@@ -9,6 +9,7 @@ type Report = {
   developerPasswordConfigured: boolean;
   status: 'technical_checks_passed' | 'attention_required';
   clinicalReleaseApproved: false;
+  multiBranchModeEnabled: boolean; multiBranchOperationalReady: false;
 };
 
 export function renderReadinessPanel(element: HTMLElement): void {
@@ -47,6 +48,8 @@ export function renderReadinessPanel(element: HTMLElement): void {
       line('استبدال البيانات من Snapshot معطل', report.snapshotPullDisabled ? 'نعم' : 'تحذير');
       line('ترقية الجداول التلقائية معطلة', report.autoSchemaBootstrapDisabled ? 'نعم' : 'تحذير');
       line('كلمة مرور المبرمج مضبوطة', report.developerPasswordConfigured ? 'نعم' : 'لا');
+      line('وضع الفروع المتعددة', report.multiBranchModeEnabled ? 'مفعل للتجربة فقط' : 'غير مفعل');
+      line('جاهزية التشغيل متعدد الفروع', 'غير مكتملة — الطلبات والنتائج والفواتير والمخزون غير معزولة بعد');
       line('الإذن بالتشغيل الطبي', 'غير ممنوح — الاختبارات السريرية والمالية غير مكتملة');
       if (status) status.textContent =
         report.status === 'technical_checks_passed'
