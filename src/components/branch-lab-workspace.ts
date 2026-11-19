@@ -1,5 +1,6 @@
 import type { User } from '../types';
 import { escapeHtml } from './common';
+import { renderBranchBillingPilot } from './branch-billing-pilot';
 
 type Patient = { id:string; name:string };
 type Test = { id:string; code:string; name:string; price:string };
@@ -16,6 +17,7 @@ export async function renderBranchLabWorkspace(
     '<select name="testId" required class="border rounded p-2"></select>' +
     '<button type="submit" class="border rounded p-2">طلب تحليل مبدئي</button></form>' +
     '<div id="branch-lab-orders" class="space-y-2"></div>' +
+    '<div id="branch-billing-pilot-panel"></div>' +
     '<p id="branch-lab-status" role="status" class="text-xs"></p></section>';
   const status=root.querySelector<HTMLElement>('#branch-lab-status');
   const form=root.querySelector<HTMLFormElement>('#branch-lab-order-form');
@@ -38,6 +40,8 @@ export async function renderBranchLabWorkspace(
     try {
       const data=await fetchData<{items:Request[];nextCursor:string|null}>('/requests?limit=30');
       list.replaceChildren();
+      const billingPanel=root.querySelector<HTMLElement>('#branch-billing-pilot-panel');
+      if(billingPanel)await renderBranchBillingPilot(billingPanel,user,branchId,data.items.map(r=>r.id));
       for(const order of data.items){
         const row=document.createElement('div');
         row.className='border rounded p-3 flex flex-wrap gap-2 items-center';
