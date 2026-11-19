@@ -7,6 +7,7 @@ import { PatientDomainStore, installPatientRoutes } from './patient-domain';
 import { ServerPermissionStore } from './server-permissions';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './lab-workflow';
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './preliminary-results';
+import { InvoiceDraftStore, installInvoiceDraftRoutes } from './invoice-drafts';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -460,6 +461,113 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       } finally { await check.end(); }
     } finally {
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('creates one unissued financial quote safely, rejects injected prices, prevents double posting', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const staff = new StaffAccountStore(connect);
+    const permissions = new ServerPermissionStore(connect);
+    const patients = new PatientDomainStore(connect);
+    const lab = new LabWorkflowStore(connect);
+    const quotes = new InvoiceDraftStore(connect);
+    await staff.ensureTable();
+    await permissions.ensureTable();
+    await patients.ensureTables();
+    await lab.ensureTables();
+    await quotes.ensureTables();
+    const suffix = Date.now().toString(36);
+    const receptionist = await staff.create('finance_rec_' + suffix, 'Reception-finance-ci-2026!', 'Receptionist');
+    const technician = await staff.create('finance_tech_' + suffix, 'Technician-finance-ci-2026!', 'Technician');
+    const patient = await patients.create({ name: 'Finance Test Patient' }, receptionist.id);
+    const testId = 'finance_test_' + suffix;
+    const seed = await connect();
+    try {
+      await seed.execute(
+        'INSERT INTO \`lab_tests\` (\`id\`, \`code\`, \`name_ar\`, \`price\`, \`active\`) VALUES (?, ?, ?, ?, 1)',
+        [testId, 'FIN', 'Finance CI', 19.95],
+      );
+    } finally { await seed.end(); }
+    const req = await lab.createRequest(patient.record.id, [testId], {
+      username: receptionist.username, userId: receptionist.id, role: 'Receptionist',
+    });
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, staff, (secureApp, identity) => {
+      installInvoiceDraftRoutes(secureApp, quotes, permissions, identity);
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + addr.port;
+      const login = async (username: string, password: string) => {
+        const res = await fetch(base + '/api/auth/login', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        expect(res.status).toBe(200);
+        return res.headers.get('set-cookie')!.split(';')[0];
+      };
+      const recCookie = await login(receptionist.username, 'Reception-finance-ci-2026!');
+      const techCookie = await login(technician.username, 'Technician-finance-ci-2026!');
+      const key = 'quote_' + suffix + '_unique_2026';
+      const input = { requestId: req.record.id, requestVersion: 1, idempotencyKey: key };
+      const mutate = (cookie: string, body: unknown) => fetch(base + '/api/v2/finance/quotes', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect((await mutate(techCookie, input)).status).toBe(403);
+      expect((await mutate(recCookie, { ...input, amount: 0 })).status).toBe(422);
+      const first = await mutate(recCookie, input);
+      expect(first.status).toBe(201);
+      const data = await first.json();
+      expect(data.draft.amountMinor).toBe(1995);
+      expect(data.draft.state).toBe('unissued_quote');
+      expect(data.draft.payable).toBe(false);
+      expect(data.replayed).toBe(false);
+
+      const retried = await mutate(recCookie, input);
+      expect(retried.status).toBe(200);
+      const retryData = await retried.json();
+      expect(retryData.replayed).toBe(true);
+      expect(retryData.draft.id).toBe(data.draft.id);
+      expect((await mutate(recCookie, { ...input, requestVersion: 2 })).status).toBe(409);
+
+      const getQuote = await fetch(base + '/api/v2/finance/quotes/' + data.draft.id, {
+        headers: { cookie: recCookie },
+      });
+      expect(getQuote.status).toBe(200);
+      const read = await getQuote.json();
+      expect(read.draft.amountMinor).toBe(1995);
+
+      const conn = await connect();
+      try {
+        const [records] = await conn.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS count FROM \`secure_invoice_drafts\` WHERE \`request_id\` = ?',
+          [req.record.id],
+        );
+        expect(Number(records[0].count)).toBe(1);
+        const [invoices] = await conn.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS count FROM \`invoices\` WHERE \`request_id\` = ?',
+          [req.record.id],
+        );
+        expect(Number(invoices[0].count)).toBe(0);
+        const [payments] = await conn.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS count FROM \`payments\` WHERE \`invoice_id\` = ?', [data.draft.id],
+        );
+        expect(Number(payments[0].count)).toBe(0);
+      } finally { await conn.end(); }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
     }
   });
 
