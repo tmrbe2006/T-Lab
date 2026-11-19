@@ -109,3 +109,9 @@ Both features are backed by MySQL 5.5 integration tests. A successful test of a 
 The Technician/Chemist staff pilot now uses a server-side lookup for an existing **sample-received** request's ordered tests and the active noncalculated parameters. It displays the exact test/parameter names and units from MySQL, validates the entire parameter set when creating a draft, and separates `Save unapproved draft` from `Submit for review`. The original author must submit; stale-version or duplicate submissions are rejected. There is no clinical normal-range inference, critical-value interpretation, signature, PDF report or patient release.
 
 The MySQL 5.5 integration test checks that only authorized clinical staff can retrieve parameters of the ordered test; browser staff E2E includes a synthetic numeric parameter and tests draft entry and submission through the staff UI. Only a successful end-to-end CI run confirms that full browser workflow.
+
+## Independent stock QC decision workflow — safety extension
+
+Quarantined reagent receipts now have a separate, server-enforced `inventoryQc` permission (initially Owner and Developer only) and an immutable MySQL decision record. A reviewer cannot be the same employee who received the lot. A `pass` records review evidence and marks `qc_status=reviewed_pass`, **but keeps the lot quarantined with zero available balance**. A `fail` marks the lot rejected. Concurrent duplicate decisions are refused under InnoDB locks, while retrying the same idempotency key returns the original decision. The UI exposes the manual evidence form for Owner only.
+
+**This is NOT certified QC approval or authorization to use the reagent.** Independent laboratory quality-system verification, evidence retention, supplier invoice/stock valuation reconciliation, an approved release procedure, and actual lab UAT remain required. The application deliberately has no automatic usable-stock release after QC review.
