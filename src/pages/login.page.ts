@@ -87,7 +87,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
 
         <section class="lg:col-span-6 rounded-xl bg-slate-800/90 border border-slate-700 p-6">
           <h2 class="text-lg font-semibold text-white">مرحلة تأمين السيرفر / Server Security Migration</h2>
-          <p class="mt-3 text-sm text-slate-200">Only the Developer account is enabled in this temporary security branch. Configure TLAB_ADMIN_PASSWORD (16+ characters) on the server. Staff accounts will return after authenticated server-side RBAC is implemented.</p>
+          <p class="mt-3 text-sm text-slate-200">Server-based Developer and staff accounts are supported. Developer can provision staff in Settings. Staff may only access the secure patient pilot; legacy medical and financial screens are disabled pending complete server-side RBAC and MySQL synchronization. Configure TLAB_ADMIN_PASSWORD (16+ characters) on the server.</p>
         </section>
       </main>
 
