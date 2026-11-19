@@ -77,6 +77,24 @@ export class PatientDomainStore {
     } finally { await conn.end(); }
   }
 
+  async list(cursor: string, pageSize: number): Promise<{ items: Array<{record: Record<string, unknown>; version: number}>; nextCursor: string | null }> {
+    if (cursor && !idPattern.test(cursor)) throw new Error('Invalid cursor');
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new Error('Invalid page size');
+    const conn = await this.connect();
+    try {
+      const [rows] = await conn.execute<(PatientRow & { version: number })[]>(
+        `SELECT p.\`id\`, p.\`raw_json\`, COALESCE(v.\`version\`, 1) AS version
+         FROM \`patients\` p
+         LEFT JOIN \`secure_record_versions\` v ON v.\`resource\` = 'patients' AND v.\`record_id\` = p.\`id\`
+         WHERE p.\`active\` = 1 AND p.\`id\` > ?
+         ORDER BY p.\`id\` ASC LIMIT ?`,
+        [cursor, pageSize],
+      );
+      const items = rows.map(row => ({ record: fromRow(row), version: Number(row.version) }));
+      return { items, nextCursor: rows.length === pageSize ? rows[rows.length - 1].id : null };
+    } finally { await conn.end(); }
+  }
+
   async get(id: string): Promise<{ record: Record<string, unknown>; version: number } | null> {
     const conn = await this.connect();
     try {
@@ -185,6 +203,15 @@ export function installPatientRoutes(
         res.status(503).json({ ok: false, error: 'Patient operation unavailable' });
       }
     };
+
+  app.get('/api/v2/patients', route('view', async (req, res) => {
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+    const limit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+    if ((cursor && !idPattern.test(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ ok: false, error: 'Invalid pagination' }); return;
+    }
+    res.json({ ok: true, ...(await store.list(cursor, limit)) });
+  }));
 
   app.get('/api/v2/patients/:id', route('view', async (req, res) => {
     if (!idPattern.test(req.params.id)) { res.status(400).json({ ok: false }); return; }
