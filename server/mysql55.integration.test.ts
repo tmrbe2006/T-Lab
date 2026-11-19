@@ -743,14 +743,17 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     const grants = new ServerPermissionStore(connect);
     const receipts = new StockReceiptStore(connect);
     const stock = new SafeInventoryStore(connect);
+    const qc = new StockQcReviewStore(connect);
     await accounts.ensureTable();
     await grants.ensureTable();
     await receipts.ensureTable();
     await stock.ensureTables();
+    await qc.ensureTables();
     const suffix = Date.now().toString(36);
     const itemId = 'receiving_' + suffix;
     const chemist = await accounts.create('recv_chem_' + suffix, 'Chemist-stock-receive-2026!', 'Chemist');
     const receptionist = await accounts.create('recv_rec_' + suffix, 'Reception-stock-receive-2026!', 'Receptionist');
+    const owner = await accounts.create('recv_owner_' + suffix, 'Owner-QC-password-2026!', 'Owner');
     const seed = await connect();
     try {
       await seed.execute(
@@ -763,6 +766,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     installApiSecurity(app, accounts, (secureApp, identity) => {
       installStockReceiptRoutes(secureApp, receipts, grants, identity);
       installSafeInventoryRoutes(secureApp, stock, grants, identity);
+      installStockQcReviewRoutes(secureApp, qc, grants, identity);
     });
     const server = await new Promise<import('node:http').Server>(resolve => {
       const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
@@ -781,6 +785,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       };
       const allowed = await login(chemist.username, 'Chemist-stock-receive-2026!');
       const denied = await login(receptionist.username, 'Reception-stock-receive-2026!');
+      const ownerCookie = await login(owner.username, 'Owner-QC-password-2026!');
       const body = {
         itemId, lotNumber: 'LOT-' + suffix, quantity: '3.500',
         expiryDate: '2031-12-31', idempotencyKey: 'receive_' + suffix + '_unique',
