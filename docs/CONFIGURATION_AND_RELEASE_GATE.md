@@ -76,3 +76,22 @@ The tool refuses if the new target schema already exists or if it matches the or
 - Windows runner syntax compilation of Inno Setup (not a patient-safe installer release).
 
 Any failing check is a blocking finding, not permission to deploy. The original `main` and customer's local MySQL database are not modified by these development commits.
+
+## Verified CI run — 19 November 2026
+
+Run: https://github.com/tmrbe2006/T-Lab/actions/runs/44594991516
+
+All three jobs passed:
+1. `verify`: TypeScript check, security tests, full Vitest suite, backup cryptography and installer safety tests, Vite production build, static-dist server smoke, and Chromium route smoke.
+2. `mysql55`: real MySQL 5.5 schema and clinical/financial/stock integration tests, encrypted full synthetic SQL dump using a matching MySQL 5.5 client, verified decryption/checksum, restoration into an **entirely new test database** and comparison of row counts, and Chromium staff workflow.
+3. `windows-installer`: Inno Setup 6 compilation on Windows.
+
+### Legacy MySQL client requirement
+
+Newer MariaDB 11 dump tools are incompatible with MySQL 5.5 metadata; use the **matching MySQL 5.5 mysqldump client** or another independently verified client version for backups. The CI workflow uses a disposable `mysql:5.5` client container. The restore-check uses a compatible SQL client and never points at the original schema.
+
+MySQL 5.5 does not support modern TLS reliably. Backup tooling permits non-TLS only over loopback by default. For a trusted private LAN that cannot support TLS, `TLAB_BACKUP_ALLOW_PLAINTEXT_LAN=true` is an explicit exceptional opt-in; do not use this across the public internet. Prefer isolating MySQL 5.5 on a trusted LAN and upgrading to a supported server before production.
+
+### Production schema setup constraint
+
+`NODE_ENV=production` now **will not bootstrap or alter database tables automatically** unless `TLAB_ALLOW_SCHEMA_BOOTSTRAP=true` is explicitly set. On a new installation, an administrator must first create and validate schema on a disposable cloned MySQL database after backup review. Revert this flag to false after the controlled migration. Until then, application operations requiring missing tables will fail closed; this behavior is intentional.
