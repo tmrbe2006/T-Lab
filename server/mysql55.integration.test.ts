@@ -13,6 +13,7 @@ import { StockReceiptStore, installStockReceiptRoutes } from './stock-receiving'
 import { StockQcReviewStore, installStockQcReviewRoutes } from './stock-qc-review';
 import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './finance-reconciliation';
 import { JournalDraftStore, installJournalDraftRoutes } from './journal-drafts';
+import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './financial-posting-preflight';
 import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './clinical-preflight';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
