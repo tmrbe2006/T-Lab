@@ -35,7 +35,7 @@ class AuthService {
         await usersRepository.saveUser({
           id: 'usr_dev',
           username: 'developer',
-          passwordHash: 'dev123',
+          passwordHash: '',
           fullNameAr: 'م. مبرمج النظام (المبرمج)',
           fullNameEn: 'System Developer',
           role: 'Developer',
