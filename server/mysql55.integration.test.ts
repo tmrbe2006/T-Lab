@@ -923,4 +923,97 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('audits legacy invoices and journal headers without changing money', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const accounts = new StaffAccountStore(connect);
+    const grants = new ServerPermissionStore(connect);
+    const finance = new FinancialReconciliationStore(connect);
+    await accounts.ensureTable();
+    await grants.ensureTable();
+    const suffix = Date.now().toString(36);
+    const goodInvoice = '000_finance_ok_' + suffix;
+    const badInvoice = '000_finance_bad_' + suffix;
+    const goodJournal = '000_journal_ok_' + suffix;
+    const badJournal = '000_journal_bad_' + suffix;
+    const accountant = await accounts.create('audit_accountant_' + suffix, 'Accountant-Audit-2026!', 'Accountant');
+    const receptionist = await accounts.create('audit_reception_' + suffix, 'Reception-Audit-2026!', 'Receptionist');
+    const db = await connect();
+    try {
+      await db.execute(
+        'INSERT INTO invoices (id, invoice_number, patient_id, subtotal, discount_amount, tax_amount, net_total, paid_amount, remaining_amount) ' +
+        'VALUES (?, ?, ?, 100, 5, 0, 95, 30, 65)',
+        [goodInvoice, 'INV-' + suffix, 'ci_test_patient'],
+      );
+      await db.execute(
+        'INSERT INTO payments (id, payment_number, invoice_id, patient_id, amount) VALUES (?, ?, ?, ?, 30)',
+        ['pay_good_' + suffix, 'PAY-' + suffix, goodInvoice, 'ci_test_patient'],
+      );
+      await db.execute(
+        'INSERT INTO invoices (id, invoice_number, patient_id, subtotal, discount_amount, tax_amount, net_total, paid_amount, remaining_amount) ' +
+        'VALUES (?, ?, ?, 100, 0, 0, 100, 75, 25)',
+        [badInvoice, 'INV-BAD-' + suffix, 'ci_test_patient'],
+      );
+      await db.execute(
+        'INSERT INTO journal_entries (id, entry_number, total_debit, total_credit) VALUES (?, ?, 200, 200)',
+        [goodJournal, 'JE-OK-' + suffix],
+      );
+      await db.execute(
+        'INSERT INTO journal_entries (id, entry_number, total_debit, total_credit) VALUES (?, ?, 50, 20)',
+        [badJournal, 'JE-BAD-' + suffix],
+      );
+    } finally { await db.end(); }
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, accounts, (secureApp, identity) =>
+      installFinancialReconciliationRoutes(secureApp, finance, grants, identity));
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + addr.port;
+      const login = async (username: string, password: string) => {
+        const response = await fetch(base + '/api/auth/login', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        expect(response.status).toBe(200);
+        return response.headers.get('set-cookie')!.split(';')[0];
+      };
+      const allowed = await login(accountant.username, 'Accountant-Audit-2026!');
+      const denied = await login(receptionist.username, 'Reception-Audit-2026!');
+      const invoiceResponse = await fetch(base + '/api/v2/finance/audit/invoices?limit=25', {
+        headers: { cookie: allowed },
+      });
+      expect(invoiceResponse.status).toBe(200);
+      const invoiceAudit = await invoiceResponse.json();
+      expect(invoiceAudit.readOnly).toBe(true);
+      expect(invoiceAudit.items.find((x: { invoiceId: string }) =>
+        x.invoiceId === goodInvoice)?.status).toBe('balanced');
+      expect(invoiceAudit.items.find((x: { invoiceId: string }) =>
+        x.invoiceId === badInvoice)?.errors).toContain('PAYMENTS_SUM_MISMATCH');
+      const journalResponse = await fetch(base + '/api/v2/finance/audit/journals?limit=25', {
+        headers: { cookie: allowed },
+      });
+      expect(journalResponse.status).toBe(200);
+      const journalAudit = await journalResponse.json();
+      expect(journalAudit.lineItemsVerified).toBe(false);
+      expect(journalAudit.items.find((x: { journalId: string }) =>
+        x.journalId === goodJournal)?.status).toBe('header_balanced');
+      expect(journalAudit.items.find((x: { journalId: string }) =>
+        x.journalId === badJournal)?.errors).toContain('JOURNAL_HEADER_UNBALANCED');
+      expect((await fetch(base + '/api/v2/finance/audit/invoices',
+        { headers: { cookie: denied } })).status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
 });
