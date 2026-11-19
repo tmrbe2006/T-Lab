@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const getPermissionsFor = vi.fn();
+const { getPermissionsFor } = vi.hoisted(() => ({ getPermissionsFor: vi.fn() }));
 vi.mock('../auth/auth.service', () => ({
   authService: { getPermissionsFor, getCurrentUser: vi.fn(), logAudit: vi.fn() },
 }));
