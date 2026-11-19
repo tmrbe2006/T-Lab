@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import mysql from 'mysql2/promise';
 
 test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }) => {
   test.skip(process.env.TLAB_STAFF_E2E !== 'true', 'Requires real MySQL 5.5 service');
