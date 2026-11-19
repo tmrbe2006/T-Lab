@@ -6,6 +6,7 @@ import { createReadStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodeBackupKey, encryptGzipStream, verifyEncryptedBackup } from './backup-crypto.mjs';
+import { allowPlaintextMysqlConnection } from './mysql-client-options.mjs';
 
 test('encrypted backup validates correct key and detects tampering', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'tlab-crypto-'));
@@ -31,4 +32,12 @@ test('encrypted backup validates correct key and detects tampering', async () =>
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('MySQL 5.5 plaintext client is restricted to loopback unless explicitly permitted', () => {
+  assert.equal(allowPlaintextMysqlConnection('127.0.0.1'), true);
+  assert.equal(allowPlaintextMysqlConnection('localhost'), true);
+  assert.equal(allowPlaintextMysqlConnection('8.8.8.8'), false);
+  assert.equal(allowPlaintextMysqlConnection('192.168.1.20'), false);
+  assert.equal(allowPlaintextMysqlConnection('192.168.999.20'), false);
 });
