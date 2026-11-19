@@ -195,6 +195,11 @@ export function installApiSecurity(
     const session = await getLiveSession(req);
     if (!session) return res.status(401).json({ ok: false, error: 'Server authentication required' });
     if (session.role !== 'Developer') return res.status(403).json({ ok: false, error: 'Legacy API unavailable to staff pending domain RBAC' });
+    // A Developer session is not authorization to bulk replace patient records.
+    // Explicitly opt in only during isolated development with synthetic data.
+    if (process.env.TLAB_ENABLE_LEGACY_API !== 'true') {
+      return res.status(403).json({ ok: false, error: 'Legacy API disabled; use protected /api/v2 endpoints' });
+    }
     next();
   });
 }
