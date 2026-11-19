@@ -8,6 +8,7 @@ import { ServerPermissionStore } from './server-permissions';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './lab-workflow';
 import { PreliminaryResultStore, installPreliminaryResultRoutes } from './preliminary-results';
 import { InvoiceDraftStore, installInvoiceDraftRoutes } from './invoice-drafts';
+import { SafeInventoryStore, installSafeInventoryRoutes } from './safe-inventory';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -599,6 +600,87 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         );
         expect(Number(payments[0].count)).toBe(0);
       } finally { await conn.end(); }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
+  it('issues QC-released FEFO stock atomically and never double-decrements on retry', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const stock = new SafeInventoryStore(connect);
+    const grants = new ServerPermissionStore(connect);
+    const accounts = new StaffAccountStore(connect);
+    await stock.ensureTables();
+    await grants.ensureTable();
+    await accounts.ensureTable();
+    const suffix = Date.now().toString(36);
+    const itemId = 'stk_' + suffix, lot1 = 'lot_a_' + suffix, lot2 = 'lot_b_' + suffix;
+    const chemist = await accounts.create('stock_chem_' + suffix, 'Chemist-stock-password-2068!', 'Chemist');
+    const receptionist = await accounts.create('stock_rec_' + suffix, 'Reception-stock-password-2068!', 'Receptionist');
+    const seed = await connect();
+    try {
+      await seed.execute(
+        'INSERT INTO inventory_items (id, code, name_ar, current_stock, active) VALUES (?, ?, ?, ?, 1)',
+        [itemId, 'CI-STOCK', 'اختبار كاشف', '12.000']);
+      await seed.execute(
+        'INSERT INTO inventory_lots (id, item_id, lot_number, expiry_date, remaining_qty, initial_qty, status, qc_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [lot1, itemId, 'L-early', '2030-01-01', '5.000', '5.000', 'active', 'released']);
+      await seed.execute(
+        'INSERT INTO inventory_lots (id, item_id, lot_number, expiry_date, remaining_qty, initial_qty, status, qc_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [lot2, itemId, 'L-later', '2031-01-01', '7.000', '7.000', 'active', 'released']);
+    } finally { await seed.end(); }
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, accounts, (secureApp, identity) => installSafeInventoryRoutes(secureApp, stock, grants, identity));
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No address');
+      const base = 'http://127.0.0.1:' + address.port;
+      const login = async (username: string, password: string) => {
+        const response = await fetch(base + '/api/auth/login', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        expect(response.status).toBe(200);
+        return response.headers.get('set-cookie')!.split(';')[0];
+      };
+      const allowedCookie = await login(chemist.username, 'Chemist-stock-password-2068!');
+      const deniedCookie = await login(receptionist.username, 'Reception-stock-password-2068!');
+      const key = 'stock_idem_' + suffix + '_single';
+      const send = (cookie: string, body: unknown) => fetch(base + '/api/v2/inventory/issue', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const selected = { itemId, lotId: lot1, quantity: '2.500', idempotencyKey: key };
+      expect((await send(deniedCookie, selected)).status).toBe(403);
+      expect((await send(allowedCookie, { ...selected, lotId: lot2 })).status).toBe(409);
+      const first = await send(allowedCookie, selected);
+      expect(first.status).toBe(201);
+      const firstResult = await first.json();
+      expect(firstResult.remainingItem).toBe('9.500');
+      expect(firstResult.remainingLot).toBe('2.500');
+      const replay = await send(allowedCookie, selected);
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).movementId).toBe(firstResult.movementId);
+      expect((await send(allowedCookie, { ...selected, idempotencyKey: key + '_different', quantity: '5.000' })).status).toBe(409);
+      const check = await connect();
+      try {
+        const [items] = await check.execute<mysql.RowDataPacket[]>('SELECT current_stock FROM inventory_items WHERE id = ?', [itemId]);
+        expect(Number(items[0].current_stock)).toBe(9.5);
+        const [lots] = await check.execute<mysql.RowDataPacket[]>('SELECT remaining_qty FROM inventory_lots WHERE id = ?', [lot1]);
+        expect(Number(lots[0].remaining_qty)).toBe(2.5);
+        const [movements] = await check.execute<mysql.RowDataPacket[]>('SELECT COUNT(*) AS qty FROM stock_movements WHERE item_id = ?', [itemId]);
+        expect(Number(movements[0].qty)).toBe(1);
+      } finally { await check.end(); }
     } finally {
       await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
     }
