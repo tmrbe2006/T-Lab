@@ -842,6 +842,21 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       expect((await retriedQc.json()).reviewId).toBe(qcData.reviewId);
       expect((await review(ownerCookie, { ...qcPayload, verdict: 'fail',
         idempotencyKey: qcPayload.idempotencyKey + '_other' })).status).toBe(409);
+      const failingReceiptBody = {
+        ...body, lotNumber: 'LOT-REJECT-' + suffix,
+        idempotencyKey: body.idempotencyKey + '_rejected',
+      };
+      const badReceipt = await post(allowed, failingReceiptBody);
+      expect(badReceipt.status).toBe(201);
+      const failedLot = await badReceipt.json();
+      const failDecision = await review(ownerCookie, {
+        receiptId: failedLot.receiptId, verdict: 'fail',
+        evidence: 'QC test documentation did not satisfy acceptance criteria',
+        idempotencyKey: 'qc_reject_' + suffix + '_unique',
+      });
+      expect(failDecision.status).toBe(201);
+      expect((await failDecision.json()).releasedForUse).toBe(false);
+
       const issue = await fetch(base + '/api/v2/inventory/issue', {
         method: 'POST', headers: { cookie: allowed, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -893,6 +908,14 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
           'SELECT COUNT(*) AS qty FROM secure_stock_receipts WHERE item_id = ?', [itemId],
         );
         expect(Number(proof[0].qty)).toBe(1);
+        const [rejected] = await check.execute<mysql.RowDataPacket[]>(
+          'SELECT status, qc_status, remaining_qty FROM inventory_lots WHERE id = ?',
+          [failedLot.lotId],
+        );
+        expect(rejected[0].status).toBe('rejected');
+        expect(rejected[0].qc_status).toBe('rejected');
+        expect(Number(rejected[0].remaining_qty)).toBe(0);
+
       } finally { await check.end(); }
     } finally {
       await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
