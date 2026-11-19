@@ -8,7 +8,7 @@ import { createGunzip } from 'node:zlib';
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import { decodeBackupKey, verifyEncryptedBackup } from './backup-crypto.mjs';
-import { temporaryMysqlOptions } from './mysql-client-options.mjs';
+import { temporaryMysqlOptions, allowPlaintextMysqlConnection } from './mysql-client-options.mjs';
 
 dotenv.config();
 
@@ -66,6 +66,7 @@ async function main() {
   const child = spawn(process.env.TLAB_MYSQL_BIN || 'mysql', [
     '--defaults-extra-file=' + options.filename,
     '--protocol=tcp',
+    ...(allowPlaintextMysqlConnection(config.host) ? ['--skip-ssl'] : []),
     '--default-character-set=utf8',
     '--database=' + target,
   ], {
