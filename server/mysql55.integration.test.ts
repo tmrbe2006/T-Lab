@@ -14,6 +14,7 @@ import { StockQcReviewStore, installStockQcReviewRoutes } from './stock-qc-revie
 import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './finance-reconciliation';
 import { JournalDraftStore, installJournalDraftRoutes } from './journal-drafts';
 import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './financial-posting-preflight';
+import { BranchRegistry, installBranchRegistryRoutes } from './branch-registry';
 import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './clinical-preflight';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
