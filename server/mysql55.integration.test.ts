@@ -11,6 +11,7 @@ import { InvoiceDraftStore, installInvoiceDraftRoutes } from './invoice-drafts';
 import { SafeInventoryStore, installSafeInventoryRoutes } from './safe-inventory';
 import { StockReceiptStore, installStockReceiptRoutes } from './stock-receiving';
 import { StockQcReviewStore, installStockQcReviewRoutes } from './stock-qc-review';
+import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './finance-reconciliation';
 import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './clinical-preflight';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
