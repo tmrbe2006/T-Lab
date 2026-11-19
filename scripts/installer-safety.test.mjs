@@ -35,7 +35,8 @@ test('safe local sandbox startup is the only UI launch path and requires compile
   const initializer = await readFile('scripts/init-sandbox.ts', 'utf8');
   assert.match(launcher, /--static-dist/);
   assert.match(launcher, /check-local-sandbox\.ts/);
-  assert.match(check, /_(test\|demo)/);
+  assert.ok(check.includes('_(test|demo)'));
+
   assert.match(check, /Legacy|legacy|TLAB_ENABLE_LEGACY_API/);
   assert.match(initializer, /CONFIRM_EMPTY_TEST_DATABASE/);
   assert.match(initializer, /NOT EMPTY/);
