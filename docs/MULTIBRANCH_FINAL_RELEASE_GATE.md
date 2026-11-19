@@ -40,3 +40,18 @@ The new `server/branch-lab-workflow.ts` implements **separate** request, request
 A real MySQL 5.5 integration test checks cross-branch order creation and sample receipt denial, nonmatching patient refusal, duplicate sample blocking, and request version concurrency. The Chromium test in `tests/e2e/branches.e2e.ts` covers staff logins across two branches, creates a sample patient and order in branch A, verifies invisibility from branch B and receives the specimen as a permitted employee.
 
 **No clinically approved results, report signatures, interbranch specimen transfers, branch-specific tariffs, or official financial posting** are available in this multi-branch workflow. All v2 endpoints continue to be blocked in `TLAB_MULTIBRANCH_MODE=true`. Do not describe this as final multi-site operation.
+
+## New test modules implemented after the branch patient/order/sample stage
+
+- `server/branch-results.ts`: multi-branch preliminary values for ordered, specimen-received tests. Validates that every entered parameter belongs to the ordered active test; stores a draft and audit. Independent Chemist/Owner may internally review (accept/repeat) but **`clinicallyApproved:false` / `reportIssued:false`** remain invariant; there are no verified reference intervals or critical flags.
+- `server/branch-billing-pilot.ts`: strictly nonofficial invoice draft calculated from server-held ordered test prices, partial fake payments in integer minor units with atomic idempotency and overpayment protection, all branch-keyed. It never issues tax invoices or posts a GL journal/cashbox.
+- `server/branch-stock-transfer-pilot.ts`: isolated demo-only stock levels and transfers; initiation reduces the sender's fake available quantity under InnoDB row lock, delivery increases the receiving branch's fake quantity once only. A different staff actor must confirm receipt. This is not production reagent lot/QC, FEFO or valuation. Demo stock bootstrap requires Developer, `TLAB_ENABLE_DEMO_STOCK=true`, and database suffix `_test` or `_demo`.
+- `server/branch-reports.ts`: branch-isolated counts and Owner/Developer consolidated counts including labeled fake billed and collected totals. Not official finance or tax reporting.
+
+### Generated consolidated MySQL 5.5 SQL
+
+`scripts/export-mysql55-schema.ts` exports every canonical legacy table plus the secure server-side tables currently implemented; `scripts/verify-exported-mysql55-schema.mjs` imports it into a **fresh** MySQL 5.5 schema and checks table counts and branch tables. The `mysql55` GitHub Actions job attaches `T-Lab-MultiBranch-MySQL55-Schema-SANDBOX` for MySQL Workbench. Do not run it on existing databases and do not confuse it with data migrations.
+
+### Explicit blockers remain
+
+Clinical final approval/PDF report with signed validation and qualified critical-range handling; real invoices/collections/GL and tax compliance; actual interbranch reagent stock lots, quality/expiry and purchasing; durable encrypted offline sync/outbox and conflict management; branch-specific tariffs and consolidated official financial statements; real Windows printer/analyzer/barcode acceptance and local device testing. We cannot mark these complete without implementation and site validation.
