@@ -46,6 +46,33 @@ export class StockReceiptStore {
     } finally { await conn.end(); }
   }
 
+  async listQuarantine(cursor: string, limit: number) {
+    if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+      throw new Error('Invalid page');
+    }
+    const conn = await this.connect();
+    try {
+      const [rows] = await conn.execute<(ReceiptRow & RowDataPacket & {
+        expiry_date: string; status: string; qc_status: string;
+      })[]>(
+        'SELECT r.id, r.item_id, r.lot_id, r.lot_number, r.quantity_milli, r.actor_id, ' +
+        'l.expiry_date, l.status, l.qc_status ' +
+        'FROM secure_stock_receipts r INNER JOIN inventory_lots l ON l.id = r.lot_id ' +
+        "WHERE r.id > ? AND l.status = 'quarantine' AND l.qc_status = 'pending' " +
+        'ORDER BY r.id LIMIT ?', [cursor, limit],
+      );
+      return {
+        items: rows.map(row => ({
+          receiptId: row.id, itemId: row.item_id, lotId: row.lot_id,
+          lotNumber: row.lot_number, receivedQuantity: decimal(Number(row.quantity_milli)),
+          expiryDate: row.expiry_date, actorId: row.actor_id,
+          status: 'quarantined' as const, approved: false,
+        })),
+        nextCursor: rows.length === limit ? rows[rows.length - 1].id : null,
+      };
+    } finally { await conn.end(); }
+  }
+
   async receive(itemId: string, lotNumber: string, quantity: unknown, expires: string,
     key: string, actor: ServerIdentity) {
     if (!validId(itemId) || !validLot(lotNumber) || !validKey(key)) throw new Error('Invalid identifiers');
@@ -112,6 +139,23 @@ export class StockReceiptStore {
 export function installStockReceiptRoutes(
   app: Express, store: StockReceiptStore, grants: ServerPermissionStore, identity: IdentityResolver
 ): void {
+  app.get('/api/v2/inventory/receipts/quarantine', async (req: Request, res: Response) => {
+    const actor = await identity(req);
+    if (!actor) return res.status(401).json({ ok: false });
+    try {
+      if (!(await grants.can(actor.role, 'inventoryReceipts', 'view'))) {
+        return res.status(403).json({ ok: false });
+      }
+      const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+      const limit = req.query.limit === undefined ? 25 : Number(req.query.limit);
+      if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+        return res.status(400).json({ ok: false });
+      }
+      return res.json({ ok: true, ...(await store.listQuarantine(cursor, limit)) });
+    } catch {
+      return res.status(503).json({ ok: false });
+    }
+  });
   app.post('/api/v2/inventory/receipts/quarantine', async (req: Request, res: Response) => {
     const actor = await identity(req);
     if (!actor) return res.status(401).json({ ok: false });
