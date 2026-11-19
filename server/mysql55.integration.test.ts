@@ -851,12 +851,27 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       });
       expect(issue.status).toBe(409);
 
+      const corruptedBalanceId = '000_discrepancy_' + suffix;
+      const reconcileFixture = await connect();
+      try {
+        await reconcileFixture.execute(
+          'INSERT INTO inventory_items (id, code, name_ar, current_stock, active) VALUES (?, ?, ?, ?, 1)',
+          [corruptedBalanceId, 'RECON-CI', 'Balance discrepancy fixture', '5.000'],
+        );
+      } finally { await reconcileFixture.end(); }
       const reconciliation = await fetch(base + '/api/v2/inventory/reconciliation?limit=25', {
         headers: { cookie: allowed },
       });
       expect(reconciliation.status).toBe(200);
       const reconciliationData = await reconciliation.json();
       expect(reconciliationData.readOnly).toBe(true);
+      const detected = reconciliationData.items.find(
+        (item: { itemId: string }) => item.itemId === corruptedBalanceId,
+      );
+      expect(detected.status).toBe('quantity_mismatch');
+      expect(detected.differenceMilli).toBe(5000);
+      expect(detected.balanced).toBe(false);
+
       const unauthorizedReconciliation = await fetch(base + '/api/v2/inventory/reconciliation', {
         headers: { cookie: denied },
       });
