@@ -27,6 +27,8 @@ export interface ReadinessReport {
   developerPasswordConfigured: boolean;
   status: 'technical_checks_passed' | 'attention_required';
   clinicalReleaseApproved: false;
+  multiBranchModeEnabled: boolean;
+  multiBranchOperationalReady: false;
 }
 
 export async function computeReadiness(connect: () => Promise<Connection>): Promise<ReadinessReport> {
@@ -44,6 +46,8 @@ export async function computeReadiness(connect: () => Promise<Connection>): Prom
     developerPasswordConfigured: (process.env.TLAB_ADMIN_PASSWORD || '').length >= 16,
     status: 'attention_required',
     clinicalReleaseApproved: false,
+    multiBranchModeEnabled: process.env.TLAB_MULTIBRANCH_MODE === 'true',
+    multiBranchOperationalReady: false,
   };
   let conn: Connection | undefined;
   try {
@@ -64,7 +68,8 @@ export async function computeReadiness(connect: () => Promise<Connection>): Prom
   if (base.databaseConnected && base.missingTables.length === 0 &&
       base.backgroundLegacySyncDisabled && base.unsafeBulkImportDisabled &&
       base.snapshotPullDisabled && base.autoSchemaBootstrapDisabled &&
-      base.productionStaticAssets && base.developerPasswordConfigured) {
+      base.productionStaticAssets && base.developerPasswordConfigured &&
+      !base.multiBranchModeEnabled) {
     base.status = 'technical_checks_passed';
   }
   return base;
