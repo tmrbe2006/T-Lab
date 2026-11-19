@@ -8,6 +8,7 @@ import { createGunzip } from 'node:zlib';
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import { decodeBackupKey, verifyEncryptedBackup } from './backup-crypto.mjs';
+import { temporaryMysqlOptions } from './mysql-client-options.mjs';
 
 dotenv.config();
 
@@ -61,15 +62,15 @@ async function main() {
   } finally { await file.close(); }
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAuthTag(tag);
+  const options = await temporaryMysqlOptions(config);
   const child = spawn(process.env.TLAB_MYSQL_BIN || 'mysql', [
+    '--defaults-extra-file=' + options.filename,
+    '--protocol=tcp',
     '--default-character-set=utf8',
-    '--host=' + config.host,
-    '--port=' + config.port,
-    '--user=' + config.user,
     '--database=' + target,
   ], {
     shell: false, stdio: ['pipe', 'ignore', 'pipe'],
-    env: { ...process.env, MYSQL_PWD: config.password },
+    env: { ...process.env, MYSQL_PWD: '' },
   });
   const exit = new Promise((done, fail) => {
     child.once('error', () => fail(new Error('MySQL command-line client unavailable')));
@@ -84,6 +85,8 @@ async function main() {
   } catch {
     child.kill('SIGTERM');
     throw new Error('Restore failed. Isolated test schema is retained for investigation.');
+  } finally {
+    await options.cleanup();
   }
 
   const db = await mysql.createConnection(config);
