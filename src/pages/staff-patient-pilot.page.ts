@@ -2,6 +2,7 @@ import { renderStaffReviewQueue } from '../components/staff-review-queue';
 import { renderStockQuarantinePanel } from '../components/stock-quarantine-pilot';
 import { renderStockQcReviewPanel } from '../components/stock-qc-review-pilot';
 import { renderInventoryReconciliation } from '../components/stock-reconciliation-pilot';
+import { renderFinanceAuditPilot } from '../components/finance-audit-pilot';
 import { renderPreliminaryEntry } from '../components/preliminary-result-entry';
 import { renderStaffLabPilot } from '../components/staff-lab-pilot';
 import { authService } from '../auth/auth.service';
@@ -55,6 +56,7 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
         <div id="staff-stock-quarantine-panel"></div>
         <div id="staff-qc-review-panel"></div>
         <div id="staff-inventory-reconciliation-panel"></div>
+        <div id="staff-finance-audit-panel"></div>
         <div id="staff-preliminary-entry-panel"></div>
       </main>
     </div>`;
@@ -182,6 +184,8 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
   if (qcPanel) await renderStockQcReviewPanel(qcPanel, user);
   const inventoryPanel = root.querySelector<HTMLElement>('#staff-inventory-reconciliation-panel');
   if (inventoryPanel) await renderInventoryReconciliation(inventoryPanel, user);
+  const financePanel = root.querySelector<HTMLElement>('#staff-finance-audit-panel');
+  if (financePanel) await renderFinanceAuditPilot(financePanel, user);
   const entryPanel = root.querySelector<HTMLElement>('#staff-preliminary-entry-panel');
   if (entryPanel) await renderPreliminaryEntry(entryPanel, user);
 }
