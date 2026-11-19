@@ -5,6 +5,19 @@ import { mysqlSyncService } from '../services/mysql-sync.service';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
 
 const SESSION_KEY = 'medlab_current_user';
+type ServerIdentity = { ok?: boolean; username?: string; role?: string; userId?: string };
+const STAFF_ROLES = new Set(['Owner','Doctor','Chemist','Technician','Receptionist','Accountant']);
+const serverStaffUser = (value: ServerIdentity): User | null => {
+  if (!value.ok || !value.userId || typeof value.username !== 'string' ||
+      !/^[a-zA-Z][a-zA-Z0-9_.-]{2,63}$/.test(value.username) ||
+      typeof value.role !== 'string' || !STAFF_ROLES.has(value.role)) return null;
+  return {
+    id: value.userId, username: value.username, role: value.role as User['role'],
+    passwordHash: '', fullNameAr: value.username, fullNameEn: value.username,
+    active: true, createdAt: '2026-01-01',
+  };
+};
+
 const serverDeveloperUser = (): User => ({
   id: 'server-developer',
   username: 'developer',
@@ -27,12 +40,16 @@ class AuthService {
     try {
       const session = await fetch('/api/auth/session', { credentials: 'same-origin' });
       if (!session.ok) return;
-      const data = await session.json() as { ok: boolean; username: string; role: string };
-      if (!data.ok || data.username !== 'developer' || data.role !== 'Developer') return;
-      await mysqlSyncService.autoSyncOnStartup();
-      await this.reloadPermissionsCache();
-      // Identity and role are derived from server session, never local IndexedDB.
-      this.currentUser = serverDeveloperUser();
+      const data = await session.json() as ServerIdentity;
+      if (!data.ok) return;
+      if (data.username === 'developer' && data.role === 'Developer') {
+        await mysqlSyncService.autoSyncOnStartup();
+        await this.reloadPermissionsCache();
+        this.currentUser = serverDeveloperUser();
+      } else {
+        // Limited staff pilot: secure patient domain only, no IndexedDB hydration.
+        this.currentUser = serverStaffUser(data);
+      }
     } catch {
       // Fail closed if server-side session cannot be established.
     }
@@ -106,9 +123,8 @@ class AuthService {
   }
 
   async login(username: string, passwordPlain: string): Promise<{ ok: boolean; user?: User }> {
-    // Transitional security phase: only the server-configured Developer
-    // account is available. Never trust an IndexedDB password or role.
-    if (username.trim() !== 'developer') return { ok: false };
+    // Server authenticates both Developer and staff identities; the staff UI
+    // exposes only the approved /api/v2 patient pilot, not legacy Dexie pages.
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -117,14 +133,19 @@ class AuthService {
         body: JSON.stringify({ username: username.trim(), password: passwordPlain }),
       });
       if (!response.ok) return { ok: false };
-      await mysqlSyncService.autoSyncOnStartup();
-      await this.reloadPermissionsCache();
-      const payload = await response.json() as { ok?: boolean; role?: string; username?: string };
-      if (!payload.ok || payload.username !== 'developer' || payload.role !== 'Developer') {
+      const payload = await response.json() as ServerIdentity;
+      let user: User | null = null;
+      if (payload.ok && payload.username === 'developer' && payload.role === 'Developer') {
+        await mysqlSyncService.autoSyncOnStartup();
+        await this.reloadPermissionsCache();
+        user = serverDeveloperUser();
+      } else {
+        user = serverStaffUser(payload);
+      }
+      if (!user) {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
         return { ok: false };
       }
-      const user = serverDeveloperUser();
       this.currentUser = user;
       await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id);
       return { ok: true, user };
@@ -156,6 +177,7 @@ class AuthService {
     details = ''
   ): Promise<void> {
     const u = this.currentUser;
+    if (u && u.role !== 'Developer') return; // Staff pilot never writes local user audit data.
     await permissionsRepository.addAuditLog({
       id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId: u?.id || 'anonymous',
