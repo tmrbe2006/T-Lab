@@ -25,6 +25,8 @@ jobs:
         run: npx vitest run server/api-security.test.ts src/guards/permission.guard.test.ts
       - name: Full existing unit regression suite
         run: npx vitest run
+      - name: Backup crypto and installer safety tests
+        run: node --test scripts/backup-crypto.test.mjs scripts/installer-safety.test.mjs
       - name: Production build
         run: npm run build
       - name: Install Chromium browser
