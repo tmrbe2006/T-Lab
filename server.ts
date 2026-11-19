@@ -146,7 +146,7 @@ async function getMySQLConnection(
           user: cfg.user || envUser || 'root',
           password: passwordCandidate,
           database: withDatabase ? cfg.database : undefined,
-          multipleStatements: true,
+          multipleStatements: false,
           connectTimeout: timeoutMs,
         });
         await conn.query('SET NAMES utf8;');
@@ -155,14 +155,15 @@ async function getMySQLConnection(
         lastError = err;
         const code = (err as { code?: string })?.code || '';
         // If database does not exist yet when withDatabase=true, create it automatically and retry
-        if (withDatabase && code === 'ER_BAD_DB_ERROR') {
+        if (withDatabase && code === 'ER_BAD_DB_ERROR' &&
+            process.env.TLAB_ALLOW_DB_CREATION === 'true' && process.env.NODE_ENV !== 'production') {
           try {
             const rootConn = await mysql.createConnection({
               host: hostCandidate,
               port: cfg.port || envPort || 3306,
               user: cfg.user || envUser || 'root',
               password: passwordCandidate,
-              multipleStatements: true,
+              multipleStatements: false,
               connectTimeout: timeoutMs,
             });
             await rootConn.query(
@@ -175,7 +176,7 @@ async function getMySQLConnection(
               user: cfg.user || envUser || 'root',
               password: passwordCandidate,
               database: cfg.database,
-              multipleStatements: true,
+              multipleStatements: false,
               connectTimeout: timeoutMs,
             });
             await conn.query('SET NAMES utf8;');
