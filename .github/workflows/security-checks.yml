@@ -67,6 +67,22 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
+      - name: Generate and import creation-only consolidated SQL on actual MySQL 5.5
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: ci-only-mysql-password
+        run: |
+          node --import tsx scripts/export-mysql55-schema.ts
+          node scripts/verify-exported-mysql55-schema.mjs
+      - name: Attach user-downloadable MySQL 5.5 schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: T-Lab-MultiBranch-MySQL55-Schema-SANDBOX
+          path: sql/tlab_multibranch_mysql55_schema.sql
+          if-no-files-found: error
+          retention-days: 7
       - name: MySQL 5.5 schema and transactional integrity
         env:
           TLAB_RUN_MYSQL55_TESTS: 'true'
