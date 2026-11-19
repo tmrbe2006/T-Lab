@@ -118,9 +118,7 @@ async function getMySQLConnection(
   const envPassword = (process.env.MYSQL_PASSWORD || '').trim();
 
   // Build ordered candidate connection configs so stale browser localStorage or localhost/127.0.0.1 differences never block connection
-  const hostsToTry = Array.from(
-    new Set([cfg.host, envHost, '127.0.0.1', 'localhost'].filter(Boolean))
-  );
+  const hostsToTry = [cfg.host]; // No silent fallback to a different MySQL server.
   const passwordsToTry = [envPassword];
 
   let lastError: unknown = null;
