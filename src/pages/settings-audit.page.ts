@@ -2,6 +2,7 @@ import { authService } from '../auth/auth.service';
 import { showToast, VirtualTable } from '../components/common';
 import { renderStaffAdminPanel } from '../components/staff-admin';
 import { renderServerPatientPermissions } from '../components/patient-permissions';
+import { renderReadinessPanel } from '../components/server-readiness';
 import { SecretsConfig } from '../config/secrets.config';
 import { db } from '../db/database';
 import { can, enforcePermission } from '../guards/permission.guard';
@@ -63,6 +64,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
         </div>
       </div>
 
+      <section id="server-readiness-panel"></section>
       <section id="secure-staff-admin-panel"></section>
       <section id="server-patient-permissions-panel"></section>
 
@@ -226,6 +228,8 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   `;
 
   mysqlSyncService.bindControlPanelEvents(container, 'set-mysql');
+  const readiness = container.querySelector<HTMLElement>('#server-readiness-panel');
+  if (readiness && user?.role === 'Developer') renderReadinessPanel(readiness);
   const staffPanel = container.querySelector<HTMLElement>('#secure-staff-admin-panel');
   if (staffPanel && user?.role === 'Developer') void renderStaffAdminPanel(staffPanel);
   const rolePanel = container.querySelector<HTMLElement>('#server-patient-permissions-panel');
