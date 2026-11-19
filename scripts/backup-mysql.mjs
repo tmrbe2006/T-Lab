@@ -61,10 +61,13 @@ async function main() {
     console.log('Encrypted bytes: ' + size);
     console.log('SHA-256: ' + checksum);
     console.log('Retain TLAB_BACKUP_KEY separately; without it recovery is impossible.');
-  } catch {
+  } catch (error) {
     child.kill('SIGTERM');
     await unlink(output).catch(() => {});
-    throw new Error('Backup failed, and incomplete output was removed. Check mysqldump access and table privileges.');
+    const reason = error instanceof Error ? error.message : 'Unknown backup error';
+    const safeReason = reason.split(password).join('[REDACTED]').slice(0, 220);
+    const stderrReason = errorHint.split(password).join('[REDACTED]').slice(0, 320);
+    throw new Error('Encrypted backup failed and incomplete output was deleted. ' + safeReason + ' ' + stderrReason);
   }
 }
 
