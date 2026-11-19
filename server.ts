@@ -18,6 +18,7 @@ import { SafeInventoryStore, installSafeInventoryRoutes } from './server/safe-in
 import { StockReceiptStore, installStockReceiptRoutes } from './server/stock-receiving';
 import { StockQcReviewStore, installStockQcReviewRoutes } from './server/stock-qc-review';
 import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './server/finance-reconciliation';
+import { JournalDraftStore, installJournalDraftRoutes } from './server/journal-drafts';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -334,6 +335,7 @@ async function startServer() {
   const stockReceipts = new StockReceiptStore(safeDbConnection);
   const stockQc = new StockQcReviewStore(safeDbConnection);
   const financialAudit = new FinancialReconciliationStore(safeDbConnection);
+  const journalDrafts = new JournalDraftStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
@@ -344,6 +346,7 @@ async function startServer() {
     installStockReceiptRoutes(secureApp, stockReceipts, serverPermissions, resolveIdentity);
     installStockQcReviewRoutes(secureApp, stockQc, serverPermissions, resolveIdentity);
     installFinancialReconciliationRoutes(secureApp, financialAudit, serverPermissions, resolveIdentity);
+    installJournalDraftRoutes(secureApp, journalDrafts, serverPermissions, resolveIdentity);
     installReadinessRoutes(secureApp, safeDbConnection, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
@@ -991,6 +994,7 @@ Return a strict JSON object with these exact keys:
           await safeInventory.ensureTables();
           await stockReceipts.ensureTable();
           await stockQc.ensureTables();
+          await journalDrafts.ensureTables();
           console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
         } else {
           const connection = await getMySQLConnection(envCfg, true);
