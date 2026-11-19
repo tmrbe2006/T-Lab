@@ -19,6 +19,7 @@ import { StockReceiptStore, installStockReceiptRoutes } from './server/stock-rec
 import { StockQcReviewStore, installStockQcReviewRoutes } from './server/stock-qc-review';
 import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './server/finance-reconciliation';
 import { JournalDraftStore, installJournalDraftRoutes } from './server/journal-drafts';
+import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './server/financial-posting-preflight';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -336,6 +337,7 @@ async function startServer() {
   const stockQc = new StockQcReviewStore(safeDbConnection);
   const financialAudit = new FinancialReconciliationStore(safeDbConnection);
   const journalDrafts = new JournalDraftStore(safeDbConnection);
+  const postingPreflight = new FinancialPostingPreflightStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
@@ -347,6 +349,7 @@ async function startServer() {
     installStockQcReviewRoutes(secureApp, stockQc, serverPermissions, resolveIdentity);
     installFinancialReconciliationRoutes(secureApp, financialAudit, serverPermissions, resolveIdentity);
     installJournalDraftRoutes(secureApp, journalDrafts, serverPermissions, resolveIdentity);
+    installFinancialPreflightRoutes(secureApp, postingPreflight, serverPermissions, resolveIdentity);
     installReadinessRoutes(secureApp, safeDbConnection, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
