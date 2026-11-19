@@ -269,13 +269,13 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
 
   if (existingUsers.length === 0) {
     await db.users.bulkPut([
-      { id: 'usr_dev', username: 'developer', passwordHash: 'dev123', fullNameAr: 'م. مبرمج النظام (المبرمج)', fullNameEn: 'System Developer', role: 'Developer', active: true, createdAt: '2022-01-01' },
-      { id: 'usr_1', username: 'owner', passwordHash: 'owner123', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
-      { id: 'usr_2', username: 'doctor', passwordHash: 'doctor123', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
-      { id: 'usr_3', username: 'chemist', passwordHash: 'chemist123', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
-      { id: 'usr_4', username: 'technician', passwordHash: 'tech123', fullNameAr: 'أحمد حسن فؤاد', fullNameEn: 'Ahmed Hassan Fouad', role: 'Technician', employeeId: 'emp_4', active: true, createdAt: '2023-05-01' },
-      { id: 'usr_5', username: 'admin', passwordHash: 'admin123', fullNameAr: 'مريم عادل نصار', fullNameEn: 'Mariam Adel Nassar', role: 'Receptionist', employeeId: 'emp_5', active: true, createdAt: '2023-07-12' },
-      { id: 'usr_6', username: 'accountant', passwordHash: 'accountant123', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
+      { id: 'usr_dev', username: 'developer', passwordHash: '', fullNameAr: 'م. مبرمج النظام (المبرمج)', fullNameEn: 'System Developer', role: 'Developer', active: true, createdAt: '2022-01-01' },
+      { id: 'usr_1', username: 'owner', passwordHash: '', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
+      { id: 'usr_2', username: 'doctor', passwordHash: '', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
+      { id: 'usr_3', username: 'chemist', passwordHash: '', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
+      { id: 'usr_4', username: 'technician', passwordHash: '', fullNameAr: 'أحمد حسن فؤاد', fullNameEn: 'Ahmed Hassan Fouad', role: 'Technician', employeeId: 'emp_4', active: true, createdAt: '2023-05-01' },
+      { id: 'usr_5', username: 'admin', passwordHash: '', fullNameAr: 'مريم عادل نصار', fullNameEn: 'Mariam Adel Nassar', role: 'Receptionist', employeeId: 'emp_5', active: true, createdAt: '2023-07-12' },
+      { id: 'usr_6', username: 'accountant', passwordHash: '', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
     ]);
   }
   if (existingRoles.length === 0) {
@@ -397,13 +397,13 @@ export async function seedDatabase(forceReset = false): Promise<void> {
   ];
 
   const users: User[] = [
-    { id: 'usr_dev', username: 'developer', passwordHash: 'dev123', fullNameAr: 'م. مبرمج النظام (المبرمج)', fullNameEn: 'System Developer', role: 'Developer', active: true, createdAt: '2022-01-01' },
-    { id: 'usr_1', username: 'owner', passwordHash: 'owner123', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
-    { id: 'usr_2', username: 'doctor', passwordHash: 'doctor123', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
-    { id: 'usr_3', username: 'chemist', passwordHash: 'chemist123', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
-    { id: 'usr_4', username: 'technician', passwordHash: 'tech123', fullNameAr: 'أحمد حسن فؤاد', fullNameEn: 'Ahmed Hassan Fouad', role: 'Technician', employeeId: 'emp_4', active: true, createdAt: '2023-05-01' },
-    { id: 'usr_5', username: 'admin', passwordHash: 'admin123', fullNameAr: 'مريم عادل نصار', fullNameEn: 'Mariam Adel Nassar', role: 'Receptionist', employeeId: 'emp_5', active: true, createdAt: '2023-07-12' },
-    { id: 'usr_6', username: 'accountant', passwordHash: 'accountant123', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
+    { id: 'usr_dev', username: 'developer', passwordHash: '', fullNameAr: 'م. مبرمج النظام (المبرمج)', fullNameEn: 'System Developer', role: 'Developer', active: true, createdAt: '2022-01-01' },
+    { id: 'usr_1', username: 'owner', passwordHash: '', fullNameAr: 'د. طارق المنشاوي (المالك)', fullNameEn: 'Dr. Tarek El-Menshawy (Owner)', role: 'Owner', employeeId: 'emp_1', active: true, createdAt: '2022-01-10' },
+    { id: 'usr_2', username: 'doctor', passwordHash: '', fullNameAr: 'د. سلمى عبد الرحمن', fullNameEn: 'Dr. Salma Abdelrahman', role: 'Doctor', employeeId: 'emp_2', active: true, createdAt: '2022-03-15' },
+    { id: 'usr_3', username: 'chemist', passwordHash: '', fullNameAr: 'ك. محمود الشافعي', fullNameEn: 'Mahmoud El-Shafei', role: 'Chemist', employeeId: 'emp_3', active: true, createdAt: '2023-01-20' },
+    { id: 'usr_4', username: 'technician', passwordHash: '', fullNameAr: 'أحمد حسن فؤاد', fullNameEn: 'Ahmed Hassan Fouad', role: 'Technician', employeeId: 'emp_4', active: true, createdAt: '2023-05-01' },
+    { id: 'usr_5', username: 'admin', passwordHash: '', fullNameAr: 'مريم عادل نصار', fullNameEn: 'Mariam Adel Nassar', role: 'Receptionist', employeeId: 'emp_5', active: true, createdAt: '2023-07-12' },
+    { id: 'usr_6', username: 'accountant', passwordHash: '', fullNameAr: 'خالد سعيد منصور', fullNameEn: 'Khaled Saeed Mansour', role: 'Accountant', employeeId: 'emp_6', active: true, createdAt: '2022-11-01' },
   ];
 
   const doctors: Doctor[] = [
