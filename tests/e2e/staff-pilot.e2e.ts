@@ -61,6 +61,8 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
   page.once('dialog', dialog => dialog.accept('Blood'));
   await page.locator('#lab-pilot-requests tr').filter({ hasText: requestNumber! }).locator('button[data-receive-index]').click();
   await expect(page.locator('#lab-pilot-requests')).toContainText('sample_received', { timeout: 20_000 });
+  await page.reload();
+  await expect(page.locator('#preliminary-order')).toBeVisible({ timeout: 20_000 });
   expect(errors, errors.join('\n')).toEqual([]);
 
   await page.locator('#staff-pilot-logout').click();
