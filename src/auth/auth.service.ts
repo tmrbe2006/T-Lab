@@ -1,6 +1,7 @@
 import { db } from '../db/database';
 import { buildRolePermissions } from '../db/seed';
 import { permissionsRepository, usersRepository } from '../repositories';
+import { mysqlSyncService } from '../services/mysql-sync.service';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
 
 const SESSION_KEY = 'medlab_current_user';
@@ -10,21 +11,19 @@ class AuthService {
   private permissionsCache: Map<string, Record<PermissionAction, boolean>> = new Map();
 
   async init(): Promise<void> {
-    await this.reloadPermissionsCache();
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as User;
-        const freshUser = await usersRepository.getByUsername(parsed.username);
-        if (freshUser && freshUser.active) {
-          this.currentUser = freshUser;
-          localStorage.setItem(SESSION_KEY, JSON.stringify(freshUser));
-        } else {
-          this.logout();
-        }
-      } catch {
-        this.logout();
-      }
+    this.currentUser = null;
+    localStorage.removeItem(SESSION_KEY);
+    try {
+      const session = await fetch('/api/auth/session', { credentials: 'same-origin' });
+      if (!session.ok) return;
+      const data = await session.json() as { ok: boolean; username: string; role: string };
+      if (!data.ok || data.username !== 'developer' || data.role !== 'Developer') return;
+      await mysqlSyncService.autoSyncOnStartup();
+      await this.reloadPermissionsCache();
+      const freshUser = await usersRepository.getByUsername('developer');
+      if (freshUser && freshUser.active && freshUser.role === 'Developer') this.currentUser = freshUser;
+    } catch {
+      // Fail closed if server-side session cannot be established.
     }
   }
 
@@ -96,22 +95,46 @@ class AuthService {
   }
 
   async login(username: string, passwordPlain: string): Promise<{ ok: boolean; user?: User }> {
-    const user = await usersRepository.getByUsername(username.trim());
-    if (!user || !user.active || user.passwordHash !== passwordPlain) {
+    // Transitional security phase: only the server-configured Developer
+    // account is available. Never trust an IndexedDB password or role.
+    if (username.trim() !== 'developer') return { ok: false };
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password: passwordPlain }),
+      });
+      if (!response.ok) return { ok: false };
+      await mysqlSyncService.autoSyncOnStartup();
+      await this.reloadPermissionsCache();
+      const user = await usersRepository.getByUsername('developer');
+      if (!user || !user.active || user.role !== 'Developer') {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        return { ok: false };
+      }
+      this.currentUser = user;
+      await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id);
+      return { ok: true, user };
+    } catch {
       return { ok: false };
     }
-    this.currentUser = user;
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id, `Username: ${user.username} (${user.role})`);
-    return { ok: true, user };
   }
 
   async logout(): Promise<void> {
-    if (this.currentUser) {
-      await this.logAudit('تسجيل خروج / User Sign-Out', 'auth', this.currentUser.id, `Username: ${this.currentUser.username}`);
+    try {
+      if (this.currentUser) {
+        await this.logAudit('تسجيل خروج / User Sign-Out', 'auth', this.currentUser.id);
+      }
+    } finally {
+      this.currentUser = null;
+      localStorage.removeItem(SESSION_KEY);
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      } catch {
+        // The browser is logged out even if the API is offline.
+      }
     }
-    this.currentUser = null;
-    localStorage.removeItem(SESSION_KEY);
   }
 
   async logAudit(
