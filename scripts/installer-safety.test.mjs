@@ -36,6 +36,8 @@ test('safe local sandbox startup is the only UI launch path and requires compile
   const check = await readFile('scripts/check-local-sandbox.ts', 'utf8');
   const initializer = await readFile('scripts/init-sandbox.ts', 'utf8');
   assert.match(launcher, /--static-dist/);
+  assert.match(launcher, /npm\.cmd install --include=dev/);
+  assert.match(launcher, /node --import tsx scripts\/check-local-sandbox\.ts/);
   assert.match(launcher, /check-local-sandbox\.ts/);
   assert.ok(check.includes('_(test|demo)'));
 
