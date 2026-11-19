@@ -85,6 +85,7 @@ test('staff uses only secure patient pilot backed by MySQL 5.5', async ({ page }
   await expect(page.locator('#preliminary-order')).toBeVisible({ timeout: 20_000 });
   await page.locator('#preliminary-order').selectOption({ label: requestNumber! });
   await expect(page.locator('#preliminary-entry-forms')).toContainText('E2E Numeric Parameter');
+  await page.locator('#preliminary-entry-forms input').first().fill('10');
   expect(errors, errors.join('\n')).toEqual([]);
 
   await page.locator('#staff-pilot-logout').click();
