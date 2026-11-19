@@ -15,6 +15,7 @@ const resources = [
   { id: 'inventoryMovements', label: 'حركات صرف المخزون' },
   { id: 'inventoryReceipts', label: 'استلام التشغيلات بالحجر' },
   { id: 'inventoryQc', label: 'مراجعة جودة التشغيلات' },
+  { id: 'financeAudit', label: 'تدقيق أرصدة الفواتير والقيود (قراءة فقط)' },
 ] as const;
 
 /** Only policy for the protected MySQL v2 APIs; never changes legacy Dexie grants. */
