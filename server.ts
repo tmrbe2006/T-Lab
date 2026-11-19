@@ -21,6 +21,7 @@ import { FinancialReconciliationStore, installFinancialReconciliationRoutes } fr
 import { JournalDraftStore, installJournalDraftRoutes } from './server/journal-drafts';
 import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './server/financial-posting-preflight';
 import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate } from './server/branch-registry';
+import { BranchPatientStore, installBranchPatientRoutes } from './server/branch-patient-domain';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -341,10 +342,12 @@ async function startServer() {
   const journalDrafts = new JournalDraftStore(safeDbConnection);
   const postingPreflight = new FinancialPostingPreflightStore(safeDbConnection);
   const branches = new BranchRegistry(safeDbConnection);
+  const branchPatients = new BranchPatientStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     // Branch metadata is safe to manage, but legacy patient/finance workflows
     // are not scoped to branch_id. Fail closed in explicit multibranch mode.
     installBranchRegistryRoutes(secureApp, branches, resolveIdentity);
+    installBranchPatientRoutes(secureApp, branchPatients, branches, serverPermissions, resolveIdentity);
     installBranchIsolationGate(secureApp);
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
@@ -1007,6 +1010,7 @@ Return a strict JSON object with these exact keys:
           await stockQc.ensureTables();
           await journalDrafts.ensureTables();
           await branches.ensureTables();
+          await branchPatients.ensureTables();
           console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
         } else {
           const connection = await getMySQLConnection(envCfg, true);
