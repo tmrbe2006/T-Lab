@@ -96,3 +96,12 @@ The new `secure_invoice_drafts` table is **not** the existing `invoices` table. 
 ### Before issuing official invoices or accepting payments
 
 Implement accounting policy choices, correct taxes and discounts, fiscal periods, immutable invoice numbering, transactionally balanced journal entries, payment receipt methods, reversals/refunds, cashbox closing and reconciliation, doctor commission accrual, staff duties segregation, and verified backup/recovery. No real collection is allowed through this pilot.
+
+## Phase 6 — Results triage, not clinical approval
+
+A results author can now call `POST /api/v2/results/:id/submit-review` with an exact current `version` after creating a draft. The server locks the result and its version under MySQL 5.5 InnoDB, verifies the record is still a draft and the submitting user is the original author, atomically marks `pending_review`, and writes an audit record. Stale submissions return HTTP 409. `approvedBy` and `approvedAt` remain null, and `clinicalValidation` stays `NOT_REVIEWED`; there is still **no approval/print/report route**.
+
+`GET /api/v2/results/review-queue` presents a paginated, role-checked queue of `pending_review` records limited to the new server-managed pilot. The staff-facing read-only queue displays unassessed values with a prominent warning. Receptionists are denied access; authorized clinical roles can inspect but cannot sign or issue reports. No clinical reference-range, age/sex, instrument QC or critical alert validation has been accepted. These are blockers for release.
+
+### Latest integration coverage
+GitHub Actions validates submitting an authored result, stale submission rejection, role restrictions on the queue, preservation of unapproved status and no clinical approval route.
