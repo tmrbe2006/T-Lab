@@ -434,6 +434,18 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       };
       const techCookie = await login(technician.username, 'Technician-ci-password-2026!');
       const doctorCookie = await login(doctor.username, 'Doctor-ci-password-2026!');
+      const parameters = await fetch(base + '/api/v2/results/requests/' + request.record.id + '/parameters', {
+        headers: { cookie: techCookie },
+      });
+      expect(parameters.status).toBe(200);
+      const catalogue = await parameters.json();
+      expect(catalogue.entryAllowed).toBe(true);
+      expect(catalogue.tests.find((test: { id: string }) => test.id === testId)?.parameters[0].id).toBe(paramId);
+      const receptionCookieForParameters = await login(reception.username, 'Reception-ci-password-2026!');
+      const deniedParameters = await fetch(base + '/api/v2/results/requests/' + request.record.id + '/parameters', {
+        headers: { cookie: receptionCookieForParameters },
+      });
+      expect(deniedParameters.status).toBe(403);
       const payload = { requestId: request.record.id, testId, values: [{ parameterId: paramId, value: 15.7 }] };
       const doctorCannotSubmit = await fetch(base + '/api/v2/results/drafts', { method: 'POST',
         headers: { cookie: doctorCookie, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
