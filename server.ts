@@ -914,12 +914,13 @@ Return a strict JSON object with these exact keys:
 
   const distPath = path.join(__dirname, 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');
-  const srcMainPath = path.join(__dirname, 'src', 'main.ts');
-  // Always use Vite middleware when src/main.ts exists so .env NODE_ENV=production never serves a stale dist folder
-  const useStaticDist =
-    process.argv.includes('--static-dist') &&
-    !fs.existsSync(srcMainPath) &&
-    fs.existsSync(distIndexHtml);
+  // An explicit production launch must serve the previously built dist folder,
+  // even when source files are present in the installation.
+  const staticRequested = process.argv.includes('--static-dist');
+  if (staticRequested && !fs.existsSync(distIndexHtml)) {
+    throw new Error('Missing dist/index.html: run npm run build before --static-dist');
+  }
+  const useStaticDist = staticRequested;
 
   if (!useStaticDist) {
     const isCloudPreview = process.cwd() === '/app/applet';
