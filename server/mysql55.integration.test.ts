@@ -1421,4 +1421,107 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('enforces branch boundaries on orders and specimens with optimistic locking', async () => {
+    const connect=()=>mysql.createConnection({
+      host:process.env.MYSQL_HOST||'127.0.0.1',
+      port:Number(process.env.MYSQL_PORT||3306),
+      user:process.env.MYSQL_USER||'root',
+      password:process.env.MYSQL_PASSWORD||'',
+      database:process.env.MYSQL_DATABASE||'tlab_mysql55_ci',
+    });
+    const registry=new BranchRegistry(connect);
+    const patients=new BranchPatientStore(connect);
+    const workflow=new BranchLabWorkflowStore(connect);
+    const grants=new ServerPermissionStore(connect);
+    const staff=new StaffAccountStore(connect);
+    await staff.ensureTable();await grants.ensureTable();
+    await registry.ensureTables();await patients.ensureTables();await workflow.ensureTables();
+    const suffix=Date.now().toString(36);
+    const receptionA=await staff.create('flow_a_'+suffix,'Branch-flow-A-2026!','Receptionist');
+    const receptionB=await staff.create('flow_b_'+suffix,'Branch-flow-B-2026!','Receptionist');
+    const techA=await staff.create('flow_tech_'+suffix,'Branch-flow-tech-2026!','Technician');
+    const a=await registry.create('flow_branch_a_'+suffix,'Flow branch A');
+    const b=await registry.create('flow_branch_b_'+suffix,'Flow branch B');
+    await registry.grant(receptionA.id,a.id);
+    await registry.grant(receptionB.id,b.id);
+    await registry.grant(techA.id,a.id);
+    const patient=await patients.create(a.id,{name:'Synthetic Branch A Patient'},
+      receptionA.id);
+    const [testId,paramId]=['lab_test_'+suffix,'lab_param_'+suffix];
+    const db=await connect();
+    try{
+      await db.execute('INSERT INTO lab_tests (id,code,name_ar,price,active) VALUES (?,?,?,?,1)',
+        [testId,'BRFLOW','Branch demo test',15]);
+      await db.execute(
+        'INSERT INTO test_parameters (id,test_id,code,name_ar,result_type,active,is_calculated) ' +
+        'VALUES (?,?,?,?,?,1,0)',
+        [paramId,testId,'BR_P','Branch Parameter','numeric'],
+      );
+    }finally{await db.end();}
+    const app=express();app.use(express.json());
+    const resolve=async(req:express.Request)=>{
+      const who=req.get('x-ci-user');
+      if(who==='a')return {userId:receptionA.id,username:receptionA.username,role:receptionA.role};
+      if(who==='b')return {userId:receptionB.id,username:receptionB.username,role:receptionB.role};
+      if(who==='tech')return {userId:techA.id,username:techA.username,role:techA.role};
+      return undefined;
+    };
+    installBranchLabWorkflowRoutes(app,workflow,registry,grants,resolve);
+    const oldMode=process.env.TLAB_MULTIBRANCH_MODE;
+    process.env.TLAB_MULTIBRANCH_MODE='true';
+    const server=await new Promise<import('node:http').Server>(resolve=>{
+      const listener=app.listen(0,'127.0.0.1',()=>resolve(listener));
+    });
+    try {
+      const address=server.address();
+      if(!address||typeof address==='string')throw Error('Missing port');
+      const root='http://127.0.0.1:'+address.port+'/api/v3/branches/';
+      const endpoint=(branch:string)=>root+branch+'/requests';
+      const send=(branch:string,who:string)=>fetch(endpoint(branch),{
+        method:'POST',
+        headers:{'x-ci-user':who,'content-type':'application/json'},
+        body:JSON.stringify({patientId:patient.id,testIds:[testId]}),
+      });
+      expect((await send(a.id,'b')).status).toBe(404);
+      expect((await send(b.id,'b')).status).toBe(422);
+      const created=await send(a.id,'a');
+      expect(created.status).toBe(201);
+      const rec=(await created.json()).request;
+      expect(rec.branchId).toBe(a.id);
+      expect((await fetch(endpoint(a.id),{headers:{'x-ci-user':'b'}})).status).toBe(404);
+      expect((await fetch(endpoint(b.id),{headers:{'x-ci-user':'b'}})).status).toBe(200);
+      const receive=(branch:string,who:string,version:number)=>fetch(
+        endpoint(branch)+'/'+rec.id+'/receive',{
+          method:'POST',
+          headers:{'x-ci-user':who,'content-type':'application/json'},
+          body:JSON.stringify({sampleType:'blood',version}),
+        });
+      expect((await receive(b.id,'b',1)).status).toBe(404);
+      expect((await receive(a.id,'a',1)).status).toBe(403);
+      const accepted=await receive(a.id,'tech',1);
+      expect(accepted.status).toBe(200);
+      expect((await accepted.json()).requestVersion).toBe(2);
+      expect((await receive(a.id,'tech',1)).status).toBe(409);
+      const validate=await connect();
+      try{
+        const [rows]=await validate.execute<mysql.RowDataPacket[]>(
+          'SELECT branch_id,status,version FROM secure_branch_requests WHERE id=?',
+          [rec.id],
+        );
+        expect(rows[0].branch_id).toBe(a.id);
+        expect(rows[0].status).toBe('sample_received');
+        expect(Number(rows[0].version)).toBe(2);
+        const [samples]=await validate.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS total FROM secure_branch_samples WHERE branch_id=? AND request_id=?',
+          [a.id,rec.id],
+        );
+        expect(Number(samples[0].total)).toBe(1);
+      }finally{await validate.end();}
+    }finally{
+      if(oldMode===undefined)delete process.env.TLAB_MULTIBRANCH_MODE;
+      else process.env.TLAB_MULTIBRANCH_MODE=oldMode;
+      await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()));
+    }
+  });
+
 });
