@@ -43,6 +43,7 @@ export class InvoiceDraftStore {
         \`created_by\` VARCHAR(64) NOT NULL,
         \`created_at\` DATETIME NOT NULL,
         UNIQUE KEY \`uq_invoice_draft_idempotency\` (\`idempotency_key\`),
+        UNIQUE KEY \`uq_invoice_draft_request\` (\`request_id\`),
         INDEX \`idx_invoice_draft_request\` (\`request_id\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci`);
     } finally { await conn.end(); }
