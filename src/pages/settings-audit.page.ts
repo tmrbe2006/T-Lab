@@ -232,6 +232,8 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   mysqlSyncService.bindControlPanelEvents(container, 'set-mysql');
   const readiness = container.querySelector<HTMLElement>('#server-readiness-panel');
   if (readiness && user?.role === 'Developer') renderReadinessPanel(readiness);
+  const branchPanel = container.querySelector<HTMLElement>('#server-branch-admin-panel');
+  if (branchPanel && user?.role === 'Developer') void renderBranchAdminPanel(branchPanel);
   const staffPanel = container.querySelector<HTMLElement>('#secure-staff-admin-panel');
   if (staffPanel && user?.role === 'Developer') void renderStaffAdminPanel(staffPanel);
   const rolePanel = container.querySelector<HTMLElement>('#server-patient-permissions-panel');
