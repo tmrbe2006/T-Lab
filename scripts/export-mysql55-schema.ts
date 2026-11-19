@@ -20,6 +20,7 @@ import {BranchPatientStore} from '../server/branch-patient-domain';
 import {BranchLabWorkflowStore} from '../server/branch-lab-workflow';
 import {BranchPreliminaryResultsStore} from '../server/branch-results';
 import {BranchBillingPilotStore} from '../server/branch-billing-pilot';
+import {BranchStockTransferPilotStore} from '../server/branch-stock-transfer-pilot';
 
 const statements=new Map<string,string>();
 function collect(sql:string) {
@@ -45,7 +46,7 @@ async function main() {
     new StockReceiptStore(connect),new StockQcReviewStore(connect),
     new JournalDraftStore(connect),new BranchRegistry(connect),
     new BranchPatientStore(connect),new BranchLabWorkflowStore(connect),
-    new BranchPreliminaryResultsStore(connect),new BranchBillingPilotStore(connect),
+    new BranchPreliminaryResultsStore(connect),new BranchBillingPilotStore(connect),new BranchStockTransferPilotStore(connect),
   ];
   for(const store of stores) {
     if('ensureTables' in store && typeof store.ensureTables==='function')await store.ensureTables();
