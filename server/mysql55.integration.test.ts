@@ -1638,11 +1638,11 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }finally{await db.end();}
     const order=await orders.create(branch1.id,patient.id,[testId],
       {userId:receptionist.id,username:receptionist.username,role:receptionist.role});
-    expect(billing.draft(branch2.id,order.id,receptionist.id)).rejects.toThrow();
+    await expect(billing.draft(branch2.id,order.id,receptionist.id)).rejects.toThrow();
     const draft=await billing.draft(branch1.id,order.id,receptionist.id);
     expect(draft.amountMinor).toBe(12575);
     expect(draft.officialInvoice).toBe(false);
-    expect(billing.draft(branch1.id,order.id,receptionist.id)).rejects.toThrow();
+    await expect(billing.draft(branch1.id,order.id,receptionist.id)).rejects.toThrow();
     const key='finance_mock_key_'+suffix;
     const first=await billing.mockCollect(branch1.id,draft.id,'25.25',key,accountant.id);
     expect(first.replayed).toBe(false);
