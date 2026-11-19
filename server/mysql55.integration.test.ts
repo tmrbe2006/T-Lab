@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import mysql from 'mysql2/promise';
 import express from 'express';
 import { installApiSecurity } from './api-security';
+import { PatientDomainStore, installPatientRoutes } from './patient-domain';
+import { ServerPermissionStore } from './server-permissions';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -159,6 +161,89 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     } finally {
       if (previous === undefined) delete process.env.TLAB_ADMIN_PASSWORD;
       else process.env.TLAB_ADMIN_PASSWORD = previous;
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
+  it('enforces clinical RBAC and optimistic versions on MySQL 5.5 patient records', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const staff = new StaffAccountStore(connect);
+    const permissions = new ServerPermissionStore(connect);
+    const patients = new PatientDomainStore(connect);
+    await staff.ensureTable();
+    await permissions.ensureTable();
+    await patients.ensureTables();
+    const username = 'patient_ci_' + Date.now().toString(36);
+    const account = await staff.create(username, 'Clinic-test-password-98241!', 'Receptionist');
+
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, staff, (secureApp, resolveIdentity) => {
+      installPatientRoutes(secureApp, patients, permissions, resolveIdentity);
+    });
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + address.port;
+      const login = await fetch(base + '/api/auth/login', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password: 'Clinic-test-password-98241!' }),
+      });
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get('set-cookie')!.split(';')[0];
+      const headers = { cookie, 'content-type': 'application/json' };
+
+      const created = await fetch(base + '/api/v2/patients', {
+        method: 'POST', headers, body: JSON.stringify({ name: 'Patient Test', phone: '0100000000', gender: 'female' }),
+      });
+      expect(created.status).toBe(201);
+      const record = await created.json();
+      expect(record.version).toBe(1);
+      const id = record.record.id as string;
+
+      const firstEdit = await fetch(base + '/api/v2/patients/' + id, {
+        method: 'PATCH', headers, body: JSON.stringify({ version: 1, changes: { name: 'Patient Updated' } }),
+      });
+      expect(firstEdit.status).toBe(200);
+      expect((await firstEdit.json()).version).toBe(2);
+
+      const staleEdit = await fetch(base + '/api/v2/patients/' + id, {
+        method: 'PATCH', headers, body: JSON.stringify({ version: 1, changes: { name: 'Silent Overwrite' } }),
+      });
+      expect(staleEdit.status).toBe(409);
+
+      const noDelete = await fetch(base + '/api/v2/patients/' + id, {
+        method: 'DELETE', headers, body: JSON.stringify({ version: 2 }),
+      });
+      expect(noDelete.status).toBe(403);
+      expect((await patients.get(id))?.record.name).toBe('Patient Updated');
+
+      await permissions.set('Receptionist', 'patients', 'edit', false);
+      const denied = await fetch(base + '/api/v2/patients/' + id, {
+        method: 'PATCH', headers, body: JSON.stringify({ version: 2, changes: { name: 'Forbidden Edit' } }),
+      });
+      expect(denied.status).toBe(403);
+
+      const conn = await connect();
+      try {
+        const [audit] = await conn.execute<mysql.RowDataPacket[]>(
+          'SELECT `actor_id`, `operation`, `version` FROM `secure_patient_audit` WHERE `record_id` = ? ORDER BY `version`',
+          [id],
+        );
+        expect(audit.map(row => row.operation)).toEqual(['create', 'edit']);
+        expect(audit.every(row => row.actor_id === account.id)).toBe(true);
+      } finally { await conn.end(); }
+    } finally {
+      await permissions.set('Receptionist', 'patients', 'edit', true);
       await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
     }
   });
