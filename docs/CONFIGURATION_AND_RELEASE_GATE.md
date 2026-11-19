@@ -103,3 +103,9 @@ The protected MySQL v2 stock receiving endpoint now accepts a strictly validated
 The clinical review queue now provides a `clinical-preflight` endpoint and check button. It explicitly reports release blockers such as unverified age/specimen ranges, critical limits and escalation, instrument QC and independent sign-off. It always returns `releaseAllowed:false` because existing MySQL reference-range fields lack a versioned lab-approved clinical interval protocol. It cannot approve results or produce patient reports. Real clinical sign-off needs a laboratory medical director and instrument validation; a software test is not sufficient.
 
 Both features are backed by MySQL 5.5 integration tests. A successful test of a pilot must not be interpreted as successful implementation of the missing end-to-end purchasing or clinical-approval workflows.
+
+## Pilot result entry UI and tests
+
+The Technician/Chemist staff pilot now uses a server-side lookup for an existing **sample-received** request's ordered tests and the active noncalculated parameters. It displays the exact test/parameter names and units from MySQL, validates the entire parameter set when creating a draft, and separates `Save unapproved draft` from `Submit for review`. The original author must submit; stale-version or duplicate submissions are rejected. There is no clinical normal-range inference, critical-value interpretation, signature, PDF report or patient release.
+
+The MySQL 5.5 integration test checks that only authorized clinical staff can retrieve parameters of the ordered test; browser staff E2E includes a synthetic numeric parameter and tests draft entry and submission through the staff UI. Only a successful end-to-end CI run confirms that full browser workflow.
