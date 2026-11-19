@@ -6,6 +6,7 @@ import { installApiSecurity } from './api-security';
 import { PatientDomainStore, installPatientRoutes } from './patient-domain';
 import { ServerPermissionStore } from './server-permissions';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './lab-workflow';
+import { PreliminaryResultStore, installPreliminaryResultRoutes } from './preliminary-results';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 
@@ -369,6 +370,96 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       } finally { await checkConn.end(); }
     } finally {
       await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
+  it('accepts only unapproved complete result drafts and blocks unsupported approvals', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1', port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root', password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const permissionStore = new ServerPermissionStore(connect);
+    const accountStore = new StaffAccountStore(connect);
+    const patientStore = new PatientDomainStore(connect);
+    const labStore = new LabWorkflowStore(connect);
+    const resultStore = new PreliminaryResultStore(connect);
+    await permissionStore.ensureTable();
+    await accountStore.ensureTable();
+    await patientStore.ensureTables();
+    await labStore.ensureTables();
+    const now = Date.now().toString(36);
+    const reception = await accountStore.create('resrec_' + now, 'Reception-ci-password-2026!', 'Receptionist');
+    const technician = await accountStore.create('restech_' + now, 'Technician-ci-password-2026!', 'Technician');
+    const doctor = await accountStore.create('resdoc_' + now, 'Doctor-ci-password-2026!', 'Doctor');
+    const patient = await patientStore.create({ name: 'Result Test Patient' }, reception.id);
+    const testId = 'res_test_' + now, paramId = 'res_param_' + now;
+    const conn = await connect();
+    try {
+      await conn.execute(
+        'INSERT INTO \`lab_tests\` (\`id\`, \`code\`, \`name_ar\`, \`price\`, \`active\`) VALUES (?, ?, ?, 50, 1)',
+        [testId, 'R' + now, 'Result CI Test'],
+      );
+      await conn.execute(
+        'INSERT INTO \`test_parameters\` (\`id\`, \`test_id\`, \`code\`, \`result_type\`, \`is_calculated\`, \`active\`) VALUES (?, ?, ?, ?, 0, 1)',
+        [paramId, testId, 'CI', 'numeric'],
+      );
+    } finally { await conn.end(); }
+    const request = await labStore.createRequest(patient.record.id, [testId], { userId: reception.id, username: reception.username, role: 'Receptionist' });
+    const sample = await labStore.receiveSample(request.record.id, 1, 'Blood', { userId: technician.id, username: technician.username, role: 'Technician' });
+    expect(sample.status).toBe('ok');
+
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, accountStore, (secureApp, identity) => installPreliminaryResultRoutes(secureApp, resultStore, permissionStore, identity));
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + address.port;
+      const login = async (username: string, password: string) => {
+        const res = await fetch(base + '/api/auth/login', { method: 'POST',
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) });
+        expect(res.status).toBe(200);
+        return res.headers.get('set-cookie')!.split(';')[0];
+      };
+      const techCookie = await login(technician.username, 'Technician-ci-password-2026!');
+      const doctorCookie = await login(doctor.username, 'Doctor-ci-password-2026!');
+      const payload = { requestId: request.record.id, testId, values: [{ parameterId: paramId, value: 15.7 }] };
+      const doctorCannotSubmit = await fetch(base + '/api/v2/results/drafts', { method: 'POST',
+        headers: { cookie: doctorCookie, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      expect(doctorCannotSubmit.status).toBe(403);
+      const wrongParam = await fetch(base + '/api/v2/results/drafts', { method: 'POST',
+        headers: { cookie: techCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...payload, values: [{ parameterId: 'unrelated', value: 11 }] }) });
+      expect(wrongParam.status).toBe(422);
+      const submitted = await fetch(base + '/api/v2/results/drafts', { method: 'POST',
+        headers: { cookie: techCookie, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      expect(submitted.status).toBe(201);
+      const draft = await submitted.json();
+      expect(draft.record.status).toBe('draft');
+      expect(draft.record.approvedBy).toBeNull();
+      expect(draft.record.clinicalValidation).toBe('NOT_REVIEWED');
+      const duplicate = await fetch(base + '/api/v2/results/drafts', { method: 'POST',
+        headers: { cookie: techCookie, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      expect(duplicate.status).toBe(422);
+      const noApproval = await fetch(base + '/api/v2/results/' + draft.record.id + '/approve', {
+        method: 'POST', headers: { cookie: doctorCookie },
+      });
+      expect(noApproval.status).toBe(403);
+      const check = await connect();
+      try {
+        const [rows] = await check.execute<mysql.RowDataPacket[]>(
+          'SELECT \`status\`, \`has_critical\`, \`approved_by\` FROM \`lab_results\` WHERE \`id\` = ?', [draft.record.id],
+        );
+        expect(rows[0].status).toBe('draft');
+        expect(rows[0].approved_by).toBeNull();
+        expect(rows[0].has_critical).toBeNull();
+      } finally { await check.end(); }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
   });
 
