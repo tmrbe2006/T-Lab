@@ -11,6 +11,7 @@ import { StaffAccountStore } from './server/staff-accounts';
 import { ServerPermissionStore, installPermissionAdminRoutes } from './server/server-permissions';
 import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
 import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflow';
+import { PreliminaryResultStore, installPreliminaryResultRoutes } from './server/preliminary-results';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -319,9 +320,11 @@ async function startServer() {
   const serverPermissions = new ServerPermissionStore(safeDbConnection);
   const patientDomain = new PatientDomainStore(safeDbConnection);
   const labWorkflow = new LabWorkflowStore(safeDbConnection);
+  const preliminaryResults = new PreliminaryResultStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
+    installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
 
