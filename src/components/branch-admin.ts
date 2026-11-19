@@ -12,6 +12,8 @@ export async function renderBranchAdminPanel(root: HTMLElement): Promise<void> {
     '<input name="name" required minlength="2" maxlength="120" placeholder="اسم الفرع بالعربية" class="border rounded p-2">' +
     '<button type="submit" class="border rounded p-2">إضافة فرع</button></form>' +
     '<div id="branch-admin-list" class="text-sm space-y-1"></div>' +
+    '<button type="button" id="branch-summary-refresh" class="border rounded p-2">تقرير تجميعي تجريبي للفروع</button>' +
+    '<div id="branch-summary-table" class="text-xs"></div>' +
     '<form id="branch-grant" class="flex flex-wrap gap-2">' +
     '<select required name="branchId" class="border rounded p-2"><option value="">اختر الفرع</option></select>' +
     '<select required name="userId" class="border rounded p-2"><option value="">اختر الموظف</option></select>' +
@@ -50,6 +52,26 @@ export async function renderBranchAdminPanel(root: HTMLElement): Promise<void> {
     }
     say('عدد الفروع المسجلة: ' + branchData.branches.length + '. لم يتم تفعيل عزل البيانات الطبية.');
   };
+  root.querySelector('#branch-summary-refresh')?.addEventListener('click',async()=>{
+    const output=root.querySelector<HTMLElement>('#branch-summary-table');
+    try{
+      const report=await api<{branches:Array<{
+        branchId:string;patients:number;requests:number;receivedSamples:number;
+        demoBilledMinor:number;demoCollectedMinor:number;
+      }>}>('/api/v3/admin/consolidated-summary');
+      if(!output)return;
+      output.replaceChildren();
+      for(const row of report.branches){
+        const p=document.createElement('p');
+        p.textContent=row.branchId+' — مرضى: '+row.patients+
+          ' — طلبات: '+row.requests+' — عينات مستلمة: '+row.receivedSamples+
+          ' — فواتير وهمية: '+(row.demoBilledMinor/100).toFixed(2)+
+          ' — مبالغ وهمية: '+(row.demoCollectedMinor/100).toFixed(2);
+        output.append(p);
+      }
+      say('تجميع تجريبي للسجلات المعزولة فقط؛ لا يمثل دفاتر محاسبية أو نتائج طبية معتمدة.');
+    }catch{say('تعذر إعداد تقرير الفروع التجريبي');}
+  });
   const create = root.querySelector<HTMLFormElement>('#branch-create');
   create?.addEventListener('submit', async event => {
     event.preventDefault();
