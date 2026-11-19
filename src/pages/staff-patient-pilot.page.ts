@@ -1,3 +1,4 @@
+import { renderStaffLabPilot } from '../components/staff-lab-pilot';
 import { authService } from '../auth/auth.service';
 import { escapeHtml } from '../components/common';
 import { router } from '../router';
@@ -44,6 +45,7 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
             <button id="staff-pilot-next" class="rounded border px-3 py-1 text-xs" disabled>الصفحة التالية</button>
           </div>
         </div>
+        <div id="staff-lab-pilot-panel"></div>
       </main>
     </div>`;
   const status = root.querySelector<HTMLElement>('#staff-pilot-status');
@@ -82,6 +84,7 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
               <td class="border p-2">${escapeHtml(item.record.phone || '')}</td>
               <td class="border p-2">${item.version}</td>
               <td class="border p-2">
+                ${editable ? `<button class="rounded border px-2 py-1" data-patient-index="${index}" data-patient-action="select">اختيار لطلب</button>` : ''}
                 <button class="rounded border px-2 py-1" data-patient-index="${index}" data-patient-action="view">تفاصيل</button>
                 ${editable ? `<button class="rounded border px-2 py-1" data-patient-index="${index}" data-patient-action="edit">تعديل</button>` : ''}
                 ${user.role === 'Owner' ? `<button class="rounded border px-2 py-1 text-rose-700" data-patient-index="${index}" data-patient-action="delete">تعطيل</button>` : ''}
@@ -94,6 +97,14 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
           const item = rows[Number(btn.dataset.patientIndex)];
           if (!item) return;
           const action = btn.dataset.patientAction;
+          if (action === 'select') {
+            const input = root.querySelector<HTMLInputElement>('#lab-pilot-request input[name="patientId"]');
+            if (input) {
+              input.value = item.record.id;
+              say('تم اختيار المريض ' + item.record.name + ' لطلب التحاليل.');
+            }
+            return;
+          }
           if (action === 'view') {
             say(`المريض: ${item.record.name} — الكود: ${item.record.code} — إصدار: ${item.version}`);
             return;
@@ -149,4 +160,8 @@ export async function renderStaffPatientPilot(root: HTMLElement, user: User): Pr
     } catch (error) { say(error instanceof Error ? error.message : String(error)); }
   });
   await load();
+  const labPanel = root.querySelector<HTMLElement>('#staff-lab-pilot-panel');
+  if (labPanel && ['Owner', 'Receptionist', 'Doctor', 'Chemist', 'Technician'].includes(user.role)) {
+    await renderStaffLabPilot(labPanel, user);
+  }
 }
