@@ -115,3 +115,9 @@ The MySQL 5.5 integration test checks that only authorized clinical staff can re
 Quarantined reagent receipts now have a separate, server-enforced `inventoryQc` permission (initially Owner and Developer only) and an immutable MySQL decision record. A reviewer cannot be the same employee who received the lot. A `pass` records review evidence and marks `qc_status=reviewed_pass`, **but keeps the lot quarantined with zero available balance**. A `fail` marks the lot rejected. Concurrent duplicate decisions are refused under InnoDB locks, while retrying the same idempotency key returns the original decision. The UI exposes the manual evidence form for Owner only.
 
 **This is NOT certified QC approval or authorization to use the reagent.** Independent laboratory quality-system verification, evidence retention, supplier invoice/stock valuation reconciliation, an approved release procedure, and actual lab UAT remain required. The application deliberately has no automatic usable-stock release after QC review.
+
+## Read-only inventory balance reconciliation
+
+The protected `GET /api/v2/inventory/reconciliation?limit=25` endpoint checks a bounded page of item balances against *QC-released, non-expired, available* lots in MySQL 5.5. It separately highlights expired previously-released lots, differences and invalid quantities. It returns `readOnly:true`; it NEVER corrects stock, credits or debits quantities, posts a journal, or treats quarantined lots as available. Owner/Chemist/Accountant can view by default; database grants control the API independently from the UI.
+
+The integrated MySQL test inserts an intentionally inconsistent item balance and asserts an explicit `quantity_mismatch` with a 5.000-unit discrepancy. Reconciliation is advisory until all pages, opening balances, units, rounding policy and physical stock counts are verified. No automatic inventory adjustment is approved.
