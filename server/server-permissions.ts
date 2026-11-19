@@ -124,7 +124,7 @@ export function installPermissionAdminRoutes(
       catch { res.status(503).json({ ok: false, error: 'Server permissions unavailable' }); }
     };
   app.get('/api/v2/permissions', admin(async (req, res) => {
-    if (typeof req.query.resource !== 'string' || !['patients', 'requests', 'samples', 'results', 'invoiceDrafts', 'inventoryMovements'].includes(req.query.resource)) { res.status(400).json({ ok: false }); return; }
+    if (typeof req.query.resource !== 'string' || !['patients', 'requests', 'samples', 'results', 'invoiceDrafts', 'inventoryMovements', 'inventoryReceipts', 'inventoryQc', 'financeAudit'].includes(req.query.resource)) { res.status(400).json({ ok: false }); return; }
     res.json({ ok: true, permissions: await store.list(req.query.resource as string) });
   }));
   app.put('/api/v2/permissions', admin(async (req, res) => {
