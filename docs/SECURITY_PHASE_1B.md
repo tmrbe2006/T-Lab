@@ -29,3 +29,18 @@ This branch intentionally fails closed for API users except one server-authentic
 - Review patient data stored in IndexedDB and any already-exposed credentials; rotate secrets.
 
 This step protects the API entry boundary but is intentionally incomplete. Keep the PR in **Draft** and **do not merge** until full migration and a green CI run.
+
+## Phase 2: Server-side staff identities (November 19, 2026)
+
+A separate `secure_auth_users` table is created in the configured MySQL 5.5 schema. It stores random IDs, unique usernames, active status, roles, version counters and salted scrypt hashes (no plaintext passwords). The server login issues an HttpOnly SameSite=Strict session cookie. Role/active/version are checked against MySQL on each authenticated staff request; changes immediately revoke prior sessions. Staff account CRUD is restricted to Developer on `/api/auth/staff` and the developer-only settings panel.
+
+**This is account provisioning only, NOT clinical release.** Legacy data APIs are intentionally Developer-only and legacy background mutations are HTTP 423. Staff cannot use everyday laboratory screens yet. A successful staff login through `/api/auth/login` does not grant access to patient and financial records; this requires new server-authorized domain endpoints.
+
+### Testing
+- Run the existing GitHub CI workflow for full Vitest/Playwright checks and MySQL 5.5 integration tests.
+- MySQL 5.5 tests create a staff account, verify scrypt salt and password validation, change role, deactivate and test live session invalidation and permissions.
+- Never import older default demo passwords into `secure_auth_users`. Send each real employee a unique first-use password via an approved secure channel.
+- The browser-based SQL dump generator intentionally does not export `secure_auth_users` (security-sensitive). Include this table in separately encrypted server-side `mysqldump` backups and verify a restore.
+- Do not leave the historical source SQL dumps with demo credentials on any web-accessible production host.
+- Set `TLAB_ENABLE_UNSAFE_BULK_IMPORT` and `TLAB_ENABLE_SNAPSHOT_PULL` unset/false in production. They exist only for explicitly controlled test-database migrations.
+- The old Windows installer indiscriminately killed every Node.js process; this unsafe action was removed. Its generated stop script is deliberately nonfunctional until a dedicated service/PID-based shutdown command is implemented.
