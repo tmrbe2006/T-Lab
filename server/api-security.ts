@@ -53,7 +53,14 @@ function publicIdentity(session: Session) {
   return { ok: true, username: session.username, role: session.role, userId: session.userId };
 }
 
-export function installApiSecurity(app: Express, staffStore?: StaffAccountStore): void {
+export type VerifiedIdentity = { username: string; role: string; userId: string };
+export type ProtectedRouteInstaller = (
+  app: Express, resolveIdentity: (req: Request) => Promise<VerifiedIdentity | undefined>
+) => void;
+
+export function installApiSecurity(
+  app: Express, staffStore?: StaffAccountStore, registerProtectedRoutes?: ProtectedRouteInstaller
+): void {
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     if (!sameOrigin(req)) return res.status(403).json({ ok: false, error: 'Cross-origin request denied' });
     next();
@@ -177,6 +184,10 @@ export function installApiSecurity(app: Express, staffStore?: StaffAccountStore)
       }
     });
   }
+
+  // Install domain-specific endpoints before the developer-only legacy API gate.
+  // They must each check the verified session AND server-side role permissions.
+  registerProtectedRoutes?.(app, getLiveSession);
 
   // Existing legacy APIs still read entire MySQL tables and accept raw edits.
   // No staff role is allowed until each domain operation has server-side RBAC.
