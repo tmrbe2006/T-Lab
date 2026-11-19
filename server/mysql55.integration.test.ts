@@ -816,6 +816,27 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       });
       expect(unauthorizedList.status).toBe(403);
       expect((await post(allowed, { ...body, idempotencyKey: body.idempotencyKey + '_different' })).status).toBe(409);
+      const qcPayload = {
+        receiptId: received.receiptId, verdict: 'pass',
+        evidence: 'QC documents verified by independent reviewer',
+        idempotencyKey: 'qc_' + suffix + '_review_key',
+      };
+      const review = (cookie: string, value: unknown) =>
+        fetch(base + '/api/v2/inventory/qc/reviews', {
+          method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify(value),
+        });
+      expect((await review(allowed, qcPayload)).status).toBe(403);
+      expect((await review(denied, qcPayload)).status).toBe(403);
+      const successfulQc = await review(ownerCookie, qcPayload);
+      expect(successfulQc.status).toBe(201);
+      const qcData = await successfulQc.json();
+      expect(qcData.releasedForUse).toBe(false);
+      const retriedQc = await review(ownerCookie, qcPayload);
+      expect(retriedQc.status).toBe(200);
+      expect((await retriedQc.json()).reviewId).toBe(qcData.reviewId);
+      expect((await review(ownerCookie, { ...qcPayload, verdict: 'fail',
+        idempotencyKey: qcPayload.idempotencyKey + '_other' })).status).toBe(409);
       const issue = await fetch(base + '/api/v2/inventory/issue', {
         method: 'POST', headers: { cookie: allowed, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -833,7 +854,7 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
         expect(Number(lots[0].initial_qty)).toBe(3.5);
         expect(Number(lots[0].remaining_qty)).toBe(0);
         expect(lots[0].status).toBe('quarantine');
-        expect(lots[0].qc_status).toBe('pending');
+        expect(lots[0].qc_status).toBe('reviewed_pass');
         const [item] = await check.execute<mysql.RowDataPacket[]>(
           'SELECT current_stock FROM inventory_items WHERE id = ?', [itemId],
         );
