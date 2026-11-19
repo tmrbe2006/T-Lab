@@ -15,6 +15,8 @@ for (const filename of ['tlab-setup.iss', 'public/tlab-setup.iss']) {
     assert.match(content, /start-tlab-pilot\.bat/);
     assert.match(content, /windows-local-pilot\.ps1/);
     assert.match(content, /T-Lab-Pilot-Sandbox/);
+    assert.match(content, /DefaultDirName=\{localappdata\}/);
+    assert.match(content, /PrivilegesRequired=lowest/);
     assert.match(content, /TLAB_ENABLE_LEGACY_API=false/);
     assert.match(content, /dist\\index\.html/);
     assert.doesNotMatch(content, /^Type:\s*filesandordirs; Name: "\{app\}\\dist"/m);
