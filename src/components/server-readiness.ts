@@ -5,6 +5,7 @@ type Report = {
   schemaTablesPresent: number; schemaTablesExpected: number; missingTables: string[];
   productionStaticAssets: boolean; backgroundLegacySyncDisabled: boolean;
   unsafeBulkImportDisabled: boolean; snapshotPullDisabled: boolean;
+  autoSchemaBootstrapDisabled: boolean;
   developerPasswordConfigured: boolean;
   status: 'technical_checks_passed' | 'attention_required';
   clinicalReleaseApproved: false;
@@ -44,6 +45,7 @@ export function renderReadinessPanel(element: HTMLElement): void {
       line('مزامنة البيانات القديمة غير الآمنة معطلة', report.backgroundLegacySyncDisabled ? 'نعم' : 'تحذير');
       line('الاستيراد الجماعي الخطر معطل', report.unsafeBulkImportDisabled ? 'نعم' : 'تحذير');
       line('استبدال البيانات من Snapshot معطل', report.snapshotPullDisabled ? 'نعم' : 'تحذير');
+      line('ترقية الجداول التلقائية معطلة', report.autoSchemaBootstrapDisabled ? 'نعم' : 'تحذير');
       line('كلمة مرور المبرمج مضبوطة', report.developerPasswordConfigured ? 'نعم' : 'لا');
       line('الإذن بالتشغيل الطبي', 'غير ممنوح — الاختبارات السريرية والمالية غير مكتملة');
       if (status) status.textContent =
