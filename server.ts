@@ -22,6 +22,7 @@ import { JournalDraftStore, installJournalDraftRoutes } from './server/journal-d
 import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './server/financial-posting-preflight';
 import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate } from './server/branch-registry';
 import { BranchPatientStore, installBranchPatientRoutes } from './server/branch-patient-domain';
+import { BranchLabWorkflowStore, installBranchLabWorkflowRoutes } from './server/branch-lab-workflow';
 import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
@@ -343,11 +344,13 @@ async function startServer() {
   const postingPreflight = new FinancialPostingPreflightStore(safeDbConnection);
   const branches = new BranchRegistry(safeDbConnection);
   const branchPatients = new BranchPatientStore(safeDbConnection);
+  const branchLab = new BranchLabWorkflowStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     // Branch metadata is safe to manage, but legacy patient/finance workflows
     // are not scoped to branch_id. Fail closed in explicit multibranch mode.
     installBranchRegistryRoutes(secureApp, branches, resolveIdentity);
     installBranchPatientRoutes(secureApp, branchPatients, branches, serverPermissions, resolveIdentity);
+    installBranchLabWorkflowRoutes(secureApp, branchLab, branches, serverPermissions, resolveIdentity);
     installBranchIsolationGate(secureApp);
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
     installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
@@ -1011,6 +1014,7 @@ Return a strict JSON object with these exact keys:
           await journalDrafts.ensureTables();
           await branches.ensureTables();
           await branchPatients.ensureTables();
+          await branchLab.ensureTables();
           console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
         } else {
           const connection = await getMySQLConnection(envCfg, true);
