@@ -1017,4 +1017,103 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
     }
   });
 
+  it('creates only unposted balanced journal drafts with strict idempotency and RBAC', async () => {
+    const connect = () => mysql.createConnection({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'tlab_mysql55_ci',
+    });
+    const accounts = new StaffAccountStore(connect);
+    const grants = new ServerPermissionStore(connect);
+    const journals = new JournalDraftStore(connect);
+    await accounts.ensureTable();
+    await grants.ensureTable();
+    await journals.ensureTables();
+    const suffix = Date.now().toString(36);
+    const accountant = await accounts.create(
+      'journal_acct_' + suffix, 'Journal-Accountant-2026!', 'Accountant',
+    );
+    const tech = await accounts.create(
+      'journal_tech_' + suffix, 'Journal-Technician-2026!', 'Technician',
+    );
+    const app = express();
+    app.use(express.json());
+    installApiSecurity(app, accounts, (securedApp, identity) =>
+      installJournalDraftRoutes(securedApp, journals, grants, identity));
+    const server = await new Promise<import('node:http').Server>(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') throw new Error('No port');
+      const base = 'http://127.0.0.1:' + addr.port;
+      const login = async (username: string, password: string) => {
+        const response = await fetch(base + '/api/auth/login', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        expect(response.status).toBe(200);
+        return response.headers.get('set-cookie')!.split(';')[0];
+      };
+      const allowed = await login(accountant.username, 'Journal-Accountant-2026!');
+      const denied = await login(tech.username, 'Journal-Technician-2026!');
+      const key = 'journal_idempotency_' + suffix;
+      const data = {
+        memo: 'Synthetic double entry journal validation',
+        lines: [
+          { accountCode: '1001', debit: '125.75', credit: '0' },
+          { accountCode: '4100', debit: '0', credit: '125.75' },
+        ],
+        idempotencyKey: key,
+      };
+      const send = (cookie: string, body: unknown) => fetch(
+        base + '/api/v2/finance/journal-drafts', {
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
+      expect((await send(denied, data)).status).toBe(403);
+      expect((await send(allowed, { ...data, lines: [
+        { accountCode: '1001', debit: '125.75', credit: '0' },
+        { accountCode: '4100', debit: '0', credit: '125.74' },
+      ] })).status).toBe(409);
+      expect((await send(allowed, { ...data, lines: [
+        { accountCode: '1001', debit: '-1', credit: '0' },
+        { accountCode: '4100', debit: '0', credit: '1' },
+      ] })).status).toBe(409);
+      expect((await send(allowed, { ...data, posted: true })).status).toBe(422);
+      const first = await send(allowed, data);
+      expect(first.status).toBe(201);
+      const created = await first.json();
+      expect(created.totalMinor).toBe(12575);
+      expect(created.lineCount).toBe(2);
+      expect(created.posted).toBe(false);
+      const replay = await send(allowed, data);
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).draftId).toBe(created.draftId);
+      expect((await send(allowed, { ...data,
+        lines: [{ accountCode: '1001', debit: '1', credit: '0' },
+          { accountCode: '4100', debit: '0', credit: '1' }],
+      })).status).toBe(409);
+      const db = await connect();
+      try {
+        const [rows] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS count_rows FROM secure_journal_draft_lines WHERE draft_id = ?',
+          [created.draftId],
+        );
+        expect(Number(rows[0].count_rows)).toBe(2);
+        const [posted] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS count_rows FROM journal_entries WHERE id = ?',
+          [created.draftId],
+        );
+        expect(Number(posted[0].count_rows)).toBe(0);
+      } finally { await db.end(); }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+  });
+
 });
