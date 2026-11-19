@@ -10,6 +10,7 @@ import { installApiSecurity } from './server/api-security';
 import { StaffAccountStore } from './server/staff-accounts';
 import { ServerPermissionStore, installPermissionAdminRoutes } from './server/server-permissions';
 import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
+import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflow';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -317,8 +318,10 @@ async function startServer() {
   const staffAccounts = new StaffAccountStore(safeDbConnection);
   const serverPermissions = new ServerPermissionStore(safeDbConnection);
   const patientDomain = new PatientDomainStore(safeDbConnection);
+  const labWorkflow = new LabWorkflowStore(safeDbConnection);
   installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
     installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
+    installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
     installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
   });
 
@@ -953,6 +956,7 @@ Return a strict JSON object with these exact keys:
         await staffAccounts.ensureTable();
         await serverPermissions.ensureTable();
         await patientDomain.ensureTables();
+        await labWorkflow.ensureTables();
         console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
       } catch (dbErr: unknown) {
         console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
