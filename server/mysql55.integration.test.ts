@@ -14,7 +14,7 @@ import { StockQcReviewStore, installStockQcReviewRoutes } from './stock-qc-revie
 import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './finance-reconciliation';
 import { JournalDraftStore, installJournalDraftRoutes } from './journal-drafts';
 import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './financial-posting-preflight';
-import { BranchRegistry, installBranchRegistryRoutes } from './branch-registry';
+import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate } from './branch-registry';
 import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './clinical-preflight';
 import { StaffAccountStore, verifyPassword } from './staff-accounts';
 import { buildCreateTableSQL, MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
@@ -1297,6 +1297,8 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       return role ? {role, userId: role === 'Receptionist' ? a.id : 'server-developer',
         username: role.toLowerCase()} : undefined;
     });
+    installBranchIsolationGate(app);
+    app.get('/api/v2/patients', (_req, res) => res.json({ ok: true, data: 'unscoped' }));
     const server = await new Promise<import('node:http').Server>(resolve => {
       const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
     });
@@ -1305,6 +1307,16 @@ describe.skipIf(!enabled)('Real MySQL 5.5 schema compatibility', () => {
       if (!addr || typeof addr === 'string') throw new Error('No port');
       const base = 'http://127.0.0.1:' + addr.port;
       expect((await fetch(base + '/api/v2/branches')).status).toBe(401);
+      const previousMode = process.env.TLAB_MULTIBRANCH_MODE;
+      process.env.TLAB_MULTIBRANCH_MODE = 'true';
+      try {
+        const unsafePatient = await fetch(base + '/api/v2/patients');
+        expect(unsafePatient.status).toBe(503);
+        expect((await unsafePatient.json()).error).toContain('database-level isolation');
+      } finally {
+        if (previousMode === undefined) delete process.env.TLAB_MULTIBRANCH_MODE;
+        else process.env.TLAB_MULTIBRANCH_MODE = previousMode;
+      }
       const staffList = await fetch(base + '/api/v2/branches', {headers:{'x-ci-role':'Receptionist'}});
       expect(staffList.status).toBe(200);
       expect((await staffList.json()).branches.some((row:{id:string})=>row.id===two.id)).toBe(false);
