@@ -143,6 +143,38 @@ export class PreliminaryResultStore {
     } finally { await conn.end(); }
   }
 
+  async listReviewQueue(cursor: string, limit: number) {
+    if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+      throw new Error('Invalid review cursor or limit');
+    }
+    const conn = await this.connect();
+    try {
+      const [rows] = await conn.execute<(LabRow & { version: number })[]>(
+        `SELECT r.\`id\`, r.\`raw_json\`, v.\`version\`
+         FROM \`lab_results\` r
+         INNER JOIN \`secure_record_versions\` v
+           ON v.\`resource\` = 'results' AND v.\`record_id\` = r.\`id\`
+         WHERE r.\`status\` = 'pending_review' AND r.\`id\` > ?
+         ORDER BY r.\`id\` ASC LIMIT ?`,
+        [cursor, limit],
+      );
+      const items = rows.map(row => {
+        const data = JSON.parse(String(row.raw_json || '{}')) as Record<string, unknown>;
+        if (data.id !== row.id || data.status !== 'pending_review' ||
+            data.clinicalValidation !== 'NOT_REVIEWED' || !Array.isArray(data.values)) {
+          throw new Error('Corrupt review record');
+        }
+        return {
+          id: row.id, requestId: data.requestId, testId: data.testId,
+          patientId: data.patientId, enteredBy: data.enteredBy,
+          values: data.values, status: 'pending_review' as const,
+          reviewStatus: 'NOT_REVIEWED' as const, version: Number(row.version),
+        };
+      });
+      return { items, nextCursor: rows.length === limit ? rows[rows.length - 1].id : null };
+    } finally { await conn.end(); }
+  }
+
   async get(id: string) {
     if (!validId(id)) throw new Error('Invalid result identifier');
     const conn = await this.connect();
@@ -202,6 +234,15 @@ export function installPreliminaryResultRoutes(
     } catch {
       res.status(422).json({ ok: false, error: 'Draft could not be submitted' });
     }
+  }));
+
+  app.get('/api/v2/results/review-queue', route('view', async (req, res) => {
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+    const limit = req.query.limit === undefined ? 25 : Number(req.query.limit);
+    if ((cursor && !validId(cursor)) || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+      res.status(400).json({ ok: false }); return;
+    }
+    res.json({ ok: true, ...(await store.listReviewQueue(cursor, limit)) });
   }));
 
   app.get('/api/v2/results/:id', route('view', async (req, res) => {
