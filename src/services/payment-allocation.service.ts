@@ -17,6 +17,7 @@ export function paymentAllocation(invoice:Invoice, payments:readonly Payment[]) 
     companyDue:cents(Math.max(0,company-companyPaid)),
     patientShare:patient,companyShare:company,
     patientPaid,companyPaid,
+    unreconciled:cents(patientPaid+companyPaid)<cents(Number(invoice.paidAmount)||0)-0.009,
   };
 }
 export function checkPaymentAllowance(
@@ -26,6 +27,7 @@ export function checkPaymentAllowance(
   if(!Number.isFinite(amount)||amount<=0||cents(amount)<=0)throw new Error('INVALID_PAYMENT_AMOUNT');
   if(payerType==='contract'&&!invoice.contractId)throw new Error('NO_CONTRACT_ON_INVOICE');
   const due=paymentAllocation(invoice,payments);
+  if(due.unreconciled)throw new Error('LEGACY_PAYMENT_RECONCILIATION_REQUIRED');
   if(cents(amount)>(payerType==='contract'?due.companyDue:due.patientDue)){
     throw new Error('PAYMENT_EXCEEDS_PAYER_SHARE');
   }
