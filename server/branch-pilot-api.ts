@@ -371,8 +371,14 @@ export function installBranchPilotRoutes(app: Express): void {
           'SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()',
         );
         const present = new Set(names.map(row => String(row.name).toLowerCase()));
+        const [columnRows] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()',
+        );
+        const columns = new Set(columnRows.map(row =>
+          `${String(row.table_name).toLowerCase()}.${String(row.column_name).toLowerCase()}`));
         const tables: Array<{
           store: string; mysqlTable: string; exists: boolean; mysqlRows: number | null;
+          missingColumns: string[];
         }> = [];
         for (const mapping of MYSQL_TABLES_CONFIG) {
           // Validate even constant identifiers, never accept table names from a request.
@@ -387,17 +393,27 @@ export function installBranchPilotRoutes(app: Express): void {
             );
             mysqlRows = Number(countRows[0]?.total || 0);
           }
-          tables.push({ store: mapping.dexieTable, mysqlTable: mapping.mysqlTable, exists, mysqlRows });
+          const missingColumns = exists ?
+            [...mapping.columns.map(column => column.name), 'raw_json'].filter(column =>
+              !columns.has(`${mapping.mysqlTable.toLowerCase()}.${column.toLowerCase()}`)) : [];
+          tables.push({
+            store: mapping.dexieTable, mysqlTable: mapping.mysqlTable,
+            exists, mysqlRows, missingColumns,
+          });
         }
         const missing = tables.filter(item => !item.exists).map(item => item.mysqlTable);
+        const missingColumns = tables.filter(item => item.missingColumns.length > 0)
+          .map(item => ({table: item.mysqlTable, columns: item.missingColumns}));
         const [activeDb] = await db.query<mysql.RowDataPacket[]>('SELECT DATABASE() AS schema_name');
         return {
           schema: String(activeDb[0]?.schema_name || ''),
           mappedStores: tables.length,
           tableCount: present.size,
           missingTables: missing,
+          missingColumns,
           tables,
           allMappedTablesExist: missing.length === 0,
+          allMappedColumnsExist: missingColumns.length === 0,
           // Frontend Dexie usage is independently audited; table existence
           // CANNOT attest that requests, results or invoices use MySQL.
           allScreensUseMySQL: false,
