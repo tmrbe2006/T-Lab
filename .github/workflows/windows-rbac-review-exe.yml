@@ -5,6 +5,7 @@ on:
       - '.github/workflows/windows-rbac-review-exe.yml'
       - 'installer/rbac-review.iss'
       - 'installer/launch-rbac-review.cmd'
+      - 'server.ts'
   workflow_dispatch:
 jobs:
   build-windows:
@@ -33,6 +34,34 @@ jobs:
           Copy-Item (Get-Command node.exe).Source -Destination installer/package/node.exe
           if (Test-Path public) { Copy-Item public -Destination installer/package -Recurse -Force }
           if (Test-Path .env) { throw "Do not package local secrets" }
+      - name: Smoke-test packaged server and static frontend on Windows
+        shell: pwsh
+        run: |
+          $folder = (Resolve-Path 'installer/package').Path
+          $node = Join-Path $folder 'node.exe'
+          $stdout = Join-Path $env:RUNNER_TEMP 'tlab-smoke-out.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'tlab-smoke-err.log'
+          $p = Start-Process -FilePath $node -ArgumentList @('--import', 'tsx', 'server.ts', '--static-dist', '--port', '3117') -WorkingDirectory $folder -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 45; $attempt++) {
+              Start-Sleep -Seconds 2
+              if ($p.HasExited) { break }
+              try {
+                $response = Invoke-WebRequest -Uri 'http://127.0.0.1:3117/' -UseBasicParsing -TimeoutSec 3
+                if ($response.StatusCode -eq 200 -and $response.Content -match '<html') { $ready = $true; break }
+              } catch { }
+            }
+            if (!$ready) {
+              Get-Content $stdout -ErrorAction SilentlyContinue
+              Get-Content $stderr -ErrorAction SilentlyContinue
+              throw 'Packaged T-Lab did not serve built UI on Windows'
+            }
+            Write-Host 'PACKAGED WINDOWS STARTUP AND HTTP 200 VERIFIED'
+          }
+          finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --yes --no-progress
