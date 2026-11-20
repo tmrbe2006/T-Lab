@@ -24,7 +24,7 @@ import { accountingService } from '../../services/accounting.service';
 import { discountService } from '../../services/discount.service';
 import { ensureEnterpriseSeedData } from '../../services/enterprise-lab.service';
 import { invoiceService } from '../../services/invoice.service';
-import { adjustUnpaidInvoice } from '../../services/invoice-adjustment.service';
+import { synchronizeUnpaidRequestInvoice } from '../../services/invoice-adjustment.service';
 import { db } from '../../db/database';
 import type {
   DiscountType,
@@ -572,8 +572,8 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               commissionEligible: t.commissionEligible,
             }));
 
-            await requestsRepository.saveRequest(updatedReq, rItems);
-
+            // Save the medical request and its issued invoice together so
+            // failed financial corrections never leave mismatched totals.
             // Update linked invoice if exists
             const allInvs = await invoicesRepository.getAll();
             const linkedInv = allInvs.find((inv) => inv.requestId === existingReq.id);
@@ -618,11 +618,14 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                   commissionEligible: sh.commissionEligible,
                 };
               });
-              await invoicesRepository.save(updatedInv, invItems);
-              // Reconcile the original issued invoice journal via a reversal and
-              // new balanced journal, and keep patient/company claims in sync.
-              await adjustUnpaidInvoice(linkedInv.id,math.discountAmount,math.taxRate,user?.username || 'accountant',
-                {type:math.discountType,value:math.discountValue});
+              // One Dexie transaction updates request, invoice, their items,
+              // tax, payer shares and the reversing/replacement journal.
+              await synchronizeUnpaidRequestInvoice(
+                updatedReq, rItems, updatedInv, invItems, user?.username || 'accountant',
+              );
+            } else {
+              // Legacy request with no issued invoice: keep its original flow.
+              await requestsRepository.saveRequest(updatedReq, rItems);
             }
 
             await authService.logAudit(
