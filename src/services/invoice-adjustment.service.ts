@@ -34,7 +34,7 @@ function reversalOf(original:JournalEntry,actor:string):JournalEntry {
 export async function adjustUnpaidInvoice(
   invoiceId:string, discountAmount:number, taxRate:number, actor:string,
 ):Promise<Invoice>{
-  return db.transaction('rw',db.invoices,db.invoiceItems,db.requests,db.journalEntries,db.payments,db.corporateContracts,async()=>{
+  return db.transaction('rw',[db.invoices,db.invoiceItems,db.requests,db.journalEntries,db.payments,db.corporateContracts],async()=>{
     const original=await db.invoices.get(invoiceId);
     if (!original) throw new Error('INVOICE_NOT_FOUND');
     const payments=await db.payments.where('invoiceId').equals(invoiceId).toArray();
