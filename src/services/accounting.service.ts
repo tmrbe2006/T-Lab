@@ -6,36 +6,36 @@ export class AccountingService {
    * 1. Automatic Journal Entry when issuing an Invoice
    */
   async recordInvoiceJournal(invoice: Invoice, createdBy: string): Promise<JournalEntry> {
-    const netRevenueAfterDiscount = Math.round((invoice.subtotal - invoice.discountAmount) * 100) / 100;
-    const lines: JournalEntry['lines'] = [
-      {
-        accountCode: '1103',
-        accountNameAr: 'ذمم العملاء / المرضى',
-        accountNameEn: 'Accounts Receivable (Patients)',
-        debit: invoice.netTotal,
-        credit: 0,
-      },
-      {
-        accountCode: '4101',
-        accountNameAr: 'إيرادات التحاليل الطبية',
-        accountNameEn: 'Medical Lab Tests Revenue',
-        debit: 0,
-        credit: netRevenueAfterDiscount,
-      },
-    ];
-
-    if (invoice.taxAmount > 0) {
-      lines.push({
-        accountCode: '2101',
-        accountNameAr: 'ضريبة القيمة المضافة المستحقة',
-        accountNameEn: 'VAT Payable',
-        debit: 0,
-        credit: invoice.taxAmount,
-      });
-    }
-
+    const money=(n:number)=>Math.round(n*100)/100;
+    const companyPart=invoice.contractId
+      ? Math.min(invoice.netTotal,Math.max(0,money(Number(invoice.companyShareAmount)||0)))
+      : 0;
+    const patientPart=money(invoice.netTotal-companyPart);
+    const netRevenueAfterDiscount = money(invoice.subtotal-invoice.discountAmount);
+    const lines:JournalEntry['lines'] = [];
+    if(patientPart>0)lines.push({
+      accountCode:'1204',accountNameAr:'ذمم العملاء / المرضى',
+      accountNameEn:'Patients Receivable',debit:patientPart,credit:0,
+    });
+    if(companyPart>0)lines.push({
+      accountCode:'1205',accountNameAr:'عملاء التعاقدات والتأمين',
+      accountNameEn:'Corporate and Insurance Receivable',debit:companyPart,credit:0,
+    });
+    if(netRevenueAfterDiscount>0)lines.push({
+      accountCode:invoice.contractId?'4102':'4101',
+      accountNameAr:invoice.contractId?'إيرادات التحاليل - التعاقدات':'إيرادات التحاليل الطبية',
+      accountNameEn:invoice.contractId?'Corporate Medical Lab Revenue':'Medical Lab Tests Revenue',
+      debit:0,credit:netRevenueAfterDiscount,
+    });
+    if(invoice.taxAmount>0)lines.push({
+      accountCode:'2104',accountNameAr:'ضريبة القيمة المضافة المستحقة',
+      accountNameEn:'VAT Payable',debit:0,credit:invoice.taxAmount,
+    });
+    const debits=money(lines.reduce((sum,line)=>sum+line.debit,0));
+    const credits=money(lines.reduce((sum,line)=>sum+line.credit,0));
+    if(debits!==credits)throw new Error('UNBALANCED_INVOICE_JOURNAL');
     const entry: JournalEntry = {
-      id: `je_inv_${Date.now()}`,
+      id: `je_inv_${crypto.randomUUID()}`,
       entryNumber: `JE-${String(Date.now()).slice(-6)}`,
       date: invoice.date,
       referenceType: 'invoice',
@@ -43,8 +43,8 @@ export class AccountingService {
       descriptionAr: `إصدار فاتورة تحاليل رقم ${invoice.invoiceNumber}`,
       descriptionEn: `Issue Lab Invoice #${invoice.invoiceNumber}`,
       lines,
-      totalDebit: invoice.netTotal,
-      totalCredit: invoice.netTotal,
+      totalDebit: debits,
+      totalCredit: credits,
       createdBy,
     };
 
@@ -58,7 +58,7 @@ export class AccountingService {
   async recordPaymentJournal(payment: Payment, createdBy: string): Promise<JournalEntry> {
     const isCash = payment.method === 'cash';
     const entry: JournalEntry = {
-      id: `je_pay_${Date.now()}`,
+      id: `je_pay_${crypto.randomUUID()}`,
       entryNumber: `JE-${String(Date.now()).slice(-6)}`,
       date: payment.date,
       referenceType: 'payment',
@@ -67,14 +67,14 @@ export class AccountingService {
       descriptionEn: `Payment Receipt ${payment.paymentNumber} for Invoice ${payment.invoiceNumber}`,
       lines: [
         {
-          accountCode: isCash ? '1101' : '1102',
+          accountCode: isCash ? '1201' : '1202',
           accountNameAr: isCash ? 'الصندوق النقدي الرئيسي' : 'البنك والحسابات الجارية',
           accountNameEn: isCash ? 'Main Cashbox' : 'Bank & POS Account',
           debit: payment.amount,
           credit: 0,
         },
         {
-          accountCode: '1103',
+          accountCode: '1204',
           accountNameAr: 'ذمم العملاء / المرضى',
           accountNameEn: 'Accounts Receivable (Patients)',
           debit: 0,
@@ -96,7 +96,7 @@ export class AccountingService {
   async recordExpenseJournal(expense: Expense, createdBy: string): Promise<JournalEntry> {
     const isCash = expense.paymentMethod === 'cash';
     const entry: JournalEntry = {
-      id: `je_exp_${Date.now()}`,
+      id: `je_exp_${crypto.randomUUID()}`,
       entryNumber: `JE-${String(Date.now()).slice(-6)}`,
       date: expense.date,
       referenceType: 'expense',
@@ -138,7 +138,7 @@ export class AccountingService {
     createdBy: string
   ): Promise<JournalEntry> {
     const entry: JournalEntry = {
-      id: `je_ca_${Date.now()}`,
+      id: `je_ca_${crypto.randomUUID()}`,
       entryNumber: `JE-${String(Date.now()).slice(-6)}`,
       date: commission.date,
       referenceType: 'commission_accrual',
@@ -200,7 +200,7 @@ export class AccountingService {
           credit: 0,
         },
         {
-          accountCode: '1101',
+          accountCode: '1201',
           accountNameAr: 'الصندوق النقدي الرئيسي',
           accountNameEn: 'Main Cashbox',
           debit: 0,
