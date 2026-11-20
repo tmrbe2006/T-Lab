@@ -8,6 +8,7 @@ export type RouteId =
   | 'employees'
   | 'users'
   | 'permissions'
+  | 'branches'
   | 'tests'
   | 'scientificDepartments'
   | 'sampleTubes'
