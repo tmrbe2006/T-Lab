@@ -425,6 +425,228 @@ export function installBranchPilotRoutes(app: Express): void {
     } catch (error) { respondError(res, error); }
   });
 
+
+  /**
+   * Patient data is read FROM MYSQL, not from localStorage / Dexie.
+   * The pilot's patient_branch_access map safely associates old patients
+   * with branch_main, leaving other branches empty until explicitly populated.
+   * Every operation re-checks the current session, branch assignment,
+   * and user-specific screen permission on the server.
+   */
+  async function authorizedPatients(req: Request, action: 'view'|'add'|'edit'|'delete') {
+    const session = getSession(req);
+    if (!session?.branchId) throw new Error('BRANCH_SELECTION_REQUIRED');
+    return useDatabase(async (db) => {
+      const accessible = await staffAssignedBranches(db, session.userId, session.role);
+      if (!accessible.some(b => b.branchId === session.branchId)) throw new Error('BRANCH_NOT_ASSIGNED');
+      if (session.role !== 'Developer' && session.role !== 'Owner') {
+        const rights = await ownBranchPermissions({
+          execute: (sql, params) => db.execute(sql, params as string[]),
+        }, session.userId, session.branchId);
+        const patientRights = rights.find(row => row.resource === 'patients');
+        if (patientRights?.actions[action] !== true) throw new Error('FORBIDDEN');
+      } else if (session.role === 'Owner') {
+        const rights = await ownBranchPermissions({
+          execute: (sql, params) => db.execute(sql, params as string[]),
+        }, session.userId, session.branchId);
+        const configured = rights.find(row => row.resource === 'patients');
+        if (configured && configured.actions[action] !== true) throw new Error('FORBIDDEN');
+      }
+      return { db, session };
+    });
+  }
+
+  async function withPatientDb<T>(req: Request, action: 'view'|'add'|'edit'|'delete', fn:(db:mysql.Connection, session:AdminSession)=>Promise<T>):Promise<T> {
+    const session = getSession(req);
+    if (!session?.branchId) throw new Error('BRANCH_SELECTION_REQUIRED');
+    return useDatabase(async (db) => {
+      const accessible = await staffAssignedBranches(db, session.userId, session.role);
+      if (!accessible.some(b => b.branchId === session.branchId)) throw new Error('BRANCH_NOT_ASSIGNED');
+      const rights = await ownBranchPermissions({
+        execute: (sql, params) => db.execute(sql, params as string[]),
+      }, session.userId, session.branchId);
+      const explicit = rights.find(row => row.resource === 'patients');
+      const permitted = session.role === 'Developer' ||
+        (session.role === 'Owner' ? (!explicit || explicit.actions[action] === true) : explicit?.actions[action] === true);
+      if (!permitted) throw new Error('FORBIDDEN');
+      return fn(db, session);
+    });
+  }
+
+  function patientFromRow(row: mysql.RowDataPacket): Record<string, unknown> {
+    let raw: Record<string, unknown> = {};
+    try {
+      const obj = JSON.parse(String(row.raw_json || '{}')) as unknown;
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) raw = obj as Record<string,unknown>;
+    } catch { /* Fall back to explicit columns for legacy imports. */ }
+    return {
+      ...raw,
+      id:String(row.id), code:String(row.code || raw.code || ''),
+      name:String(row.name || raw.name || ''),
+      nameEn:String(row.name_en || raw.nameEn || ''),
+      phone:String(row.phone || raw.phone || ''),
+      gender:row.gender === 'female' ? 'female' : 'male',
+      birthDate:String(row.birth_date || raw.birthDate || ''),
+      age:Number(row.age || raw.age || 0),
+      nationalId:String(row.national_id || raw.nationalId || ''),
+      address:String(row.address || raw.address || ''),
+      notes:String(raw.notes || ''),
+      hasDefaultDiscount:raw.hasDefaultDiscount === true,
+      defaultDiscountType:['fixed','percentage'].includes(String(raw.defaultDiscountType))
+        ? raw.defaultDiscountType : 'none',
+      defaultDiscountValue:Number(raw.defaultDiscountValue || 0),
+      active:Number(row.active) === 1,
+      createdAt:String(row.created_at || raw.createdAt || ''),
+    };
+  }
+
+  function validatePatient(input: unknown) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('INVALID_PATIENT');
+    const obj = input as Record<string,unknown>;
+    const text = (key:string, max:number) => {
+      const val = String(obj[key] ?? '').trim();
+      if (val.length > max) throw new TypeError('INVALID_PATIENT_FIELD');
+      return val;
+    };
+    const id=text('id',64), code=text('code',64), name=text('name',191);
+    if (!validBranchId(id) || !code || !name) throw new TypeError('INVALID_PATIENT');
+    if (obj.gender !== 'male' && obj.gender !== 'female') throw new TypeError('INVALID_GENDER');
+    const age=Number(obj.age), discount=Number(obj.defaultDiscountValue);
+    if (!Number.isFinite(age) || age<0 || age>130 ||
+        !Number.isFinite(discount) || discount<0) throw new TypeError('INVALID_PATIENT_NUMBERS');
+    const mode=['none','fixed','percentage'].includes(String(obj.defaultDiscountType))
+      ? String(obj.defaultDiscountType) : 'none';
+    if (mode === 'percentage' && discount>100) throw new TypeError('INVALID_DISCOUNT');
+    const createdAt=text('createdAt',32) || new Date().toISOString().slice(0,10);
+    const normalized = {
+      id,code,name,nameEn:text('nameEn',191),phone:text('phone',64),
+      gender:obj.gender,age,birthDate:text('birthDate',32),
+      nationalId:text('nationalId',64),address:text('address',255),
+      notes:text('notes',4000),
+      hasDefaultDiscount:obj.hasDefaultDiscount === true,
+      defaultDiscountType:mode,defaultDiscountValue:discount,
+      active:obj.active !== false,createdAt,
+    };
+    return normalized;
+  }
+
+  function patientError(res:Response,error:unknown) {
+    const message=error instanceof Error?error.message:'MYSQL_FAILURE';
+    if (['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(message)) {
+      res.status(403).json({ok:false,error:message});return;
+    }
+    if (message==='BRANCH_SELECTION_REQUIRED') {
+      res.status(401).json({ok:false,error:message});return;
+    }
+    if (message==='PATIENT_NOT_IN_BRANCH' || message==='PATIENT_HAS_HISTORY' ||
+        message==='PATIENT_SHARED_WITH_OTHER_BRANCH') {
+      res.status(409).json({ok:false,error:message});return;
+    }
+    if (error instanceof TypeError) {
+      res.status(400).json({ok:false,error:message});return;
+    }
+    if ((error as {code?:string})?.code==='ER_NO_SUCH_TABLE') {
+      res.status(409).json({ok:false,error:'PATIENT_BRANCH_MIGRATION_REQUIRED',
+        hint:'Apply sql/tlab_patient_branch_access_v3.sql to a verified backup TEST copy of tlab_multibranch_pilot first'});return;
+    }
+    console.error('Scoped MySQL patients API:',message);
+    res.status(503).json({ok:false,error:'MYSQL_PATIENTS_UNAVAILABLE'});
+  }
+
+  app.get('/api/branch-pilot/patients', async (req,res) => {
+    try {
+      const patients=await withPatientDb(req,'view',async(db,session)=>{
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT p.* FROM patients p INNER JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE pa.branch_id=? ORDER BY p.code',
+          [session.branchId!]);
+        return rows.map(patientFromRow);
+      });
+      res.json({ok:true,source:'mysql',patients});
+    } catch(error){patientError(res,error);}
+  });
+
+  app.post('/api/branch-pilot/patients', async(req,res)=>{
+    try {
+      const patient=validatePatient(req.body?.patient);
+      const result=await withPatientDb(req,'add',async(db,session)=>{
+        await db.beginTransaction();
+        try {
+          const [exists]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT id FROM patients WHERE id=? OR code=? LIMIT 1',[patient.id,patient.code]);
+          if(exists.length) throw new TypeError('DUPLICATE_PATIENT_ID_OR_CODE');
+          await db.execute(
+            `INSERT INTO patients
+              (id,code,name,name_en,gender,age,birth_date,phone,national_id,address,default_discount,created_at,active,raw_json)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [patient.id,patient.code,patient.name,patient.nameEn,patient.gender,patient.age,
+              patient.birthDate,patient.phone,patient.nationalId,patient.address,patient.defaultDiscountValue,
+              patient.createdAt,patient.active?1:0,JSON.stringify(patient)],
+          );
+          await db.execute(
+            'INSERT INTO patient_branch_access(patient_id,branch_id,created_at,created_by) VALUES (?,?,NOW(),?)',
+            [patient.id,session.branchId!,session.userId]);
+          await db.commit();
+          return patient;
+        } catch(e){await db.rollback();throw e;}
+      });
+      res.status(201).json({ok:true,patient:result});
+    } catch(error){patientError(res,error);}
+  });
+
+  app.put('/api/branch-pilot/patients/:id',async(req,res)=>{
+    try {
+      const patient=validatePatient(req.body?.patient);
+      if(patient.id!==req.params.id) throw new TypeError('PATIENT_ID_MISMATCH');
+      await withPatientDb(req,'edit',async(db,session)=>{
+        await db.beginTransaction();
+        try {
+          const [existing]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT p.id, p.code FROM patients p JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
+            [patient.id,session.branchId!]);
+          if(!existing.length)throw new Error('PATIENT_NOT_IN_BRANCH');
+          const [shared]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT COUNT(*) AS n FROM patient_branch_access WHERE patient_id=?',[patient.id]);
+          if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
+          await db.execute(
+            `UPDATE patients SET code=?,name=?,name_en=?,gender=?,age=?,birth_date=?,phone=?,national_id=?,address=?,
+              default_discount=?,active=?,raw_json=? WHERE id=?`,
+            [patient.code,patient.name,patient.nameEn,patient.gender,patient.age,patient.birthDate,
+              patient.phone,patient.nationalId,patient.address,patient.defaultDiscountValue,
+              patient.active?1:0,JSON.stringify(patient),patient.id]);
+          await db.commit();
+        } catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true});
+    }catch(error){patientError(res,error);}
+  });
+
+  // Never hard-delete a clinical record. Retain historic references and
+  // prevent disabling records with requests/invoices (audit-safe pilot).
+  app.delete('/api/branch-pilot/patients/:id',async(req,res)=>{
+    try{
+      const id=req.params.id;
+      if(!validBranchId(id))throw new TypeError('INVALID_PATIENT_ID');
+      await withPatientDb(req,'delete',async(db,session)=>{
+        await db.beginTransaction();
+        try{
+          const [rows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT p.id FROM patients p JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
+            [id,session.branchId!]);
+          if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
+          const [usage]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT COUNT(*) AS n FROM lab_requests WHERE patient_id=?',[id]);
+          if(Number(usage[0]?.n)>0)throw new Error('PATIENT_HAS_HISTORY');
+          const [shared]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT COUNT(*) AS n FROM patient_branch_access WHERE patient_id=?',[id]);
+          if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
+          await db.execute('UPDATE patients SET active=0 WHERE id=?',[id]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,softDeleted:true});
+    }catch(error){patientError(res,error);}
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
