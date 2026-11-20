@@ -11,6 +11,7 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'src/pages/staff/branches.page.ts'
       - 'src/app.ts'
+      - 'src/services/mysql-sync.service.ts'
       - 'src/auth/auth.service.ts'
       - 'src/guards/permission.guard.ts'
       - 'src/router.ts'
