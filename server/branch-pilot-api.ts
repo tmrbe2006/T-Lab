@@ -5,10 +5,11 @@ import {
   createBranch, listAccessibleBranches, setUserBranchAssignment,
   type BranchDatabase,
 } from './branch-service';
-import type { BranchPrincipal } from './branch-access';
+import { validBranchId, type BranchPrincipal, type BranchRole } from './branch-access';
+import { BRANCH_RESOURCES, readBranchPermissions, saveBranchPermissions, ownBranchPermissions } from './branch-user-permissions';
 
 type AdminRole = 'Developer' | 'Owner';
-type AdminSession = { userId: string; role: AdminRole; expires: number };
+type AdminSession = { userId: string; role: BranchRole; username: string; branchId?: string; expires: number };
 const SESSION_COOKIE = 'tlab_branch_pilot_admin';
 const SESSION_DURATION_MS = 60 * 60 * 1000;
 const sessions = new Map<string, AdminSession>();
@@ -73,6 +74,36 @@ async function dbConnection() {
 async function useDatabase<T>(fn: (db: mysql.Connection) => Promise<T>): Promise<T> {
   const connection = await dbConnection();
   try { return await fn(connection); } finally { await connection.end(); }
+}
+
+
+// The pilot uses the existing legacy user credentials without changing any
+// passwords. Production must migrate these plaintext legacy hashes to Argon2id.
+async function verifyStaffCredentials(db: mysql.Connection, username: string, password: string):
+Promise<{ userId: string; role: BranchRole } | null> {
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(username) || !password || password.length > 256 ||
+      username.toLowerCase() === 'root') return null;
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(
+    'SELECT id, role, active, raw_json FROM users WHERE username=? LIMIT 1',
+    [username],
+  );
+  const row = rows[0];
+  if (!row || Number(row.active) !== 1 ||
+      !['Developer','Owner','Doctor','Chemist','Technician','Receptionist','Accountant'].includes(String(row.role))) return null;
+  let stored = '';
+  try { stored = String(JSON.parse(String(row.raw_json || '{}')).passwordHash || ''); }
+  catch { return null; }
+  if (!equalLegacyPassword(stored, password)) return null;
+  return { userId: String(row.id), role: row.role as BranchRole };
+}
+
+async function staffAssignedBranches(db: mysql.Connection, userId: string, role: BranchRole):
+Promise<Array<{ branchId: string; code: string; nameAr: string }>> {
+  const sql = role === 'Developer'
+    ? 'SELECT id, code, name_ar FROM branches WHERE active=1 ORDER BY code'
+    : 'SELECT b.id, b.code, b.name_ar FROM user_branches ub INNER JOIN branches b ON b.id=ub.branch_id AND b.active=1 WHERE ub.user_id=? ORDER BY b.code';
+  const [rows] = await db.execute<mysql.RowDataPacket[]>(sql, role === 'Developer' ? [] : [userId]);
+  return rows.map((r) => ({ branchId: String(r.id), code: String(r.code), nameAr: String(r.name_ar) }));
 }
 
 function respondError(res: Response, error: unknown): void {
@@ -186,20 +217,128 @@ export function installBranchPilotRoutes(app: Express): void {
       }
       attempts.delete(ip);
       const token = randomBytes(32).toString('hex');
-      sessions.set(token, { ...identity, expires: Date.now() + SESSION_DURATION_MS });
+      sessions.set(token, { ...identity, username, expires: Date.now() + SESSION_DURATION_MS });
       res.setHeader('Set-Cookie', secureCookie(token, 3600));
       res.json({ ok: true, role: identity.role });
     } catch (error) { respondError(res, error); }
   });
 
+  // Credentials checked against MySQL BEFORE listing the user's assigned branches.
+  app.post('/api/branch-pilot/staff-branches', async (req, res) => {
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+    const ip = req.socket.remoteAddress || 'local';
+    const failed = attempts.get(ip);
+    if (failed && failed.count >= 5 && failed.until > Date.now()) {
+      res.status(429).json({ ok: false, error: 'Too many attempts' }); return;
+    }
+    try {
+      const data = await useDatabase(async (db) => {
+        const user = await verifyStaffCredentials(db, username, password);
+        if (!user) return null;
+        return { user, branches: await staffAssignedBranches(db, user.userId, user.role) };
+      });
+      if (!data) {
+        attempts.set(ip, { count: (failed && failed.until > Date.now() ? failed.count : 0) + 1, until: Date.now() + 15 * 60 * 1000 });
+        res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' }); return;
+      }
+      attempts.delete(ip);
+      res.json({ ok: true, branches: data.branches });
+    } catch (error) { respondError(res, error); }
+  });
+
+  // Start a server-bound session only for an explicitly authorized active branch.
+  app.post('/api/branch-pilot/staff-login', async (req, res) => {
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+    const branchId = req.body?.branchId;
+    const ip = req.socket.remoteAddress || 'local';
+    const failed = attempts.get(ip);
+    if (failed && failed.count >= 5 && failed.until > Date.now()) {
+      res.status(429).json({ ok: false, error: 'Too many attempts' }); return;
+    }
+    if (!validBranchId(branchId)) { res.status(400).json({ ok: false, error: 'INVALID_BRANCH' }); return; }
+    try {
+      const data = await useDatabase(async (db) => {
+        const user = await verifyStaffCredentials(db, username, password);
+        if (!user) return null;
+        const permitted = await staffAssignedBranches(db, user.userId, user.role);
+        if (!permitted.some((b) => b.branchId === branchId)) return { forbidden: true } as const;
+        const permissions = await ownBranchPermissions({
+          execute: (sql, params) => db.execute(sql, params as string[]),
+        }, user.userId, branchId);
+        const branch = permitted.find((b) => b.branchId === branchId)!;
+        return { user, branch, permissions };
+      });
+      if (!data) {
+        attempts.set(ip, { count: (failed && failed.until > Date.now() ? failed.count : 0) + 1, until: Date.now() + 15 * 60 * 1000 });
+        res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' }); return;
+      }
+      if ('forbidden' in data) { res.status(403).json({ ok: false, error: 'BRANCH_NOT_ASSIGNED' }); return; }
+      attempts.delete(ip);
+      const previousToken = cookieValue(req);
+      if (previousToken) sessions.delete(previousToken);
+      const token = randomBytes(32).toString('hex');
+      sessions.set(token, { ...data.user, username, branchId, expires: Date.now() + SESSION_DURATION_MS });
+      res.setHeader('Set-Cookie', secureCookie(token, 3600));
+      res.json({ ok: true, userId: data.user.userId, role: data.user.role, branch: data.branch, permissions: data.permissions });
+    } catch (error) { respondError(res, error); }
+  });
+
   app.use('/api/branch-pilot', (req, res, next) => {
-    if (req.path === '/login') { next(); return; }
+    if (req.path === '/login' || req.path === '/staff-branches' || req.path === '/staff-login') { next(); return; }
     const session = getSession(req);
     if (!session) { res.status(401).json({ ok: false, error: 'Session required' }); return; }
     res.locals.branchPrincipal = {
       userId: session.userId, role: session.role, active: true, assignedBranchIds: new Set<string>(),
     } satisfies BranchPrincipal;
+    res.locals.branchSession = session;
+    // Employees cannot invoke branch administration by reusing a staff session.
+    const adminOnly = req.path === '/users' || req.path === '/schema-status' ||
+      req.path === '/assign' || req.path.startsWith('/user-permissions') ||
+      (req.path === '/branches' && req.method !== 'GET') ||
+      (req.path === '/branches' && req.method === 'GET' && !!session.branchId);
+    if (adminOnly && session.role !== 'Developer' && session.role !== 'Owner') {
+      res.status(403).json({ ok: false, error: 'FORBIDDEN' });
+      return;
+    }
     next();
+  });
+
+  // On refresh, ensure the selected branch is still assigned and active.
+  app.get('/api/branch-pilot/staff-session', async (_req, res) => {
+    const s = res.locals.branchSession as AdminSession;
+    if (!s.branchId) { res.status(401).json({ ok: false, error: 'BRANCH_SELECTION_REQUIRED' }); return; }
+    try {
+      const data = await useDatabase(async (db) => {
+        const permitted = await staffAssignedBranches(db, s.userId, s.role);
+        const branch = permitted.find((b) => b.branchId === s.branchId);
+        if (!branch) return null;
+        const permissions = await ownBranchPermissions({
+          execute: (sql, params) => db.execute(sql, params as string[]),
+        }, s.userId, s.branchId!);
+        return { branch, permissions };
+      });
+      if (!data) { res.status(403).json({ ok: false, error: 'BRANCH_NOT_ASSIGNED' }); return; }
+      res.json({ ok: true, userId: s.userId, role: s.role, username: s.username, ...data });
+    } catch (error) { respondError(res, error); }
+  });
+
+  app.get('/api/branch-pilot/user-permissions', async (req, res) => {
+    try {
+      const rows = await useDatabase(async (db) => readBranchPermissions({
+        execute: (sql, params) => db.execute(sql, params as string[]),
+      }, res.locals.branchPrincipal, req.query.userId, req.query.branchId));
+      res.json({ ok: true, rows });
+    } catch (error) { respondError(res, error); }
+  });
+  app.post('/api/branch-pilot/user-permissions', async (req, res) => {
+    try {
+      await useDatabase(async (db) => saveBranchPermissions({
+        execute: (sql, params) => db.execute(sql, params as string[]),
+      }, res.locals.branchPrincipal, req.body?.userId, req.body?.branchId, req.body?.rows));
+      res.json({ ok: true });
+    } catch (error) { respondError(res, error); }
   });
 
   // Schema diagnostics are read-only and available only after the privileged
@@ -207,7 +346,7 @@ export function installBranchPilotRoutes(app: Express): void {
   app.get('/api/branch-pilot/schema-status', async (_req, res) => {
     try {
       const status = await useDatabase(async (db) => {
-        const required = ['users', 'branches', 'user_branches', 'branch_settings',
+        const required = ['users', 'branches', 'user_branches', 'user_branch_permissions', 'branch_settings',
           'branch_test_prices', 'branch_inventory', 'branch_transfers',
           'branch_transfer_items', 'branch_sequences', 'branch_migration_audit'];
         const [rows] = await db.execute<mysql.RowDataPacket[]>(
@@ -233,15 +372,15 @@ export function installBranchPilotRoutes(app: Express): void {
   });
 
   app.post('/api/branch-pilot/branches', async (req, res) => {
-    const code = String(req.body?.code || '').trim().toUpperCase();
+
     const nameAr = String(req.body?.nameAr || '').trim();
     const nameEn = String(req.body?.nameEn || '').trim();
     const id = `branch_${randomBytes(12).toString('hex')}`;
     try {
-      await useDatabase(async (db) => createBranch({
+      const code = await useDatabase(async (db) => createBranch({
         execute: (sql, params) => db.execute(sql, params as string[]),
-      }, res.locals.branchPrincipal, { id, code, nameAr, nameEn }));
-      res.status(201).json({ ok: true, id });
+      }, res.locals.branchPrincipal, { id, nameAr, nameEn }));
+      res.status(201).json({ ok: true, id, code });
     } catch (error) { respondError(res, error); }
   });
 
