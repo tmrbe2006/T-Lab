@@ -36,6 +36,8 @@ echo ================================================
 echo Local diagnostic log: "%~dp0tlab-multibranch-launch.log"
 echo This edition does NOT import or delete databases.
 start "" /b powershell.exe -NoProfile -WindowStyle Hidden -Command "for ($i=0; $i -lt 45; $i++) { Start-Sleep -Seconds 1; try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 'http://127.0.0.1:3127/'; if($r.StatusCode -eq 200 -and $r.Content -match 'html') { Start-Process 'http://127.0.0.1:3127/'; break } } catch {} }"
+set "TLAB_BRANCH_PILOT_ADMIN_ENABLED=true"
+echo Branch pilot admin is enabled for local Windows access only.
 echo Starting server. Keep this window open while using the review version.
 ".\node.exe" --import tsx server.ts --static-dist --port %APP_PORT% >"tlab-multibranch-launch.log" 2>&1
 set "CODE=%ERRORLEVEL%"
