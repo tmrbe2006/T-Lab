@@ -41,8 +41,8 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
 
   const heading = i18n.bi('إدارة الفروع — نسخة تجريبية محلية', 'Branch Administration — Local Pilot');
   const note = i18n.bi(
-    'إدارة الفروع متاحة للمبرمج والمالك فقط. يلزم التحقق مرة أخرى بحساب موجود في MySQL. لم تُفعَّل بعد صلاحيات عزل بيانات المرضى والفواتير بين الفروع.',
-    'Owner/Developer only. Sign in again against the MySQL user table. Clinical and financial data are NOT yet isolated across branches.',
+    'إدارة الفروع للمبرمج والمالك فقط. استخدم اسم المستخدم وكلمة المرور الخاصة بتسجيل الدخول لبرنامج T-Lab والمسجلين بجدول users في قاعدة MySQL الحالية؛ لا تستخدم حساب MySQL root أو كلمة مرور قاعدة البيانات. عزل المرضى والفواتير بين الفروع لم يكتمل بعد.',
+    'Owner/Developer only. Sign in with your T-Lab application username and password stored in the MySQL users table. Do NOT use the MySQL root credentials. Clinical and financial data are NOT yet branch-isolated.',
   );
   const setMessage = (value: string) => {
     const target = container.querySelector<HTMLElement>('#branch-status');
@@ -61,15 +61,17 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
   };
 
   const showLogin = (message = '') => {
+    const appUsername = current?.username || '';
     shell(`
       <form id="branch-auth" class="rounded-xl border bg-white p-5 space-y-3 max-w-xl">
         <h2 class="font-bold">${esc(i18n.bi('التحقق من مسؤول الفروع', 'Verify branch administrator'))}</h2>
-        <label class="block text-sm">${esc(i18n.bi('اسم مستخدم MySQL', 'MySQL username'))}
-          <input name="username" autocomplete="username" required maxlength="64" class="block mt-1 border rounded p-2 w-full" />
+        <label class="block text-sm">${esc(i18n.bi('اسم مستخدم برنامج T-Lab (وليس root الخاص بـ MySQL)', 'T-Lab application username (not MySQL root)'))}
+          <input name="username" value="${esc(appUsername)}" autocomplete="username" required maxlength="64" class="block mt-1 border rounded p-2 w-full" />
         </label>
-        <label class="block text-sm">${esc(i18n.bi('كلمة المرور', 'Password'))}
+        <label class="block text-sm">${esc(i18n.bi('كلمة مرور حساب T-Lab', 'T-Lab account password'))}
           <input name="password" type="password" autocomplete="current-password" required class="block mt-1 border rounded p-2 w-full" />
         </label>
+        <p class="text-xs text-amber-800">${esc(i18n.bi('إذا كان الحساب موجودًا في المتصفح فقط وغير محفوظ في جدول users على MySQL، فلن تعمل هذه الشاشة حتى تتم مزامنة حساب الإدارة بطريقة آمنة.', 'If the application account exists only in the browser and not in the MySQL users table, the admin login cannot work until that account is securely provisioned.'))}</p>
         <button type="submit" class="bg-sky-700 text-white rounded p-2 font-semibold">${esc(i18n.bi('الدخول لإدارة الفروع', 'Sign in'))}</button>
       </form>`);
     setMessage(message);
@@ -84,7 +86,15 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
         });
         await showBranches();
       } catch (err) {
-        setMessage(i18n.bi('تعذر التحقق من حساب MySQL: ', 'MySQL authentication failed: ') + String(err instanceof Error ? err.message : err));
+        const error = String(err instanceof Error ? err.message : err);
+        const explanation = error === 'MYSQL_USER_IS_NOT_APP_USER'
+          ? i18n.bi('حساب root خاص بخادم MySQL، وليس مستخدمًا ببرنامج T-Lab. استخدم حساب المبرمج أو المالك المسجل داخل البرنامج.', 'MySQL root is a database account, not a T-Lab application account. Use the app Owner or Developer username.')
+          : error === 'ADMIN_ACCOUNT_NOT_FOUND'
+            ? i18n.bi('حساب الإدارة غير موجود في جدول users بقاعدة MySQL الحالية أو غير مفعل. تحقق من اسم القاعدة وحساب الإدارة دون حذف بيانات.', 'The administrator account is not present or active in this MySQL users table. Verify the configured database and safely provision the account.')
+            : error === 'INVALID_CREDENTIALS'
+              ? i18n.bi('كلمة مرور مستخدم T-Lab غير صحيحة لهذا الحساب في قاعدة MySQL، وهي مختلفة عن كلمة مرور خادم MySQL.', 'The T-Lab account password does not match the user stored in MySQL. It is different from the MySQL server password.')
+              : error;
+        setMessage(explanation);
       } finally {
         const pwd = form.querySelector<HTMLInputElement>('input[name="password"]');
         if (pwd) pwd.value = '';
