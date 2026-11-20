@@ -75,6 +75,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
          document.getElementById('new-manual-invoice')?.addEventListener('submit',async event=>{
            event.preventDefault();
            if(!(await enforcePermission('add','invoices')))return;
+           if (!window.confirm(i18n.bi('تأكيد إصدار فاتورة جديدة وترحيل قيدها المالي؟', 'Confirm creating this invoice and posting its journal?'))) return;
            const form=event.currentTarget as HTMLFormElement;
            const data=new FormData(form);
            const submit=form.querySelector<HTMLButtonElement>('button[type=submit]');
@@ -359,6 +360,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!(await enforcePermission('edit', 'invoices'))) return;
+          if (!window.confirm(i18n.bi('تأكيد تعديل الفاتورة وإنشاء قيد عكسي وقيد جديد لتصحيح الحسابات؟', 'Confirm invoice correction, original journal reversal, and new balanced journal?'))) return;
           const fd = new FormData(form);
           try {
             const adjusted = await adjustUnpaidInvoice(inv.id,Math.max(0,Number(fd.get('discountAmount')) || 0),
