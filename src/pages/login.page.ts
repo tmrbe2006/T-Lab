@@ -7,6 +7,7 @@ import { themeService } from '../services/theme.service';
 
 export async function renderLoginPage(container: HTMLElement): Promise<void> {
   const d = i18n.dict;
+  const branchPilot = window.location.port === '3127';
 
   const demoAccounts = [
     { user: 'developer', pass: 'dev123', labelAr: '💻 المبرمج (Developer - قاعدة البيانات والإعدادات)', labelEn: 'System Developer (MySQL DB, Settings & Audit)' },
@@ -63,7 +64,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
                   id="login-username"
                   type="text"
                   required
-                  value="owner"
+                  value="${branchPilot ? '' : 'owner'}"
                   autocomplete="username"
                   class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
                 />
@@ -74,11 +75,24 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
                   id="login-password"
                   type="password"
                   required
-                  value="owner123"
+                  value="${branchPilot ? '' : 'owner123'}"
                   autocomplete="current-password"
                   class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
                 />
               </div>
+              ${branchPilot ? `
+                <div class="rounded-lg border border-sky-200 bg-sky-50 p-3 space-y-2">
+                  <label for="login-branch" class="block text-xs font-bold text-slate-800">
+                    ${i18n.bi('اختر الفرع المسموح لك بالدخول إليه', 'Select your authorized branch')}
+                  </label>
+                  <button id="login-load-branches" type="button" class="rounded bg-sky-800 text-white text-xs font-semibold px-3 py-2">
+                    ${i18n.bi('التحقق من الحساب وعرض الفروع', 'Verify account and show branches')}
+                  </button>
+                  <select id="login-branch" required disabled class="w-full border rounded p-2 text-sm">
+                    <option value="">${i18n.bi('تحقق من الحساب أولًا', 'Verify account first')}</option>
+                  </select>
+                </div>
+              ` : ''}
               <button
                 type="submit"
                 class="w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-700 transition-colors cursor-pointer"
@@ -95,7 +109,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
         </section>
 
         <!-- Demo Accounts Selector -->
-        <section class="lg:col-span-6 rounded-xl bg-slate-800/90 border border-slate-700 p-6 flex flex-col justify-between">
+        <section class="lg:col-span-6 rounded-xl bg-slate-800/90 border border-slate-700 p-6 flex flex-col justify-between ${branchPilot ? 'hidden' : ''}">
           <div>
             <h2 class="text-sm font-bold text-white">${d.login.demoAccountsTitle}</h2>
             <p class="text-xs text-slate-400 mt-1">
