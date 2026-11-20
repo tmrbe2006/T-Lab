@@ -547,6 +547,13 @@ export async function renderAccountingPage(
   }
 
   if (subView === 'journalEntries') {
+    const legacyAccountMismatches = journalEntries.filter(entry => {
+      const codes=new Set(entry.lines.map(line=>line.accountCode));
+      if(entry.referenceType==='invoice')return codes.has('1103')||codes.has('2101');
+      if(entry.referenceType==='payment'||entry.referenceType==='expense')return codes.has('1101')||codes.has('1102')||codes.has('1103');
+      if(entry.referenceType==='commission_payout')return codes.has('1101');
+      return false;
+    });
     container.innerHTML = `
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
@@ -562,6 +569,10 @@ export async function renderAccountingPage(
             <button id="je-print" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>
           </div>
         </div>
+        ${legacyAccountMismatches.length>0 ? `<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          ${i18n.bi('تنبيه مراجعة محاسبية: يوجد ','Accounting review: ')}<strong>${legacyAccountMismatches.length}</strong>
+          ${i18n.bi(' قيدًا قديمًا بأكواد قد لا تطابق شجرة الحسابات الحالية. لم تُعدّل هذه القيود تلقائيًا؛ تُراجع وتُصحح بقيود تسوية معتمدة.', ' historical journals may reference outdated account codes. No original entries were rewritten; review and reconcile with approved adjustment journals.')}
+          </div>` : ''}
         <div id="je-virtual-table-host"></div>
       </div>
     `;
