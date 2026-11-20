@@ -69,7 +69,7 @@ export async function createBranch(
   principal: BranchPrincipal | null | undefined,
   input: { id: string; code: string; nameAr: string; nameEn?: string | null },
 ): Promise<void> {
-  requireAdministrator(principal);
+  if (principal?.role !== 'Developer' || !principal.active) throw new BranchAccessError('FORBIDDEN');
   if (!validBranchId(input.id) || !/^[A-Za-z0-9-]{2,32}$/.test(input.code)) {
     throw new TypeError('Invalid branch ID or code');
   }
