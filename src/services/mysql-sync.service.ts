@@ -296,11 +296,15 @@ class MySQLSyncService {
     if (this.isConnected) {
       btn.className =
         'rounded-lg border border-emerald-400/60 bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/40 px-3 py-1.5 text-xs font-bold whitespace-nowrap cursor-pointer';
-      btn.innerHTML = `🟢 ${i18n.bi(`متصل بـ MySQL (${dbName})`, `MySQL Connected (${dbName})`)}`;
+      btn.textContent = window.location.port === '3127'
+        ? `🟢 ${i18n.bi(`خادم MySQL متصل (${dbName})`, `MySQL server connected (${dbName})`)}`
+        : `🟢 ${i18n.bi(`متصل بـ MySQL (${dbName})`, `MySQL Connected (${dbName})`)}`;
     } else {
       btn.className =
         'rounded-lg border border-rose-400/50 bg-rose-500/20 text-rose-100 hover:bg-rose-500/35 px-3 py-1.5 text-xs font-bold whitespace-nowrap cursor-pointer';
-      btn.innerHTML = `🗄️ ${i18n.bi('قاعدة بيانات MySQL (اضغط للربط)', 'MySQL DB (Connect)')}`;
+      btn.textContent = window.location.port === '3127'
+        ? i18n.bi('🗄️ اختبار خادم MySQL (اضغط للفحص)', '🗄️ Check MySQL server')
+        : i18n.bi('🗄️ قاعدة بيانات MySQL (اضغط للربط)', '🗄️ MySQL DB (Connect)');
     }
   }
 
@@ -605,6 +609,9 @@ class MySQLSyncService {
             'هذه النسخة تفحص قاعدة البيانات المحددة في ملف .env على الخادم فقط. لا تستخدم كلمة المرور الموجودة في المتصفح ولا تنشئ أو تحذف جداول أو تنفذ مزامنة تلقائية.',
             'This pilot tests the server .env connection only. It does not use browser passwords, create or delete tables, or run automatic synchronization.'
           )}</p>
+          <div class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-3">
+            ${i18n.bi('هذا الفحص يثبت اتصال الخادم فقط. شاشة المرضى تستخدم MySQL المباشر بعد تطبيق سكريبت ربط المرضى بالفروع؛ أما بقية شاشات البرنامج فقد تحتاج نقلًا منفصلًا من تخزين المتصفح.', 'This checks server connectivity only. Patients use live MySQL after the branch mapping migration; other modules may still require migration from browser storage.')}
+          </div>
           <div id="${prefix}-status-badge" role="status" class="rounded-lg bg-slate-100 p-3 font-semibold">
             ${i18n.bi('جاري التحقق من الاتصال...', 'Checking connection...')}
           </div>
