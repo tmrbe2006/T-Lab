@@ -1,0 +1,58 @@
+name: Build Windows EXE - main RBAC review
+on:
+  push:
+    paths:
+      - '.github/workflows/windows-rbac-review-exe.yml'
+      - 'installer/rbac-review.iss'
+      - 'installer/launch-rbac-review.cmd'
+  workflow_dispatch:
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run lint
+      - name: RBAC regression tests
+        run: npx vitest run src/tests/services/rbac-permission.guard.test.ts
+      - name: Build frontend
+        run: npm run build
+      - name: Prepare offline installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer/package | Out-Null
+          Copy-Item dist,src,node_modules -Destination installer/package -Recurse -Force
+          Copy-Item server.ts,package.json -Destination installer/package -Force
+          Copy-Item installer/launch-rbac-review.cmd -Destination installer/package/launch-rbac-review.cmd -Force
+          Copy-Item (Get-Command node.exe).Source -Destination installer/package/node.exe
+          if (Test-Path public) { Copy-Item public -Destination installer/package -Recurse -Force }
+          if (Test-Path .env) { throw "Do not package local secrets" }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Compile EXE
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $compiler)) { throw "Inno Setup compiler missing" }
+          & $compiler installer/rbac-review.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+      - name: Confirm artifact exists
+        shell: pwsh
+        run: |
+          $exe = 'installer/Output/T-Lab_RBAC_Review_Windows.exe'
+          if (!(Test-Path $exe)) { throw "Expected EXE missing" }
+          Get-FileHash $exe -Algorithm SHA256
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: T-Lab-RBAC-Review-Windows-EXE
+          path: installer/Output/T-Lab_RBAC_Review_Windows.exe
+          if-no-files-found: error
+          retention-days: 14
