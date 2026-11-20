@@ -35,6 +35,7 @@ export type ResourceScreen =
   | 'employees'
   | 'users'
   | 'permissions'
+  | 'branches'
   | 'tests'
   | 'testParameters'
   | 'requests'
