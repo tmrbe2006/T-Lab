@@ -159,7 +159,7 @@ export function installBranchPilotRoutes(app: Express): void {
   app.get('/api/branch-pilot/branches', async (_req, res) => {
     try {
       const items = await useDatabase(async (db) =>
-        listAccessibleBranches({ execute: (sql, params) => db.execute(sql, params) } as BranchDatabase, res.locals.branchPrincipal));
+        listAccessibleBranches({ execute: (sql, params) => db.execute(sql, params as string[]) } as BranchDatabase, res.locals.branchPrincipal));
       res.json({ ok: true, branches: items });
     } catch (error) { respondError(res, error); }
   });
@@ -171,7 +171,7 @@ export function installBranchPilotRoutes(app: Express): void {
     const id = `branch_${randomBytes(12).toString('hex')}`;
     try {
       await useDatabase(async (db) => createBranch({
-        execute: (sql, params) => db.execute(sql, params),
+        execute: (sql, params) => db.execute(sql, params as string[]),
       }, res.locals.branchPrincipal, { id, code, nameAr, nameEn }));
       res.status(201).json({ ok: true, id });
     } catch (error) { respondError(res, error); }
@@ -195,7 +195,7 @@ export function installBranchPilotRoutes(app: Express): void {
   app.post('/api/branch-pilot/assign', async (req, res) => {
     try {
       await useDatabase(async (db) => setUserBranchAssignment({
-        execute: (sql, params) => db.execute(sql, params),
+        execute: (sql, params) => db.execute(sql, params as string[]),
       }, res.locals.branchPrincipal, req.body?.userId, req.body?.branchId));
       res.json({ ok: true });
     } catch (error) { respondError(res, error); }
