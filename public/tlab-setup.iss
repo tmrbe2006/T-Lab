@@ -103,7 +103,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 
 [Code]
 var
-  ServerConfigPage: TInputQueryWizardPage;
+  ServerConfigPage, DatabaseConfigPage: TInputQueryWizardPage;
 
 procedure UpdateDeveloperPasswordButtonState;
 begin
@@ -111,19 +111,21 @@ begin
   // Upgrades keep their existing .env and do not require a replacement password.
   WizardForm.NextButton.Enabled :=
     FileExists(ExpandConstant('{app}\.env')) or
-    (Length(ServerConfigPage.Values[6]) >= 16);
+    (Length(DatabaseConfigPage.Values[2]) >= 16);
 end;
 
 procedure DeveloperPasswordChanged(Sender: TObject);
 begin
-  if WizardForm.CurPageID = ServerConfigPage.ID then
+  if WizardForm.CurPageID = DatabaseConfigPage.ID then
     UpdateDeveloperPasswordButtonState;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurPageID = ServerConfigPage.ID then
-    UpdateDeveloperPasswordButtonState;
+  if CurPageID = DatabaseConfigPage.ID then
+    UpdateDeveloperPasswordButtonState
+  else if CurPageID = ServerConfigPage.ID then
+    WizardForm.NextButton.Enabled := True;
 end;
 
 procedure InitializeWizard;
@@ -140,19 +142,25 @@ begin
   ServerConfigPage.Add('عنوان سيرفر MySQL (MYSQL_HOST):', False);
   ServerConfigPage.Add('بورت سيرفر MySQL (MYSQL_PORT):', False);
   ServerConfigPage.Add('اسم مستخدم MySQL (MYSQL_USER):', False);
-  ServerConfigPage.Add('كلمة مرور MySQL (MYSQL_PASSWORD):', True);
-  ServerConfigPage.Add('اسم قاعدة البيانات (MYSQL_DATABASE):', False);
-  ServerConfigPage.Add('كلمة مرور جديدة للمبرمج (16 حرفًا على الأقل، للتثبيت الجديد):', True);
-
-  // القيم الافتراضية (تتوافق مع إعدادات جهازك PORT=3007 وقاعدة tlab_db)
   ServerConfigPage.Values[0] := '3007';
   ServerConfigPage.Values[1] := '127.0.0.1';
   ServerConfigPage.Values[2] := '3306';
   ServerConfigPage.Values[3] := 'tlab_app';
-  ServerConfigPage.Values[4] := '';
-  ServerConfigPage.Values[5] := 'tlab_local_test';
-  ServerConfigPage.Values[6] := '';
-  ServerConfigPage.Edits[6].OnChange := @DeveloperPasswordChanged;
+
+  // Separate page: no hidden fields at normal Windows display scaling.
+  DatabaseConfigPage := CreateInputQueryPage(
+    ServerConfigPage.ID,
+    'إعداد قاعدة البيانات وحساب المبرمج (Database & Developer)',
+    'أدخل بيانات قاعدة الاختبار وكلمة مرور المبرمج الجديدة',
+    'التثبيت التجريبي يتطلب قاعدة محلية فارغة وكلمة مرور قوية لحساب Developer.'
+  );
+  DatabaseConfigPage.Add('كلمة مرور MySQL (MYSQL_PASSWORD):', True);
+  DatabaseConfigPage.Add('اسم قاعدة البيانات (MYSQL_DATABASE):', False);
+  DatabaseConfigPage.Add('كلمة مرور Developer (16 حرفًا على الأقل):', True);
+  DatabaseConfigPage.Values[0] := '';
+  DatabaseConfigPage.Values[1] := 'tlab_local_test';
+  DatabaseConfigPage.Values[2] := '';
+  DatabaseConfigPage.Edits[2].OnChange := @DeveloperPasswordChanged;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -162,24 +170,25 @@ begin
   Result := True;
   if CurPageID = ServerConfigPage.ID then
   begin
-    Pwd := ServerConfigPage.Values[6];
     if (Trim(ServerConfigPage.Values[1]) <> '127.0.0.1') and
        (Trim(ServerConfigPage.Values[1]) <> 'localhost') then
     begin
       MsgBox('PILOT mode is restricted to a MySQL server on this PC (127.0.0.1).', mbError, MB_OK);
       Result := False;
     end;
-    if (Length(Trim(ServerConfigPage.Values[5])) < 6) or
-       ((Lowercase(Copy(Trim(ServerConfigPage.Values[5]),
-          Length(Trim(ServerConfigPage.Values[5]))-4, 5)) <> '_test') and
-        (Lowercase(Copy(Trim(ServerConfigPage.Values[5]),
-          Length(Trim(ServerConfigPage.Values[5]))-4, 5)) <> '_demo')) then
+  end;
+  if CurPageID = DatabaseConfigPage.ID then
+  begin
+    Pwd := DatabaseConfigPage.Values[2];
+    if (Length(Trim(DatabaseConfigPage.Values[1])) < 6) or
+       ((Lowercase(Copy(Trim(DatabaseConfigPage.Values[1]),
+          Length(Trim(DatabaseConfigPage.Values[1]))-4, 5)) <> '_test') and
+        (Lowercase(Copy(Trim(DatabaseConfigPage.Values[1]),
+          Length(Trim(DatabaseConfigPage.Values[1]))-4, 5)) <> '_demo')) then
     begin
-      MsgBox('PILOT must use a fresh, empty MySQL database whose name ends _test or _demo.', mbError, MB_OK);
+      MsgBox('PILOT must use a fresh empty database ending in _test or _demo.', mbError, MB_OK);
       Result := False;
     end;
-
-    // No warning popup. Disabled Next button prevents a short first-install password.
     if not FileExists(ExpandConstant('{app}\.env')) and (Length(Pwd) < 16) then
       Result := False;
   end;
@@ -234,10 +243,10 @@ begin
     DbUser := Trim(ServerConfigPage.Values[3]);
     if DbUser = '' then DbUser := 'root';
 
-    DbPass := ServerConfigPage.Values[4];
-    AdminPass := ServerConfigPage.Values[6];
+    DbPass := DatabaseConfigPage.Values[0];
+    AdminPass := DatabaseConfigPage.Values[2];
 
-    DbName := Trim(ServerConfigPage.Values[5]);
+    DbName := Trim(DatabaseConfigPage.Values[1]);
     if DbName = '' then DbName := 'tlab_local_test';
 
     // 1. كتابة ملف .env بتعليقات ASCII نقية لمنع أي تعارض ترميز مع cmd.exe أو dotenv
