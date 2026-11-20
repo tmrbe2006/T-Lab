@@ -289,7 +289,7 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
       { id: 'role_accountant', name: 'Accountant', titleAr: 'محاسب', titleEn: 'Accountant', descriptionAr: 'إدارة الحسابات والقيود اليومية والصندوق وعمولات الأطباء', descriptionEn: 'Accounting, journal entries, cashbox, and doctor commissions' },
     ]);
   }
-  await db.permissions.bulkPut(buildRolePermissions());
+  await seedMissingRolePermissions();
   await db.doctorSpecialties.bulkPut(DEFAULT_DOCTOR_SPECIALTIES);
   await db.scientificDepartments.bulkPut(DEFAULT_SCIENTIFIC_DEPARTMENTS);
   await db.sampleTubes.bulkPut(DEFAULT_SAMPLE_TUBES);
@@ -325,6 +325,13 @@ export async function resetToEmptyExceptUsers(): Promise<void> {
   }
 }
 
+async function seedMissingRolePermissions(): Promise<void> {
+  const saved = await db.permissions.toArray();
+  const existing = new Set(saved.map((p) => `${p.role}_${p.resource}`));
+  const missing = buildRolePermissions().filter((p) => !existing.has(`${p.role}_${p.resource}`));
+  if (missing.length > 0) await db.permissions.bulkPut(missing);
+}
+
 export async function seedDatabase(forceReset = false): Promise<void> {
   if (forceReset) {
     try {
@@ -349,7 +356,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
       if (!isAlreadyClean || existingUsers === 0) {
         await resetToEmptyExceptUsers();
       } else {
-        await db.permissions.bulkPut(buildRolePermissions());
+        await seedMissingRolePermissions();
         await syncGlobalMedicalCatalog(false);
       }
       return;
@@ -357,7 +364,7 @@ export async function seedDatabase(forceReset = false): Promise<void> {
 
     const existingUsers = await db.users.count();
     if (existingUsers > 0) {
-      await db.permissions.bulkPut(buildRolePermissions());
+      await seedMissingRolePermissions();
       await syncGlobalMedicalCatalog(false);
       await seedErpData(false);
       return;
