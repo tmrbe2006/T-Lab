@@ -67,6 +67,9 @@ jobs:
             sleep 1
           done
           test "$ready" = 1
+          curl -fsS http://127.0.0.1:3127/api/branch-pilot/connection-status | grep '"ok":true'
+          curl -fsS http://127.0.0.1:3127/api/branch-pilot/connection-status | grep '"database":"tlab_db"'
+          curl -fsS http://127.0.0.1:3127/api/branch-pilot/connection-status | grep '"existingTablesCount"'
           code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/mysql/env-config)
           test "$code" = 403
           code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
