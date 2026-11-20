@@ -1,0 +1,68 @@
+name: Multi-branch MySQL data preservation test
+on:
+  push:
+    paths:
+      - 'sql/tlab_multibranch_additive_v1.sql'
+      - '.github/workflows/multibranch-mysql-test.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-password
+          MYSQL_DATABASE: tlab_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest-only-password"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create representative original records
+        run: |
+          mysql -h 127.0.0.1 -uroot -ptest-only-password tlab_db <<'SQL'
+          CREATE TABLE patients (id VARCHAR(64) PRIMARY KEY, name VARCHAR(191));
+          INSERT INTO patients VALUES ('pat_keep', 'Original Patient');
+          CREATE TABLE lab_tests (id VARCHAR(64) PRIMARY KEY, name_ar VARCHAR(191));
+          INSERT INTO lab_tests VALUES ('test_keep', 'CBC');
+          CREATE TABLE test_parameters (id VARCHAR(64) PRIMARY KEY, test_id VARCHAR(64));
+          INSERT INTO test_parameters VALUES ('param_keep', 'test_keep');
+          CREATE TABLE lab_requests (id VARCHAR(64) PRIMARY KEY, patient_id VARCHAR(64));
+          INSERT INTO lab_requests VALUES ('request_keep', 'pat_keep');
+          CREATE TABLE invoices (id VARCHAR(64) PRIMARY KEY, patient_id VARCHAR(64));
+          INSERT INTO invoices VALUES ('invoice_keep', 'pat_keep');
+          CREATE TABLE users (id VARCHAR(64) PRIMARY KEY, role VARCHAR(64));
+          INSERT INTO users VALUES ('owner_keep', 'Owner'), ('staff_keep', 'Receptionist');
+          SQL
+        env:
+          MYSQL_PWD: test-only-password
+      - name: Apply migration twice to ensure safe repeatability
+        run: |
+          mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_multibranch_additive_v1.sql
+          mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_multibranch_additive_v1.sql
+      - name: Verify preserved records and new branch structures
+        run: |
+          result=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db <<'SQL'
+          SELECT CONCAT(
+            (SELECT COUNT(*) FROM patients WHERE id='pat_keep'), ',',
+            (SELECT COUNT(*) FROM lab_tests WHERE id='test_keep'), ',',
+            (SELECT COUNT(*) FROM test_parameters WHERE id='param_keep'), ',',
+            (SELECT COUNT(*) FROM lab_requests WHERE id='request_keep' AND branch_id='branch_main'), ',',
+            (SELECT COUNT(*) FROM invoices WHERE id='invoice_keep' AND branch_id='branch_main'), ',',
+            (SELECT COUNT(*) FROM branches WHERE id='branch_main'), ',',
+            (SELECT COUNT(*) FROM user_branches WHERE user_id='owner_keep'), ',',
+            (SELECT COUNT(*) FROM user_branches WHERE user_id='staff_keep'), ',',
+            (SELECT COUNT(*) FROM branch_migration_audit WHERE migration_id='multi_branch_schema_v1')
+          );
+          SQL
+          )
+          echo "Counts: $result"
+          test "$result" = "1,1,1,1,1,1,1,0,1"
+          tables=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password information_schema -e "SELECT COUNT(*) FROM TABLES WHERE TABLE_SCHEMA='tlab_db' AND TABLE_NAME IN ('branches','user_branches','branch_settings','branch_test_prices','branch_inventory','branch_transfers','branch_transfer_items','branch_sequences','branch_migration_audit')")
+          test "$tables" = "9"
+          echo 'Preservation and repeatability checks passed'
