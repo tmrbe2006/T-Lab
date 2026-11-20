@@ -588,6 +588,7 @@ export interface DoctorCommission {
   paidAmount: number;
   remainingAmount: number;
   status: 'accrued' | 'partial' | 'paid';
+  payoutAmount?: number;
   payoutDate?: string;
   payoutNotes?: string;
   payoutJournalId?: string;
