@@ -554,6 +554,7 @@ export interface Payment {
   date: string;
   amount: number;
   method: PaymentMethod;
+  payerType?: 'patient' | 'contract';
   createdBy: string;
   status: 'active' | 'cancelled';
   notes: string;
