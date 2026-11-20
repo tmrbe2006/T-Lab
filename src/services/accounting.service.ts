@@ -113,7 +113,7 @@ export class AccountingService {
           credit: 0,
         },
         {
-          accountCode: isCash ? '1101' : '1102',
+          accountCode: isCash ? '1201' : '1202',
           accountNameAr: isCash ? 'الصندوق النقدي الرئيسي' : 'البنك والحسابات الجارية',
           accountNameEn: isCash ? 'Main Cashbox' : 'Bank Account',
           debit: 0,
