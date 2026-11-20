@@ -6,6 +6,8 @@ on:
       - 'src/repositories/patients.repository.ts'
       - 'src/pages/patients.page.ts'
       - 'sql/tlab_patient_branch_access_v3.sql'
+      - 'src/db/mysql-schema.ts'
+      - 'src/services/browser-migration-backup.ts'
       - '.github/workflows/live-mysql-patients.yml'
   workflow_dispatch:
 jobs:
@@ -98,6 +100,25 @@ jobs:
             -d '{"username":"owner","password":"test-only-admin-password","branchId":"branch_main"}' \
             http://127.0.0.1:3127/api/branch-pilot/staff-login | grep '"ok":true'
 
+          # Read-only MySQL table inventory and browser ID preflight.
+          node --import tsx --input-type=module -e "
+          import { MYSQL_TABLES_CONFIG } from './src/db/mysql-schema.ts';
+          const idsByStore=Object.fromEntries(MYSQL_TABLES_CONFIG.map(m=>[m.dexieTable,[]]));
+          idsByStore.patients=['old_patient','browser_only_patient'];
+          process.stdout.write(JSON.stringify({idsByStore}));
+          " > migration-preflight.json
+          unauth_preflight=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @migration-preflight.json http://127.0.0.1:3127/api/branch-pilot/migration-preflight)
+          test "$unauth_preflight" = 401
+          curl -fsS -b owner.cookies http://127.0.0.1:3127/api/branch-pilot/storage-audit > storage-audit.json
+          grep -q '"mappedStores":49' storage-audit.json
+          grep -q '"allScreensUseMySQL":false' storage-audit.json
+          curl -fsS -b owner.cookies -X POST -H 'Content-Type: application/json' --data-binary @migration-preflight.json http://127.0.0.1:3127/api/branch-pilot/migration-preflight > preflight.json
+          node -e "
+          const a=require('./preflight.json');
+          const p=a.comparison.find(x=>x.store==='patients');
+          if(!a.ok||!a.readonly||p.browserRecords!==2||p.matchingIds!==1||p.browserOnly!==1)process.exit(1);
+          "
+          mysql -N -B -h 127.0.0.1 -uroot -ptest-only-patient-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM patients" | grep '^1$'
           curl -fsS -b owner.cookies http://127.0.0.1:3127/api/branch-pilot/patients > main-patients.json
           grep -q '"source":"mysql"' main-patients.json
           grep -q 'Preserved MySQL Patient' main-patients.json
