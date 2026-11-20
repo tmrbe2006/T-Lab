@@ -105,6 +105,27 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 var
   ServerConfigPage: TInputQueryWizardPage;
 
+procedure UpdateDeveloperPasswordButtonState;
+begin
+  // The wizard shows the length requirement in the field label, without a popup.
+  // Upgrades keep their existing .env and do not require a replacement password.
+  WizardForm.NextButton.Enabled :=
+    FileExists(ExpandConstant('{app}\.env')) or
+    (Length(ServerConfigPage.Values[6]) >= 16);
+end;
+
+procedure DeveloperPasswordChanged(Sender: TObject);
+begin
+  if WizardForm.CurPageID = ServerConfigPage.ID then
+    UpdateDeveloperPasswordButtonState;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = ServerConfigPage.ID then
+    UpdateDeveloperPasswordButtonState;
+end;
+
 procedure InitializeWizard;
 begin
   // إنشاء شاشة إعداد السيرفر وقاعدة بيانات MySQL أثناء التثبيت
@@ -131,6 +152,7 @@ begin
   ServerConfigPage.Values[4] := '';
   ServerConfigPage.Values[5] := 'tlab_local_test';
   ServerConfigPage.Values[6] := '';
+  ServerConfigPage.Edits[6].OnChange := @DeveloperPasswordChanged;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -157,11 +179,9 @@ begin
       Result := False;
     end;
 
+    // No warning popup. Disabled Next button prevents a short first-install password.
     if not FileExists(ExpandConstant('{app}\.env')) and (Length(Pwd) < 16) then
-    begin
-      MsgBox('A new installation needs a unique Developer password of at least 16 characters. No default password is installed.', mbError, MB_OK);
       Result := False;
-    end;
   end;
 end;
 
