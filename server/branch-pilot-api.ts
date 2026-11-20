@@ -433,43 +433,21 @@ export function installBranchPilotRoutes(app: Express): void {
    * Every operation re-checks the current session, branch assignment,
    * and user-specific screen permission on the server.
    */
-  async function authorizedPatients(req: Request, action: 'view'|'add'|'edit'|'delete') {
-    const session = getSession(req);
-    if (!session?.branchId) throw new Error('BRANCH_SELECTION_REQUIRED');
-    return useDatabase(async (db) => {
-      const accessible = await staffAssignedBranches(db, session.userId, session.role);
-      if (!accessible.some(b => b.branchId === session.branchId)) throw new Error('BRANCH_NOT_ASSIGNED');
-      if (session.role !== 'Developer' && session.role !== 'Owner') {
-        const rights = await ownBranchPermissions({
-          execute: (sql, params) => db.execute(sql, params as string[]),
-        }, session.userId, session.branchId);
-        const patientRights = rights.find(row => row.resource === 'patients');
-        if (patientRights?.actions[action] !== true) throw new Error('FORBIDDEN');
-      } else if (session.role === 'Owner') {
-        const rights = await ownBranchPermissions({
-          execute: (sql, params) => db.execute(sql, params as string[]),
-        }, session.userId, session.branchId);
-        const configured = rights.find(row => row.resource === 'patients');
-        if (configured && configured.actions[action] !== true) throw new Error('FORBIDDEN');
-      }
-      return { db, session };
-    });
-  }
-
   async function withPatientDb<T>(req: Request, action: 'view'|'add'|'edit'|'delete', fn:(db:mysql.Connection, session:AdminSession)=>Promise<T>):Promise<T> {
     const session = getSession(req);
     if (!session?.branchId) throw new Error('BRANCH_SELECTION_REQUIRED');
+    const selectedBranchId: string = session.branchId;
     return useDatabase(async (db) => {
       const accessible = await staffAssignedBranches(db, session.userId, session.role);
-      if (!accessible.some(b => b.branchId === session.branchId)) throw new Error('BRANCH_NOT_ASSIGNED');
+      if (!accessible.some(b => b.branchId === selectedBranchId)) throw new Error('BRANCH_NOT_ASSIGNED');
       const rights = await ownBranchPermissions({
         execute: (sql, params) => db.execute(sql, params as string[]),
-      }, session.userId, session.branchId);
+      }, session.userId, selectedBranchId);
       const explicit = rights.find(row => row.resource === 'patients');
       const permitted = session.role === 'Developer' ||
         (session.role === 'Owner' ? (!explicit || explicit.actions[action] === true) : explicit?.actions[action] === true);
       if (!permitted) throw new Error('FORBIDDEN');
-      return fn(db, session);
+      return fn(db, {...session,branchId:selectedBranchId});
     });
   }
 
@@ -596,7 +574,7 @@ export function installBranchPilotRoutes(app: Express): void {
   app.put('/api/branch-pilot/patients/:id',async(req,res)=>{
     try {
       const patient=validatePatient(req.body?.patient);
-      if(patient.id!==req.params.id) throw new TypeError('PATIENT_ID_MISMATCH');
+      if(patient.id!==String(req.params.id || '')) throw new TypeError('PATIENT_ID_MISMATCH');
       await withPatientDb(req,'edit',async(db,session)=>{
         await db.beginTransaction();
         try {
@@ -624,7 +602,7 @@ export function installBranchPilotRoutes(app: Express): void {
   // prevent disabling records with requests/invoices (audit-safe pilot).
   app.delete('/api/branch-pilot/patients/:id',async(req,res)=>{
     try{
-      const id=req.params.id;
+      const id=String(req.params.id || '');
       if(!validBranchId(id))throw new TypeError('INVALID_PATIENT_ID');
       await withPatientDb(req,'delete',async(db,session)=>{
         await db.beginTransaction();
