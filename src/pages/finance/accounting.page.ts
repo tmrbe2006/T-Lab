@@ -13,6 +13,7 @@ import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
 import { accountingRepository, invoicesRepository } from '../../repositories';
 import { accountingService } from '../../services/accounting.service';
+import { openManualJournalEditor, confirmManualJournalReversal } from './manual-journal-editor';
 import type { Account, DailyClosing, Expense, JournalEntry } from '../../types';
 
 const EXPENSE_CATEGORIES_STORAGE_KEY = 'tlab_expense_categories_v1';
@@ -557,6 +558,7 @@ export async function renderAccountingPage(
             <span class="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs font-mono font-bold text-emerald-800 tabular-nums">
               ⚡ Virtual Scroll (${journalEntries.length} ${i18n.bi('قيد', 'entries')})
             </span>
+            ${can(user,'add','journalEntries') ? `<button id="je-add" class="rounded-lg bg-sky-700 text-white px-3.5 py-2 text-xs font-bold">${i18n.bi('إضافة قيد يومية', 'New Journal Entry')}</button>` : ''}
             <button id="je-print" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>
           </div>
         </div>
@@ -579,6 +581,12 @@ export async function renderAccountingPage(
             </td>
             <td class="py-2 px-3 font-mono font-bold text-emerald-700 tabular-nums">${je.totalDebit.toFixed(2)}</td>
             <td class="py-2 px-3 font-mono font-bold text-emerald-700 tabular-nums">${je.totalCredit.toFixed(2)}</td>
+            <td class="py-2 px-3 text-xs">
+              ${je.entryType === 'manual' && je.referenceType === 'manual' && !je.reversalEntryId ? `
+                ${can(user,'edit','journalEntries') ? `<button type="button" data-je-edit="${je.id}" class="rounded border border-sky-300 px-2 py-1 text-sky-700">${i18n.bi('تعديل','Edit')}</button>` : ''}
+                ${can(user,'delete','journalEntries') ? `<button type="button" data-je-reverse="${je.id}" class="rounded border border-rose-300 px-2 py-1 text-rose-700">${i18n.bi('حذف/إلغاء','Reverse')}</button>` : ''}
+              ` : je.reversalEntryId ? `<span class="text-rose-700">${i18n.bi('ملغى بقيد عكسي','Reversed')}</span>` : ''}
+            </td>
           </tr>
         `,
         {
@@ -591,11 +599,25 @@ export async function renderAccountingPage(
             i18n.bi('تفاصيل الأسطر (حساب: مدين/دائن)', 'Lines Breakdown'),
             i18n.bi('إجمالي مدين', 'Total Debit'),
             i18n.bi('إجمالي دائن', 'Total Credit'),
+            i18n.bi('الإجراءات', 'Actions'),
           ],
         }
       );
       vTable.render();
     }
+
+    document.getElementById('je-add')?.addEventListener('click', () => {
+      void openManualJournalEditor(() => { void renderAccountingPage(container,'journalEntries'); });
+    });
+    jeHost?.addEventListener('click', event => {
+      const target=event.target as HTMLElement;
+      const edit=target.closest<HTMLButtonElement>('[data-je-edit]');
+      const reverse=target.closest<HTMLButtonElement>('[data-je-reverse]');
+      const entry=journalEntries.find(j=>j.id===(edit?.dataset.jeEdit||reverse?.dataset.jeReverse));
+      if(!entry)return;
+      if(edit)void openManualJournalEditor(()=>{void renderAccountingPage(container,'journalEntries');},entry);
+      if(reverse)void confirmManualJournalReversal(entry,()=>{void renderAccountingPage(container,'journalEntries');});
+    });
 
     document.getElementById('je-print')?.addEventListener('click', () => {
       printService.printA4(
