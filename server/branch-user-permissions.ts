@@ -12,7 +12,7 @@ export const BRANCH_RESOURCES = [
   'permissions', 'branches', 'tests', 'scientificDepartments', 'sampleTubes',
   'testParameters', 'requests', 'samples', 'results', 'aiHub', 'bloodFilmAi',
   'urineMicroscopyAi', 'stoolMicroscopyAi', 'culturePlateAi', 'microbiology',
-  'qualityControl', 'homeVisits', 'corporateContracts', 'labToLab',
+  'qualityControl', 'homeVisits', 'corporateContracts',
   'resultReview', 'reports', 'invoices', 'payments', 'accounts', 'journalEntries',
   'cashbox', 'expenses', 'commissions', 'settings', 'printing', 'inventory',
   'purchases', 'erpAccounting',
