@@ -45,7 +45,8 @@ export class InvoiceService {
     ) / 100;
 
     const disc = discountService.calculateDiscount(subtotal, discountType, discountValue);
-    const cleanTaxRate = Math.max(0, Number(taxRate) || 0);
+    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) throw new Error('INVALID_TAX_RATE');
+    const cleanTaxRate = taxRate;
     const taxAmount = Math.round(disc.afterDiscount * (cleanTaxRate / 100) * 100) / 100;
     const netTotal = Math.round((disc.afterDiscount + taxAmount) * 100) / 100;
 
