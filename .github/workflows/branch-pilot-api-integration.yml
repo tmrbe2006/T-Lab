@@ -1,0 +1,90 @@
+name: Branch pilot authenticated API integration
+on:
+  push:
+    paths:
+      - 'server/branch-pilot-api.ts'
+      - 'server/branch-service.ts'
+      - 'server/branch-access.ts'
+      - 'server.ts'
+      - 'sql/tlab_multibranch_additive_v1.sql'
+      - '.github/workflows/branch-pilot-api-integration.yml'
+  workflow_dispatch:
+jobs:
+  branch-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: integration-only-password
+          MYSQL_DATABASE: tlab_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pintegration-only-password"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install and compile
+        run: |
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+      - name: Set up disposable representative legacy database and additive branch migration
+        run: |
+          mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db <<'SQL'
+          CREATE TABLE users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64), role VARCHAR(64), active TINYINT(1), raw_json LONGTEXT);
+          INSERT INTO users VALUES ('usr_owner', 'owner', 'Owner', 1, '{"passwordHash":"test-only-admin-password"}');
+          INSERT INTO users VALUES ('usr_staff', 'staff', 'Receptionist', 1, '{"passwordHash":"staff-password"}');
+          CREATE TABLE patients (id VARCHAR(64) PRIMARY KEY);
+          CREATE TABLE lab_tests (id VARCHAR(64) PRIMARY KEY);
+          CREATE TABLE test_parameters (id VARCHAR(64) PRIMARY KEY);
+          CREATE TABLE lab_requests (id VARCHAR(64) PRIMARY KEY);
+          CREATE TABLE invoices (id VARCHAR(64) PRIMARY KEY);
+          SQL
+          mysql -h 127.0.0.1 -uroot -pintegration-only-password < sql/tlab_multibranch_additive_v1.sql
+      - name: Start local-only branch administration and verify actual HTTP/MySQL operations
+        env:
+          PORT: '3127'
+          MYSQL_HOST: '127.0.0.1'
+          MYSQL_PORT: '3306'
+          MYSQL_USER: root
+          MYSQL_PASSWORD: integration-only-password
+          MYSQL_DATABASE: tlab_db
+          TLAB_BRANCH_PILOT_ADMIN_ENABLED: 'true'
+        run: |
+          set -euo pipefail
+          node --import tsx server.ts --static-dist --port 3127 > branch-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; cat branch-server.log' EXIT
+          ready=0
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3127/ >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/mysql/env-config)
+          test "$code" = 403
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
+          test "$code" = 401
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"staff","password":"staff-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
+          test "$code" = 401
+          code=$(curl -s -c cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"owner","password":"test-only-admin-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
+          test "$code" = 200
+          curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/branches | grep branch_main
+          code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"code":"BR-002","nameAr":"الفرع الثاني","nameEn":"Branch Two"}' http://127.0.0.1:3127/api/branch-pilot/branches)
+          test "$code" = 201
+          new_id=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT id FROM branches WHERE code='BR-002'")
+          test -n "$new_id"
+          code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"userId\":\"usr_staff\",\"branchId\":\"$new_id\"}" http://127.0.0.1:3127/api/branch-pilot/assign)
+          test "$code" = 200
+          assigned=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM user_branches WHERE user_id='usr_staff' AND branch_id='$new_id'")
+          test "$assigned" = 1
+          curl -fsS -b cookies.txt -X POST http://127.0.0.1:3127/api/branch-pilot/logout
+          code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
+          test "$code" = 401
+          echo 'BRANCH PILOT MYSQL INTEGRATION: PASS'
