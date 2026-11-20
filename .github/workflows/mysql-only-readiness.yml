@@ -1,0 +1,27 @@
+name: Audit MySQL-only cutover readiness
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'scripts/mysql-cutover-readiness.mjs'
+      - '.github/workflows/mysql-only-readiness.yml'
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate source-of-truth migration inventory
+        run: node scripts/mysql-cutover-readiness.mjs
+      - name: Upload migration report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql-only-readiness-report
+          path: reports/mysql-cutover-readiness.json
+          retention-days: 14
+      - name: Prevent falsely labeled full-MySQL releases
+        run: node scripts/mysql-cutover-readiness.mjs --strict
