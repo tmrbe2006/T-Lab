@@ -21,7 +21,8 @@ import {
 } from '../../repositories';
 import { accountingService } from '../../services/accounting.service';
 import { commissionService } from '../../services/commission.service';
-import { adjustUnpaidInvoice, computeInvoiceAdjustment } from '../../services/invoice-adjustment.service';
+import { adjustUnpaidInvoice, computeInvoiceAdjustment, voidUnpaidInvoice } from '../../services/invoice-adjustment.service';
+import { createManualInvoice } from '../../services/manual-invoice.service';
 import {
   buildInvoiceWhatsAppMessage,
   openWhatsAppDispatchModal,
@@ -50,6 +51,47 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
       const pName = patMap.get(inv.patientId)?.name.toLowerCase() || '';
       return inv.invoiceNumber.toLowerCase().includes(q) || pName.includes(q);
     });
+  };
+
+  const openNewManualInvoiceModal = async () => {
+    if (!(await enforcePermission('add','invoices'))) return;
+    const cfg=await permissionsRepository.getSettings();
+    const taxRate=cfg?.defaultTaxRate ?? 14;
+    openCustomModal(i18n.bi('إضافة فاتورة خدمات جديدة','New Service Invoice'),
+      `<form id="new-manual-invoice" class="space-y-3 text-sm">
+        <p class="text-slate-600">${i18n.bi('لفواتير الخدمات المستقلة غير المرتبطة بطلب تحاليل. طلبات التحاليل تصدر فواتيرها تلقائيًا.', 'For independent services only. Lab requests already issue their own invoices.')}</p>
+        <label class="block">${i18n.bi('المريض','Patient')}<select name="patientId" required class="block border rounded p-2 w-full mt-1"><option value="">—</option>
+        ${patients.filter(p=>p.active).map(p=>`<option value="${p.id}">${p.name} — ${p.code}</option>`).join('')}</select></label>
+        <label class="block">${i18n.bi('تاريخ الفاتورة','Invoice Date')}<input name="date" type="date" required value="${new Date().toLocaleDateString('en-CA')}" class="block border rounded p-2 w-full mt-1"/></label>
+        <label class="block">${i18n.bi('وصف الخدمة','Service description')}<input name="serviceName" maxlength="200" required class="block border rounded p-2 w-full mt-1"/></label>
+        <label class="block">${i18n.bi('سعر الخدمة','Service Amount')}<input name="price" type="number" min="0.01" step="0.01" required class="block border rounded p-2 w-full mt-1"/></label>
+        <label class="block">${i18n.bi('قيمة الخصم الثابت','Fixed Discount')}<input name="discount" type="number" min="0" step="0.01" value="0" class="block border rounded p-2 w-full mt-1"/></label>
+        <p class="text-sky-800 font-semibold">${i18n.bi('الضريبة من إعدادات البرنامج','Tax from settings')}: ${taxRate}%</p>
+        <button type="submit" class="rounded bg-sky-700 text-white px-4 py-2 font-bold">${i18n.bi('تأكيد إنشاء الفاتورة والقيد','Create invoice and journal')}</button>
+       </form>`,
+       close=>{
+         document.getElementById('new-manual-invoice')?.addEventListener('submit',async event=>{
+           event.preventDefault();
+           if(!(await enforcePermission('add','invoices')))return;
+           const form=event.currentTarget as HTMLFormElement;
+           const data=new FormData(form);
+           const submit=form.querySelector<HTMLButtonElement>('button[type=submit]');
+           if(submit)submit.disabled=true;
+           try{
+             const inv=await createManualInvoice({
+               patientId:String(data.get('patientId')||''),date:String(data.get('date')||''),
+               serviceName:String(data.get('serviceName')||''),price:Number(data.get('price')),
+               discountAmount:Number(data.get('discount')||0),taxRate,
+             },user?.username||'accountant');
+             await authService.logAudit('إضافة فاتورة خدمات مستقلة: '+inv.invoiceNumber,'invoices',inv.id);
+             close();
+             invoices=await invoicesRepository.getAll();
+             renderTable();
+             showToast(i18n.bi('تم إصدار الفاتورة والقيد المتوازن','Invoice and journal created'),'success');
+           }catch(error){showToast(String(error instanceof Error?error.message:error),'error');}
+           finally{if(submit)submit.disabled=false;}
+         });
+       });
   };
 
   const openAddPaymentModal = (inv: Invoice) => {
@@ -349,6 +391,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             </p>
           </div>
           <div class="flex items-center gap-2">
+            ${can(user,'add','invoices') ? `<button id="inv-create" class="rounded bg-sky-700 text-white px-3.5 py-2 text-xs font-bold">${i18n.bi('إضافة فاتورة','Add Invoice')}</button>` : ''}
             ${canPrint ? `<button id="inv-print-list" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">${i18n.dict.actions.print}</button>` : ''}
           </div>
         </div>
@@ -475,6 +518,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
       renderTable();
     });
 
+    document.getElementById('inv-create')?.addEventListener('click', () => {void openNewManualInvoiceModal();});
     document.getElementById('inv-print-list')?.addEventListener('click', () => {
       const visible = getFiltered();
       const html = `
@@ -654,10 +698,14 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
               showToast(i18n.bi('لا يجوز حذف فاتورة مرتبطة بدفعات. يلزم إلغاء محاسبي موثق.', 'Invoice linked to payments cannot be deleted without an audited reversal.'),'warning');
               return;
             }
-            await invoicesRepository.delete(target.id);
-            await doctorsRepository.deleteCommissionByInvoiceId(target.id);
-            await authService.logAudit(`حذف فاتورة: ${target.invoiceNumber}`, 'invoices', target.id, reason || '');
-            showToast(i18n.bi('تم حذف الفاتورة بنجاح', 'Invoice deleted'), 'success');
+            try {
+              await voidUnpaidInvoice(target.id,reason||'إلغاء فاتورة',user?.username||'accountant');
+              await authService.logAudit(`إلغاء فاتورة وقيدها المحاسبي: ${target.invoiceNumber}`, 'invoices', target.id, reason || '');
+              showToast(i18n.bi('تم إلغاء الفاتورة وترحيل قيد عكسي مع حفظ السجل', 'Invoice cancelled with reversal journal and audit history'), 'success');
+            } catch(error) {
+              showToast(String(error instanceof Error?error.message:error),'error');
+              return;
+            }
             invoices = await invoicesRepository.getAll();
             renderTable();
           },
