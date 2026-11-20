@@ -100,6 +100,9 @@ class AuthService {
     if (!user || !user.active || user.passwordHash !== passwordPlain) {
       return { ok: false };
     }
+    // Switching the browser identity must revoke any previous elevated
+    // local branch-administrator session on the server.
+    await this.revokeBranchPilotSession();
     this.currentUser = user;
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
     await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id, `Username: ${user.username} (${user.role})`);
@@ -110,8 +113,20 @@ class AuthService {
     if (this.currentUser) {
       await this.logAudit('تسجيل خروج / User Sign-Out', 'auth', this.currentUser.id, `Username: ${this.currentUser.username}`);
     }
+    await this.revokeBranchPilotSession();
     this.currentUser = null;
     localStorage.removeItem(SESSION_KEY);
+  }
+
+  private async revokeBranchPilotSession(): Promise<void> {
+    try {
+      await fetch('/api/branch-pilot/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch {
+      // Branch pilot is an optional local-only module.
+    }
   }
 
   async logAudit(
