@@ -1009,11 +1009,15 @@ Return a strict JSON object with these exact keys:
       console.log(`✅ T-Lab Server (MySQL 5.5 / 8.0.28 Ready) is running!`);
       console.log(`🌐 Open in browser: http://localhost:${portToTry}`);
       console.log(`🗄️  Target MySQL: ${envCfg.user}@${envCfg.host}:${envCfg.port}/${envCfg.database}`);
-      try {
-        const info = await ensureDatabaseAndSchema(envCfg);
-        console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
-      } catch (dbErr: unknown) {
-        console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+      if (process.env.TLAB_BRANCH_PILOT_ADMIN_ENABLED === 'true') {
+        console.log('Multi-branch pilot: automatic MySQL schema creation disabled. Use the reviewed additive SQL migration on a backed-up test database.');
+      } else {
+        try {
+          const info = await ensureDatabaseAndSchema(envCfg);
+          console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
+        } catch (dbErr: unknown) {
+          console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+        }
       }
       console.log(`============================================================\n`);
     });
