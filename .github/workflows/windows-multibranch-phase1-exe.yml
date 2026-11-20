@@ -1,4 +1,4 @@
-name: Build T-Lab Multi-Branch phase 3 Windows EXE
+name: Build T-Lab Multi-Branch phase 4 Finance Windows EXE
 on:
   push:
     paths:
@@ -142,13 +142,13 @@ jobs:
       - name: Confirm artifact exists
         shell: pwsh
         run: |
-          $exe = 'installer/Output/T-Lab_MultiBranch_Phase3_Windows.exe'
+          $exe = 'installer/Output/T-Lab_MultiBranch_Phase4_Finance_Windows.exe'
           if (!(Test-Path $exe)) { throw "Expected EXE missing" }
           Get-FileHash $exe -Algorithm SHA256
       - name: Silent-install EXE and verify actual Windows shortcut target
         shell: pwsh
         run: |
-          $exe = (Resolve-Path 'installer/Output/T-Lab_MultiBranch_Phase3_Windows.exe').Path
+          $exe = (Resolve-Path 'installer/Output/T-Lab_MultiBranch_Phase4_Finance_Windows.exe').Path
           $target = Join-Path $env:RUNNER_TEMP 'T-Lab-MultiBranch-install-test'
           New-Item -ItemType Directory -Force $target | Out-Null
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
@@ -163,7 +163,7 @@ jobs:
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: T-Lab-MultiBranch-Phase3-Windows-EXE
-          path: installer/Output/T-Lab_MultiBranch_Phase3_Windows.exe
+          name: T-Lab-MultiBranch-Phase4-Finance-Windows-EXE
+          path: installer/Output/T-Lab_MultiBranch_Phase4_Finance_Windows.exe
           if-no-files-found: error
           retention-days: 14
