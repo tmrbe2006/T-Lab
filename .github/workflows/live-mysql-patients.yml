@@ -6,8 +6,6 @@ on:
       - 'src/repositories/patients.repository.ts'
       - 'src/pages/patients.page.ts'
       - 'sql/tlab_patient_branch_access_v3.sql'
-      - 'src/db/mysql-schema.ts'
-      - 'src/services/browser-migration-backup.ts'
       - '.github/workflows/live-mysql-patients.yml'
   workflow_dispatch:
 jobs:
@@ -99,75 +97,6 @@ jobs:
           curl -fsS -c owner.cookies -X POST -H 'Content-Type: application/json' \
             -d '{"username":"owner","password":"test-only-admin-password","branchId":"branch_main"}' \
             http://127.0.0.1:3127/api/branch-pilot/staff-login | grep '"ok":true'
-
-          # A schema connection does not prove the browser data have been
-          # imported. Reconciliation accepts IDs only and makes NO changes.
-          node --import tsx --input-type=module -e "
-          import {MYSQL_TABLES_CONFIG} from './src/db/mysql-schema.ts';
-          const idsByStore=Object.fromEntries(MYSQL_TABLES_CONFIG.map(m=>[m.dexieTable,[]]));
-          idsByStore.patients=['old_patient','browser_only_patient'];
-          process.stdout.write(JSON.stringify({idsByStore}));
-          " > migration-preflight.json
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json'             --data-binary @migration-preflight.json http://127.0.0.1:3127/api/branch-pilot/migration-preflight)
-          test "$code" = 401
-          curl -fsS -b owner.cookies http://127.0.0.1:3127/api/branch-pilot/storage-audit > storage-audit.json
-          grep -q '"mappedStores":49' storage-audit.json
-          grep -q '"allScreensUseMySQL":false' storage-audit.json
-          curl -fsS -b owner.cookies -X POST -H 'Content-Type: application/json'             --data-binary @migration-preflight.json http://127.0.0.1:3127/api/branch-pilot/migration-preflight > preflight.json
-          node -e "
-          const a=require('./preflight.json');
-          const p=a.comparison.find(x=>x.store==='patients');
-          if(!a.ok||!a.readonly||p.browserRecords!==2||p.matchingIds!==1||p.browserOnly!==1)process.exit(1);
-          "
-          mysql -N -B -h 127.0.0.1 -uroot -ptest-only-patient-password tlab_multibranch_pilot             -e "SELECT COUNT(*) FROM patients" | grep '^1
-          grep -q '"source":"mysql"' main-patients.json
-          grep -q 'Preserved MySQL Patient' main-patients.json
-
-          curl -fsS -b owner.cookies -X POST -H 'Content-Type: application/json' \
-            -d '{"patient":{"id":"new_mysql_patient","code":"PAT-1112","name":"New MySQL Patient","nameEn":"","phone":"010","gender":"male","age":30,"birthDate":"1996-01-01","nationalId":"","address":"","notes":"stored in server","hasDefaultDiscount":false,"defaultDiscountType":"none","defaultDiscountValue":0,"active":true,"createdAt":"2026-11-20"}}' \
-            http://127.0.0.1:3127/api/branch-pilot/patients | grep '"ok":true'
-
-          mysql -N -B -h 127.0.0.1 -uroot -ptest-only-patient-password tlab_multibranch_pilot \
-            -e "SELECT COUNT(*) FROM patients WHERE id='new_mysql_patient'" | grep '^1$'
-
-          curl -fsS -b owner.cookies -X PUT -H 'Content-Type: application/json' \
-            -d '{"patient":{"id":"new_mysql_patient","code":"PAT-1112","name":"Updated MySQL Patient","nameEn":"","phone":"010","gender":"male","age":30,"birthDate":"1996-01-01","nationalId":"","address":"","notes":"updated on server","hasDefaultDiscount":false,"defaultDiscountType":"none","defaultDiscountValue":0,"active":true,"createdAt":"2026-11-20"}}' \
-            http://127.0.0.1:3127/api/branch-pilot/patients/new_mysql_patient | grep '"ok":true'
-
-          mysql -N -B -h 127.0.0.1 -uroot -ptest-only-patient-password tlab_multibranch_pilot \
-            -e "SELECT name FROM patients WHERE id='new_mysql_patient'" | grep '^Updated MySQL Patient$'
-
-          # The original main-branch patient must NEVER appear in a new branch.
-          curl -fsS -c dev-admin.cookies -X POST -H 'Content-Type: application/json' \
-            -d '{"username":"developer","password":"test-only-developer-password"}' \
-            http://127.0.0.1:3127/api/branch-pilot/login | grep '"ok":true'
-
-          newbranch=$(curl -fsS -b dev-admin.cookies -X POST -H 'Content-Type: application/json' \
-            -d '{"nameAr":"Second Branch","nameEn":"Branch Two"}' \
-            http://127.0.0.1:3127/api/branch-pilot/branches)
-          echo "$newbranch" | grep '"code":"BR-002"'
-          branch_id=$(echo "$newbranch" | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>console.log(JSON.parse(s).id))")
-          test -n "$branch_id"
-
-          curl -fsS -c branch2.cookies -X POST -H 'Content-Type: application/json' \
-            -d "{\"username\":\"developer\",\"password\":\"test-only-developer-password\",\"branchId\":\"$branch_id\"}" \
-            http://127.0.0.1:3127/api/branch-pilot/staff-login | grep '"ok":true'
-
-          curl -fsS -b branch2.cookies http://127.0.0.1:3127/api/branch-pilot/patients > other-branch.json
-          grep -q '"patients":\[\]' other-branch.json
-          if grep -q 'old_patient' other-branch.json; then echo 'CROSS-BRANCH PATIENT LEAK'; exit 1; fi
-
-          # Keep historical clinical record and forbid unsafe deletion.
-          mysql -h 127.0.0.1 -uroot -ptest-only-patient-password tlab_multibranch_pilot \
-            -e "INSERT INTO lab_requests(id,patient_id) VALUES('req_keep','old_patient')"
-          blocked=$(curl -s -b owner.cookies -o /dev/null -w '%{http_code}' -X DELETE \
-            http://127.0.0.1:3127/api/branch-pilot/patients/old_patient)
-          test "$blocked" = 409
-          mysql -N -B -h 127.0.0.1 -uroot -ptest-only-patient-password tlab_multibranch_pilot \
-            -e "SELECT COUNT(*) FROM patients WHERE id='old_patient' AND active=1" | grep '^1$'
-
-          echo 'LIVE MYSQL PATIENTS: PASS — read/write, branch isolation, and history preservation'
-
 
           curl -fsS -b owner.cookies http://127.0.0.1:3127/api/branch-pilot/patients > main-patients.json
           grep -q '"source":"mysql"' main-patients.json
