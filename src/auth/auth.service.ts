@@ -4,27 +4,54 @@ import { permissionsRepository, usersRepository } from '../repositories';
 import type { PermissionAction, ResourceScreen, RolePermission, User } from '../types';
 
 const SESSION_KEY = 'medlab_current_user';
+type ServerIdentity = { ok?: boolean; username?: string; role?: string; userId?: string };
+const STAFF_ROLES = new Set(['Owner','Doctor','Chemist','Technician','Receptionist','Accountant']);
+const serverStaffUser = (value: ServerIdentity): User | null => {
+  if (!value.ok || !value.userId || typeof value.username !== 'string' ||
+      !/^[a-zA-Z][a-zA-Z0-9_.-]{2,63}$/.test(value.username) ||
+      typeof value.role !== 'string' || !STAFF_ROLES.has(value.role)) return null;
+  return {
+    id: value.userId, username: value.username, role: value.role as User['role'],
+    passwordHash: '', fullNameAr: value.username, fullNameEn: value.username,
+    active: true, createdAt: '2026-01-01',
+  };
+};
+
+const serverDeveloperUser = (): User => ({
+  id: 'server-developer',
+  username: 'developer',
+  passwordHash: '', // No browser-stored credential.
+  fullNameAr: 'مبرمج النظام',
+  fullNameEn: 'System Developer',
+  role: 'Developer',
+  active: true,
+  createdAt: '2026-01-01',
+});
+
 
 class AuthService {
   private currentUser: User | null = null;
   private permissionsCache: Map<string, Record<PermissionAction, boolean>> = new Map();
 
   async init(): Promise<void> {
-    await this.reloadPermissionsCache();
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as User;
-        const freshUser = await usersRepository.getByUsername(parsed.username);
-        if (freshUser && freshUser.active) {
-          this.currentUser = freshUser;
-          localStorage.setItem(SESSION_KEY, JSON.stringify(freshUser));
-        } else {
-          this.logout();
-        }
-      } catch {
-        this.logout();
+    this.currentUser = null;
+    localStorage.removeItem(SESSION_KEY);
+    try {
+      const session = await fetch('/api/auth/session', { credentials: 'same-origin' });
+      if (!session.ok) return;
+      const data = await session.json() as ServerIdentity;
+      if (!data.ok) return;
+      if (data.username === 'developer' && data.role === 'Developer') {
+        // Historical IndexedDB auto-sync is intentionally disabled. Do not
+        // overwrite browser or central clinical records just by signing in.
+        await this.reloadPermissionsCache();
+        this.currentUser = serverDeveloperUser();
+      } else {
+        // Limited staff pilot: secure patient domain only, no IndexedDB hydration.
+        this.currentUser = serverStaffUser(data);
       }
+    } catch {
+      // Fail closed if server-side session cannot be established.
     }
   }
 
@@ -36,7 +63,7 @@ class AuthService {
         await usersRepository.saveUser({
           id: 'usr_dev',
           username: 'developer',
-          passwordHash: 'dev123',
+          passwordHash: '',
           fullNameAr: 'م. مبرمج النظام (المبرمج)',
           fullNameEn: 'System Developer',
           role: 'Developer',
@@ -96,22 +123,52 @@ class AuthService {
   }
 
   async login(username: string, passwordPlain: string): Promise<{ ok: boolean; user?: User }> {
-    const user = await usersRepository.getByUsername(username.trim());
-    if (!user || !user.active || user.passwordHash !== passwordPlain) {
+    // Server authenticates both Developer and staff identities; the staff UI
+    // exposes only the approved /api/v2 patient pilot, not legacy Dexie pages.
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password: passwordPlain }),
+      });
+      if (!response.ok) return { ok: false };
+      const payload = await response.json() as ServerIdentity;
+      let user: User | null = null;
+      if (payload.ok && payload.username === 'developer' && payload.role === 'Developer') {
+        // Historical IndexedDB auto-sync is intentionally disabled. Do not
+        // overwrite browser or central clinical records just by signing in.
+        await this.reloadPermissionsCache();
+        user = serverDeveloperUser();
+      } else {
+        user = serverStaffUser(payload);
+      }
+      if (!user) {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        return { ok: false };
+      }
+      this.currentUser = user;
+      await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id);
+      return { ok: true, user };
+    } catch {
       return { ok: false };
     }
-    this.currentUser = user;
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id, `Username: ${user.username} (${user.role})`);
-    return { ok: true, user };
   }
 
   async logout(): Promise<void> {
-    if (this.currentUser) {
-      await this.logAudit('تسجيل خروج / User Sign-Out', 'auth', this.currentUser.id, `Username: ${this.currentUser.username}`);
+    try {
+      if (this.currentUser) {
+        await this.logAudit('تسجيل خروج / User Sign-Out', 'auth', this.currentUser.id);
+      }
+    } finally {
+      this.currentUser = null;
+      localStorage.removeItem(SESSION_KEY);
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      } catch {
+        // The browser is logged out even if the API is offline.
+      }
     }
-    this.currentUser = null;
-    localStorage.removeItem(SESSION_KEY);
   }
 
   async logAudit(
@@ -121,6 +178,7 @@ class AuthService {
     details = ''
   ): Promise<void> {
     const u = this.currentUser;
+    if (u && u.role !== 'Developer') return; // Staff pilot never writes local user audit data.
     await permissionsRepository.addAuditLog({
       id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       userId: u?.id || 'anonymous',

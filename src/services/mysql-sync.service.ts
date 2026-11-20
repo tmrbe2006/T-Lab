@@ -44,7 +44,7 @@ class MySQLSyncService {
           host: parsed.host || '127.0.0.1',
           port: Number(parsed.port || 3306),
           user: parsed.user || 'root',
-          password: parsed.password || '',
+          password: '', // Never hydrate database secrets from the browser
           database: parsed.database || 'tlab_db',
           autoSync: Boolean(parsed.autoSync),
         };
@@ -63,20 +63,15 @@ class MySQLSyncService {
   }
 
   public saveConfig(cfg: MySQLClientConfig): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...cfg, password: '' }));
   }
 
   private async fetchMySQLApi<T extends { ok?: boolean; error?: string }>(
     endpoint: string,
     init?: RequestInit
   ): Promise<T> {
-    const candidateBases = [
-      '',
-      'http://127.0.0.1:3007',
-      'http://localhost:3007',
-      'http://127.0.0.1:3000',
-      'http://localhost:3000',
-    ];
+    // Same-origin API only. Never fall back to another machine's localhost.
+    const candidateBases = [''];
     let lastResult: T | null = null;
     let lastErr = '';
 
@@ -118,10 +113,7 @@ class MySQLSyncService {
           host: envCfg.host || localCfg.host || '127.0.0.1',
           port: Number(envCfg.port || localCfg.port || 3306),
           user: envCfg.user || localCfg.user || 'root',
-          password:
-            envCfg.password && envCfg.password.trim() !== ''
-              ? envCfg.password.trim()
-              : localCfg.password || '',
+          password: '',
           database: envCfg.database || localCfg.database || 'tlab_db',
           autoSync:
             typeof envCfg.autoSync === 'boolean' ? envCfg.autoSync : Boolean(localCfg.autoSync),
@@ -426,25 +418,33 @@ class MySQLSyncService {
         'referenceLabPartners',
       ]);
 
+      // Apply a complete server snapshot atomically. Partial table-by-table
+      // replacement can otherwise leave broken requests, results and invoices.
+      // NOTE: multi-device merge/conflict resolution remains a release blocker.
       this.isPulling = true;
       try {
-        for (const mapping of MYSQL_TABLES_CONFIG) {
-          const rows = json.data[mapping.dexieTable];
-          if (Array.isArray(rows)) {
+        const presentMappings = MYSQL_TABLES_CONFIG.filter(
+          (mapping) => Array.isArray(json.data?.[mapping.dexieTable])
+        );
+        if (presentMappings.length !== MYSQL_TABLES_CONFIG.length) {
+          throw new Error('Incomplete MySQL snapshot; refusing to overwrite local data');
+        }
+        await db.transaction('rw', db.tables, async () => {
+          for (const mapping of presentMappings) {
+            const rows = json.data![mapping.dexieTable];
             if (rows.length === 0 && protectedMasterTables.has(mapping.dexieTable)) {
               continue;
             }
             const table = db.table(mapping.dexieTable);
-            if (!table) continue;
-            await table.clear();
-            if (rows.length > 0) {
-              const validRows = rows.filter((r) => r && typeof r === 'object' && r.id);
-              if (validRows.length > 0) {
-                await table.bulkPut(validRows);
-              }
+            if (!table) throw new Error(`Missing local table: ${mapping.dexieTable}`);
+            const validRows = rows.filter((r) => r && typeof r === 'object' && r.id);
+            if (validRows.length !== rows.length) {
+              throw new Error(`Invalid server data: ${mapping.dexieTable}`);
             }
+            await table.clear();
+            if (validRows.length) await table.bulkPut(validRows);
           }
-        }
+        });
         try {
           localStorage.setItem('tlab_clean_db_mode', 'true');
           localStorage.removeItem('tlab_demo_mode');
@@ -480,24 +480,18 @@ class MySQLSyncService {
    * the initial 37 tables and master catalog so the database is ready immediately.
    */
   public async autoSyncOnStartup(): Promise<void> {
+    // Safe mode: verify connectivity only. Never replace a user's unsynced
+    // records with a snapshot or force-upload demo data during startup.
     const cfg = await this.loadEnvConfigFromServer();
-    const testRes = await this.testConnection(cfg);
-    if (testRes.ok) {
-      this.isConnected = true;
+    const test = await this.testConnection(cfg);
+    this.isConnected = Boolean(test.ok);
+    if (test.ok) {
       this.connectedDb = cfg.database || 'tlab_db';
-      this.saveConfig({ ...cfg, autoSync: true });
-      this.updateTopHeaderButtonDOM();
+      this.lastError = '';
     }
-    const res = await this.pullAllFromMySQL(cfg);
-    if (res.ok) {
-      this.isConnected = true;
-      this.connectedDb = cfg.database || 'tlab_db';
-      this.saveConfig({ ...cfg, autoSync: true });
-      this.updateTopHeaderButtonDOM();
-      if ((res.totalRowsPulled || 0) === 0) {
-        await this.pushAllToMySQL({ ...cfg, autoSync: true });
-      }
-    }
+    // Do not automatically enable unverified background writes.
+    this.saveConfig({ ...cfg, autoSync: false });
+    this.updateTopHeaderButtonDOM();
   }
 
   /**
@@ -741,7 +735,7 @@ class MySQLSyncService {
               <input
                 id="${prefix}-password"
                 type="password"
-                value="${cfg.password || ''}"
+                value=""
                 placeholder="••••••••"
                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono"
               />
@@ -901,7 +895,7 @@ class MySQLSyncService {
       if (hostEl && envCfg.host) hostEl.value = envCfg.host;
       if (portEl && envCfg.port) portEl.value = String(envCfg.port);
       if (userEl && envCfg.user) userEl.value = envCfg.user;
-      if (passEl && envCfg.password) passEl.value = envCfg.password;
+      if (passEl) passEl.value = '';
       if (dbEl && envCfg.database) dbEl.value = envCfg.database;
       if (autoEl) autoEl.checked = Boolean(envCfg.autoSync);
 

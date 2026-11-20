@@ -8,15 +8,6 @@ import { themeService } from '../services/theme.service';
 export async function renderLoginPage(container: HTMLElement): Promise<void> {
   const d = i18n.dict;
 
-  const demoAccounts = [
-    { user: 'developer', pass: 'dev123', labelAr: '💻 المبرمج (Developer - قاعدة البيانات والإعدادات)', labelEn: 'System Developer (MySQL DB, Settings & Audit)' },
-    { user: 'owner', pass: 'owner123', labelAr: 'مالك المعمل (Owner)', labelEn: 'Lab Owner (Lab Management)' },
-    { user: 'doctor', pass: 'doctor123', labelAr: 'طبيب مختبر (Doctor)', labelEn: 'Lab Doctor (Review & Approve)' },
-    { user: 'chemist', pass: 'chemist123', labelAr: 'كيميائي (Chemist)', labelEn: 'Biochemist (Results & Catalog)' },
-    { user: 'technician', pass: 'tech123', labelAr: 'فني مختبر (Technician)', labelEn: 'Technician (Samples & Entry)' },
-    { user: 'admin', pass: 'admin123', labelAr: 'استقبال / إداري (Receptionist)', labelEn: 'Receptionist (Patients & Billing)' },
-    { user: 'accountant', pass: 'accountant123', labelAr: 'محاسب (Accountant)', labelEn: 'Accountant (Finance & Commissions)' },
-  ];
 
   container.innerHTML = `
     <div class="min-h-screen skin-header text-slate-100 flex flex-col justify-between p-6">
@@ -63,7 +54,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
                   id="login-username"
                   type="text"
                   required
-                  value="owner"
+                  value="developer"
                   autocomplete="username"
                   class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
                 />
@@ -74,7 +65,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
                   id="login-password"
                   type="password"
                   required
-                  value="owner123"
+                  value=""
                   autocomplete="current-password"
                   class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-600 focus:bg-white focus:outline-none"
                 />
@@ -94,48 +85,9 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
           </div>
         </section>
 
-        <!-- Demo Accounts Selector -->
-        <section class="lg:col-span-6 rounded-xl bg-slate-800/90 border border-slate-700 p-6 flex flex-col justify-between">
-          <div>
-            <h2 class="text-sm font-bold text-white">${d.login.demoAccountsTitle}</h2>
-            <p class="text-xs text-slate-400 mt-1">
-              ${i18n.bi(
-                'اضغط على أي حساب لتعبئة بيانات الدخول وتجربة الصلاحيات الخاصة بكل دور وظيفي في المعمل:',
-                'Click any demo account below to autofill credentials and test role-specific permissions:'
-              )}
-            </p>
-            <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              ${demoAccounts
-                .map(
-                  (acc) => `
-                  <button
-                    type="button"
-                    data-demo-user="${acc.user}"
-                    data-demo-pass="${acc.pass}"
-                    class="demo-acc-btn text-start rounded-lg border border-slate-700 bg-slate-900/80 hover:border-sky-500 hover:bg-slate-900 p-3 transition-colors cursor-pointer"
-                  >
-                    <div class="text-xs font-bold text-white">${i18n.bi(acc.labelAr, acc.labelEn)}</div>
-                    <div class="mt-1 text-[11px] text-slate-400 font-mono tabular-nums">
-                      ${acc.user} / ${acc.pass}
-                    </div>
-                  </button>
-                `
-                )
-                .join('')}
-            </div>
-          </div>
-
-          <div class="mt-6 rounded-lg bg-slate-900/90 border border-slate-700 p-3.5 text-xs text-slate-300 space-y-1">
-            <div class="font-semibold text-sky-400">
-              ${i18n.bi('معمارية النظام (Repository + Services Layer):', 'System Architecture (Repository + Services Layer):')}
-            </div>
-            <p class="text-[11px] text-slate-400 leading-relaxed">
-              ${i18n.bi(
-                'جميع البيانات مخزنة محليًا في IndexedDB عبر 23 جدولًا مع فصل كامل بين الواجهة والخدمات وطبقة الوصول للبيانات (DATA_SOURCE = local | api).',
-                'All data is persisted locally in IndexedDB across 23 stores with strict separation between UI, Services, and Repositories (DATA_SOURCE = local | api).'
-              )}
-            </p>
-          </div>
+        <section class="lg:col-span-6 rounded-xl bg-slate-800/90 border border-slate-700 p-6">
+          <h2 class="text-lg font-semibold text-white">مرحلة تأمين السيرفر / Server Security Migration</h2>
+          <p class="mt-3 text-sm text-slate-200">Server-based Developer and staff accounts are supported. Developer can provision staff in Settings. Staff may only access the secure patient pilot; legacy medical and financial screens are disabled pending complete server-side RBAC and MySQL synchronization. Configure TLAB_ADMIN_PASSWORD (16+ characters) on the server.</p>
         </section>
       </main>
 
@@ -154,19 +106,6 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
 
   document.getElementById('login-pwa-btn')?.addEventListener('click', () => {
     pwaManager.triggerInstall();
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('.demo-acc-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const u = btn.getAttribute('data-demo-user') || '';
-      const p = btn.getAttribute('data-demo-pass') || '';
-      const userEl = document.getElementById('login-username') as HTMLInputElement | null;
-      const passEl = document.getElementById('login-password') as HTMLInputElement | null;
-      if (userEl && passEl) {
-        userEl.value = u;
-        passEl.value = p;
-      }
-    });
   });
 
   const form = document.getElementById('login-form') as HTMLFormElement | null;

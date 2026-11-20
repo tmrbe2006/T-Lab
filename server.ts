@@ -1,5 +1,4 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
@@ -7,6 +6,28 @@ import mysql from 'mysql2/promise';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { installApiSecurity } from './server/api-security';
+import { StaffAccountStore } from './server/staff-accounts';
+import { ServerPermissionStore, installPermissionAdminRoutes } from './server/server-permissions';
+import { PatientDomainStore, installPatientRoutes } from './server/patient-domain';
+import { LabWorkflowStore, installLabWorkflowRoutes } from './server/lab-workflow';
+import { PreliminaryResultStore, installPreliminaryResultRoutes } from './server/preliminary-results';
+import { ClinicalPreflightStore, installClinicalPreflightRoutes } from './server/clinical-preflight';
+import { InvoiceDraftStore, installInvoiceDraftRoutes } from './server/invoice-drafts';
+import { SafeInventoryStore, installSafeInventoryRoutes } from './server/safe-inventory';
+import { StockReceiptStore, installStockReceiptRoutes } from './server/stock-receiving';
+import { StockQcReviewStore, installStockQcReviewRoutes } from './server/stock-qc-review';
+import { FinancialReconciliationStore, installFinancialReconciliationRoutes } from './server/finance-reconciliation';
+import { JournalDraftStore, installJournalDraftRoutes } from './server/journal-drafts';
+import { FinancialPostingPreflightStore, installFinancialPreflightRoutes } from './server/financial-posting-preflight';
+import { BranchRegistry, installBranchRegistryRoutes, installBranchIsolationGate } from './server/branch-registry';
+import { BranchPatientStore, installBranchPatientRoutes } from './server/branch-patient-domain';
+import { BranchLabWorkflowStore, installBranchLabWorkflowRoutes } from './server/branch-lab-workflow';
+import { BranchSummaryStore, installBranchReportRoutes } from './server/branch-reports';
+import { BranchPreliminaryResultsStore, installBranchResultRoutes } from './server/branch-results';
+import { BranchBillingPilotStore, installBranchBillingPilotRoutes } from './server/branch-billing-pilot';
+import { BranchStockTransferPilotStore, installBranchStockTransferPilotRoutes } from './server/branch-stock-transfer-pilot';
+import { installReadinessRoutes } from './server/system-readiness';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -87,7 +108,7 @@ export interface MySQLConnectionConfig {
   database: string;
 }
 
-function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnectionConfig {
+function resolveConfig(_bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnectionConfig {
   reloadEnvFile();
   const envHost = (process.env.MYSQL_HOST || '127.0.0.1').trim();
   const envPort = Number(String(process.env.MYSQL_PORT || '3306').trim()) || 3306;
@@ -95,19 +116,14 @@ function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnec
   const envPassword = (process.env.MYSQL_PASSWORD || '').trim();
   const envDatabase = (process.env.MYSQL_DATABASE || 'tlab_db').trim();
 
-  const bodyHost = typeof bodyConfig?.host === 'string' ? bodyConfig.host.trim() : '';
-  const bodyPort = Number(bodyConfig?.port || 0);
-  const bodyUser = typeof bodyConfig?.user === 'string' ? bodyConfig.user.trim() : '';
-  const bodyPassword = typeof bodyConfig?.password === 'string' ? bodyConfig.password.trim() : '';
-  const bodyDatabase = typeof bodyConfig?.database === 'string' ? bodyConfig.database.trim() : '';
-
+  // The browser must never choose server database credentials or remote hosts.
+  // All MySQL connection parameters come exclusively from the server .env.
   return {
-    host: bodyHost || envHost || '127.0.0.1',
-    port: bodyPort > 0 ? bodyPort : envPort,
-    user: bodyUser || envUser || 'root',
-    // Prefer non-empty .env password or non-empty body password
-    password: bodyPassword !== '' ? bodyPassword : envPassword,
-    database: (bodyDatabase || envDatabase || 'tlab_db').replace(/[^a-zA-Z0-9_]/g, ''),
+    host: envHost,
+    port: envPort,
+    user: envUser,
+    password: envPassword,
+    database: envDatabase.replace(/[^a-zA-Z0-9_]/g, ''),
   };
 }
 
@@ -123,12 +139,8 @@ async function getMySQLConnection(
   const envPassword = (process.env.MYSQL_PASSWORD || '').trim();
 
   // Build ordered candidate connection configs so stale browser localStorage or localhost/127.0.0.1 differences never block connection
-  const hostsToTry = Array.from(
-    new Set([cfg.host, envHost, '127.0.0.1', 'localhost'].filter(Boolean))
-  );
-  const passwordsToTry = Array.from(
-    new Set([cfg.password ?? '', envPassword, '1234', ''].filter((p) => p !== undefined))
-  );
+  const hostsToTry = [cfg.host]; // No silent fallback to a different MySQL server.
+  const passwordsToTry = [envPassword];
 
   let lastError: unknown = null;
 
@@ -141,7 +153,7 @@ async function getMySQLConnection(
           user: cfg.user || envUser || 'root',
           password: passwordCandidate,
           database: withDatabase ? cfg.database : undefined,
-          multipleStatements: true,
+          multipleStatements: false,
           connectTimeout: timeoutMs,
         });
         await conn.query('SET NAMES utf8;');
@@ -150,14 +162,15 @@ async function getMySQLConnection(
         lastError = err;
         const code = (err as { code?: string })?.code || '';
         // If database does not exist yet when withDatabase=true, create it automatically and retry
-        if (withDatabase && code === 'ER_BAD_DB_ERROR') {
+        if (withDatabase && code === 'ER_BAD_DB_ERROR' &&
+            process.env.TLAB_ALLOW_DB_CREATION === 'true' && process.env.NODE_ENV !== 'production') {
           try {
             const rootConn = await mysql.createConnection({
               host: hostCandidate,
               port: cfg.port || envPort || 3306,
               user: cfg.user || envUser || 'root',
               password: passwordCandidate,
-              multipleStatements: true,
+              multipleStatements: false,
               connectTimeout: timeoutMs,
             });
             await rootConn.query(
@@ -170,7 +183,7 @@ async function getMySQLConnection(
               user: cfg.user || envUser || 'root',
               password: passwordCandidate,
               database: cfg.database,
-              multipleStatements: true,
+              multipleStatements: false,
               connectTimeout: timeoutMs,
             });
             await conn.query('SET NAMES utf8;');
@@ -318,19 +331,53 @@ async function startServer() {
   const app = express();
   const PORT = resolveRequestedPort();
 
-  app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Private-Network', 'true');
-    if (req.method === 'OPTIONS') {
-      res.sendStatus(204);
-      return;
-    }
-    next();
-  });
-  app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+  const safeDbConnection = () => getMySQLConnection(resolveConfig(), true);
+  const staffAccounts = new StaffAccountStore(safeDbConnection);
+  const serverPermissions = new ServerPermissionStore(safeDbConnection);
+  const patientDomain = new PatientDomainStore(safeDbConnection);
+  const labWorkflow = new LabWorkflowStore(safeDbConnection);
+  const preliminaryResults = new PreliminaryResultStore(safeDbConnection);
+  const clinicalPreflight = new ClinicalPreflightStore(safeDbConnection);
+  const invoiceDrafts = new InvoiceDraftStore(safeDbConnection);
+  const safeInventory = new SafeInventoryStore(safeDbConnection);
+  const stockReceipts = new StockReceiptStore(safeDbConnection);
+  const stockQc = new StockQcReviewStore(safeDbConnection);
+  const financialAudit = new FinancialReconciliationStore(safeDbConnection);
+  const journalDrafts = new JournalDraftStore(safeDbConnection);
+  const postingPreflight = new FinancialPostingPreflightStore(safeDbConnection);
+  const branches = new BranchRegistry(safeDbConnection);
+  const branchPatients = new BranchPatientStore(safeDbConnection);
+  const branchLab = new BranchLabWorkflowStore(safeDbConnection);
+  const branchReports = new BranchSummaryStore(safeDbConnection);
+  const branchResults = new BranchPreliminaryResultsStore(safeDbConnection);
+  const branchBilling = new BranchBillingPilotStore(safeDbConnection);
+  const branchStock = new BranchStockTransferPilotStore(safeDbConnection);
+  installApiSecurity(app, staffAccounts, (secureApp, resolveIdentity) => {
+    // Branch metadata is safe to manage, but legacy patient/finance workflows
+    // are not scoped to branch_id. Fail closed in explicit multibranch mode.
+    installBranchRegistryRoutes(secureApp, branches, resolveIdentity);
+    installBranchPatientRoutes(secureApp, branchPatients, branches, serverPermissions, resolveIdentity);
+    installBranchLabWorkflowRoutes(secureApp, branchLab, branches, serverPermissions, resolveIdentity);
+    installBranchReportRoutes(secureApp, branchReports, branches, resolveIdentity);
+    installBranchResultRoutes(secureApp, branchResults, branches, serverPermissions, resolveIdentity);
+    installBranchBillingPilotRoutes(secureApp, branchBilling, branches, serverPermissions, resolveIdentity);
+    installBranchStockTransferPilotRoutes(secureApp, branchStock, branches, serverPermissions, resolveIdentity);
+    installBranchIsolationGate(secureApp);
+    installPatientRoutes(secureApp, patientDomain, serverPermissions, resolveIdentity);
+    installLabWorkflowRoutes(secureApp, labWorkflow, serverPermissions, resolveIdentity);
+    installPreliminaryResultRoutes(secureApp, preliminaryResults, serverPermissions, resolveIdentity);
+    installClinicalPreflightRoutes(secureApp, clinicalPreflight, serverPermissions, resolveIdentity);
+    installInvoiceDraftRoutes(secureApp, invoiceDrafts, serverPermissions, resolveIdentity);
+    installSafeInventoryRoutes(secureApp, safeInventory, serverPermissions, resolveIdentity);
+    installStockReceiptRoutes(secureApp, stockReceipts, serverPermissions, resolveIdentity);
+    installStockQcReviewRoutes(secureApp, stockQc, serverPermissions, resolveIdentity);
+    installFinancialReconciliationRoutes(secureApp, financialAudit, serverPermissions, resolveIdentity);
+    installJournalDraftRoutes(secureApp, journalDrafts, serverPermissions, resolveIdentity);
+    installFinancialPreflightRoutes(secureApp, postingPreflight, serverPermissions, resolveIdentity);
+    installReadinessRoutes(secureApp, safeDbConnection, resolveIdentity);
+    installPermissionAdminRoutes(secureApp, serverPermissions, resolveIdentity);
+  });
 
   // 0. Get & Save Preferred Local Server Port (port.config.json)
   app.get('/api/server/port-config', (_req, res) => {
@@ -364,56 +411,10 @@ async function startServer() {
   });
 
   // 0.b Save Server & MySQL settings directly into .env file
-  app.post('/api/server/save-env', (req, res) => {
-    const appPort = Number(req.body?.appPort || PORT || 3000);
-    const cfg = resolveConfig(req.body?.config);
-    const autoSync = req.body?.config?.autoSync !== false;
-
-    const envText = [
-      '# ============================================================================',
-      '# T-Lab Medical Laboratory & ERP System - Server & MySQL Configuration (.env)',
-      '# إعدادات تشغيل السيرفر وربط قاعدة بيانات MySQL (5.5 / 8.0.28)',
-      '# ============================================================================',
-      '',
-      '# 1. إعدادات سيرفر البرنامج (Application Server Settings)',
-      `PORT=${appPort}`,
-      'HOST=0.0.0.0',
-      'NODE_ENV=development',
-      '',
-      '# 2. إعدادات سيرفر قاعدة بيانات MySQL (MySQL 5.5 / MySQL 8.0.28 Server Settings)',
-      `MYSQL_HOST=${cfg.host}`,
-      `MYSQL_PORT=${cfg.port}`,
-      `MYSQL_USER=${cfg.user}`,
-      `MYSQL_PASSWORD=${cfg.password || ''}`,
-      `MYSQL_DATABASE=${cfg.database}`,
-      'MYSQL_CHARSET=utf8_general_ci',
-      'MYSQL_CONNECTION_TIMEOUT=8000',
-      '',
-      '# 3. إعدادات المزامنة التلقائية مع MySQL (Auto-Sync Settings)',
-      `MYSQL_AUTO_SYNC=${autoSync ? 'true' : 'false'}`,
-      '',
-      '# 4. إعدادات إضافية اختيارية (Optional External Integrations)',
-      `GEMINI_API_KEY=${process.env.GEMINI_API_KEY || ''}`,
-      `APP_URL=http://localhost:${appPort}`,
-      '',
-    ].join('\n');
-
-    try {
-      const envFilePath = path.join(__dirname, '.env');
-      fs.writeFileSync(envFilePath, envText, 'utf-8');
-      fs.writeFileSync(PORT_CONFIG_FILE, JSON.stringify({ port: appPort }, null, 2), 'utf-8');
-      process.env.MYSQL_HOST = cfg.host;
-      process.env.MYSQL_PORT = String(cfg.port);
-      process.env.MYSQL_USER = cfg.user;
-      process.env.MYSQL_PASSWORD = cfg.password || '';
-      process.env.MYSQL_DATABASE = cfg.database;
-      res.json({ ok: true, envText });
-    } catch (err: unknown) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  // Intentionally disabled: a browser must never rewrite server secrets.
+  // Edit the server .env manually with restricted filesystem permissions.
+  app.post('/api/server/save-env', (_req, res) => {
+    res.status(410).json({ ok: false, error: 'Server credentials must be configured by the server administrator' });
   });
 
   // 0.c Download Inno Setup 6 Script (tlab-setup.iss)
@@ -444,7 +445,6 @@ async function startServer() {
         host: cfg.host,
         port: cfg.port,
         user: cfg.user,
-        password: cfg.password || '',
         database: cfg.database,
         autoSync,
       },
@@ -501,6 +501,12 @@ async function startServer() {
 
   // 3. Push All Data from T-Lab to MySQL Server
   app.post('/api/mysql/push-all', async (req, res) => {
+    // The historical bulk import is not concurrency safe. Opt-in is only
+    // allowed for controlled migration on a disposable test database.
+    if (process.env.TLAB_ENABLE_UNSAFE_BULK_IMPORT !== 'true') {
+      res.status(423).json({ ok: false, error: 'Bulk import disabled: migration approval required' });
+      return;
+    }
     const cfg = resolveConfig(req.body?.config);
     const tablesData = (req.body?.data || {}) as Record<string, Record<string, unknown>[]>;
 
@@ -524,12 +530,9 @@ async function startServer() {
           const rows = tablesData[mapping.dexieTable] || [];
           for (const row of rows) {
             if (!row || !row.id) continue;
-            try {
-              await upsertRowInMySQL(conn, mapping, row);
-              totalRowsSynced++;
-            } catch {
-              // continue syncing remaining rows if a legacy table has custom constraints
-            }
+            // Any failed write must abort and roll back the entire import.
+            await upsertRowInMySQL(conn, mapping, row);
+            totalRowsSynced++;
           }
         }
         await conn.commit();
@@ -556,6 +559,10 @@ async function startServer() {
 
   // 4. Pull All Data from MySQL Server into T-Lab
   app.post('/api/mysql/pull-all', async (req, res) => {
+    if (process.env.TLAB_ENABLE_SNAPSHOT_PULL !== 'true') {
+      res.status(423).json({ ok: false, error: 'Snapshot import is disabled pending reviewed backup and conflict migration' });
+      return;
+    }
     const cfg = resolveConfig(req.body?.config);
     try {
       try {
@@ -589,8 +596,8 @@ async function startServer() {
               totalRowsPulled++;
             }
             resultData[mapping.dexieTable] = parsedRows;
-          } catch {
-            resultData[mapping.dexieTable] = [];
+          } catch (tableErr) {
+            throw new Error(`Failed reading ${mapping.mysqlTable}: ${tableErr instanceof Error ? tableErr.message : String(tableErr)}`);
           }
         }
       } finally {
@@ -610,6 +617,14 @@ async function startServer() {
   });
 
   // 5. Real-Time Single Record Sync (Insert / Update / Delete)
+  app.post('/api/mysql/sync-change', async (req, res) => {
+    // The legacy background endpoint can lose concurrent writes and bypass
+    // domain validations. It is disabled until versioned server operations land.
+    res.status(423).json({ ok: false, error: 'Legacy background sync is disabled for data safety' });
+    return;
+  });
+
+  /* Legacy handler retained temporarily for migration reference only.
   app.post('/api/mysql/sync-change', async (req, res) => {
     const cfg = resolveConfig(req.body?.config);
     const { dexieTable, operation, recordId, record } = req.body as {
@@ -646,6 +661,8 @@ async function startServer() {
       res.status(400).json({ ok: false, error: message });
     }
   });
+
+  */
 
   // 6. White-Label Clinical Microscopy Vision Analyzer (Blood Film, Urine Sediment, Stool Parasitology)
   const modelQuotaCooldowns = new Map<string, number>();
@@ -942,12 +959,13 @@ Return a strict JSON object with these exact keys:
 
   const distPath = path.join(__dirname, 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');
-  const srcMainPath = path.join(__dirname, 'src', 'main.ts');
-  // Always use Vite middleware when src/main.ts exists so .env NODE_ENV=production never serves a stale dist folder
-  const useStaticDist =
-    process.argv.includes('--static-dist') &&
-    !fs.existsSync(srcMainPath) &&
-    fs.existsSync(distIndexHtml);
+  // An explicit production launch must serve the previously built dist folder,
+  // even when source files are present in the installation.
+  const staticRequested = process.argv.includes('--static-dist');
+  if (staticRequested && !fs.existsSync(distIndexHtml)) {
+    throw new Error('Missing dist/index.html: run npm run build before --static-dist');
+  }
+  const useStaticDist = staticRequested;
 
   if (!useStaticDist) {
     const isCloudPreview = process.cwd() === '/app/applet';
@@ -981,7 +999,8 @@ Return a strict JSON object with these exact keys:
     };
 
     httpServer.once('error', onError);
-    httpServer.listen(portToTry, '0.0.0.0', async () => {
+    // Local installations stay on loopback unless explicitly configured for LAN.
+    httpServer.listen(portToTry, process.env.HOST || '127.0.0.1', async () => {
       httpServer.removeListener('error', onError);
       const envCfg = resolveConfig();
       console.log(`\n============================================================`);
@@ -989,8 +1008,35 @@ Return a strict JSON object with these exact keys:
       console.log(`🌐 Open in browser: http://localhost:${portToTry}`);
       console.log(`🗄️  Target MySQL: ${envCfg.user}@${envCfg.host}:${envCfg.port}/${envCfg.database}`);
       try {
-        const info = await ensureDatabaseAndSchema(envCfg);
-        console.log(`🟢 MySQL Connected Successfully! (MySQL ${info.version} - ${info.tablesCreated} tables verified)`);
+        // Never alter a customer's production schema just because the server
+        // was restarted. Schema bootstrap requires explicit change approval.
+        const schemaBootstrapAllowed =
+          process.env.NODE_ENV !== 'production' ||
+          process.env.TLAB_ALLOW_SCHEMA_BOOTSTRAP === 'true';
+        if (schemaBootstrapAllowed) {
+          const info = await ensureDatabaseAndSchema(envCfg);
+          await staffAccounts.ensureTable();
+          await serverPermissions.ensureTable();
+          await patientDomain.ensureTables();
+          await labWorkflow.ensureTables();
+          await invoiceDrafts.ensureTables();
+          await safeInventory.ensureTables();
+          await stockReceipts.ensureTable();
+          await stockQc.ensureTables();
+          await journalDrafts.ensureTables();
+          await branches.ensureTables();
+          await branchPatients.ensureTables();
+          await branchLab.ensureTables();
+          await branchResults.ensureTables();
+          await branchBilling.ensureTables();
+          await branchStock.ensureTables();
+          console.log(`🟢 Test/approved schema initialization: MySQL ${info.version}`);
+        } else {
+          const connection = await getMySQLConnection(envCfg, true);
+          try { await connection.query('SELECT 1'); }
+          finally { await connection.end(); }
+          console.log('MySQL reachable. Automatic schema creation/upgrade disabled for production.');
+        }
       } catch (dbErr: unknown) {
         console.warn(`🔴 MySQL Startup Check Warning: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
       }

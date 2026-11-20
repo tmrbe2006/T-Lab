@@ -1,13 +1,15 @@
 import { authService } from '../auth/auth.service';
 import { showToast, VirtualTable } from '../components/common';
+import { renderStaffAdminPanel } from '../components/staff-admin';
+import { renderServerPatientPermissions } from '../components/patient-permissions';
+import { renderReadinessPanel } from '../components/server-readiness';
+import { renderBranchAdminPanel } from '../components/branch-admin';
 import { SecretsConfig } from '../config/secrets.config';
 import { db } from '../db/database';
-import { seedDatabase } from '../db/seed';
 import { can, enforcePermission } from '../guards/permission.guard';
 import { i18n } from '../i18n';
 import { printService } from '../print/print.service';
 import { permissionsRepository } from '../repositories';
-import { CacheService } from '../services/cache.service';
 import { commissionService } from '../services/commission.service';
 import { invoiceService } from '../services/invoice.service';
 import { mysqlSyncService } from '../services/mysql-sync.service';
@@ -55,13 +57,18 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
             ${i18n.dict.actions.print}
           </button>
           <button id="set-export-btn" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
-            ${i18n.bi('تصدير نسخة احتياطية (JSON)', 'Export Backup (JSON)')}
+            ${i18n.bi('تصدير بيانات المتصفح فقط (JSON)', 'Export Browser Data Only (JSON)')}
           </button>
-          <button id="set-reset-btn" type="button" class="rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-rose-700 cursor-pointer">
-            ${i18n.bi('إعادة تعيين البيانات التجريبية', 'Reset Demo Data')}
+          <button type="button" disabled title="Disabled: would destroy unsynchronized local records" class="rounded-lg bg-slate-300 px-3.5 py-2 text-xs font-bold text-slate-600 cursor-not-allowed">
+            ${i18n.bi('إعادة التعيين معطلة لحماية البيانات', 'Reset disabled for data safety')}
           </button>
         </div>
       </div>
+
+      <section id="server-readiness-panel"></section>
+      <section id="server-branch-admin-panel"></section>
+      <section id="secure-staff-admin-panel"></section>
+      <section id="server-patient-permissions-panel"></section>
 
       <!-- MySQL 5.5 & MySQL 8.0.28 Database Server & SQL Dump Section -->
       <section id="settings-mysql-panel">
@@ -223,6 +230,14 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   `;
 
   mysqlSyncService.bindControlPanelEvents(container, 'set-mysql');
+  const readiness = container.querySelector<HTMLElement>('#server-readiness-panel');
+  if (readiness && user?.role === 'Developer') renderReadinessPanel(readiness);
+  const branchPanel = container.querySelector<HTMLElement>('#server-branch-admin-panel');
+  if (branchPanel && user?.role === 'Developer') void renderBranchAdminPanel(branchPanel);
+  const staffPanel = container.querySelector<HTMLElement>('#secure-staff-admin-panel');
+  if (staffPanel && user?.role === 'Developer') void renderStaffAdminPanel(staffPanel);
+  const rolePanel = container.querySelector<HTMLElement>('#server-patient-permissions-panel');
+  if (rolePanel && user?.role === 'Developer') void renderServerPatientPermissions(rolePanel);
 
   document.getElementById('set-offline-enable')?.addEventListener('click', () => {
     OfflineService.enableOfflineMode();
@@ -295,6 +310,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
   });
 
   document.getElementById('set-export-btn')?.addEventListener('click', async () => {
+    if (!window.confirm('هذه نسخة من بيانات المتصفح المحلي فقط، وليست نسخة احتياطية من MySQL. وقد تحتوي على معلومات مرضى سرية غير مشفرة. هل تريد تصديرها إلى ملف محلي على هذا الجهاز؟')) return;
     const dump: Record<string, unknown> = {};
     for (const table of db.tables) {
       dump[table.name] = await table.toArray();
@@ -306,16 +322,9 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
     a.download = `medlab-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(i18n.bi('تم تصدير النسخة الاحتياطية بنجاح', 'Backup exported successfully'), 'success');
+    showToast(i18n.bi('تم تصدير بيانات المتصفح فقط، وليس MySQL', 'Exported browser data only, not MySQL'), 'success');
   });
 
-  document.getElementById('set-reset-btn')?.addEventListener('click', async () => {
-    CacheService.clear();
-    await seedDatabase(true);
-    await authService.reloadPermissionsCache();
-    showToast(i18n.bi('تمت إعادة تعيين كافة البيانات التجريبية بنجاح', 'Demo data reset complete'), 'success');
-    renderSettingsPage(container);
-  });
 }
 
 export async function renderPrintingHubPage(container: HTMLElement): Promise<void> {

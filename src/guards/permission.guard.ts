@@ -7,47 +7,30 @@ import type { PermissionAction, ResourceScreen, User } from '../types';
  * Central RBAC Permission Function:
  * Checks whether the given user has permission to perform `action` on `resource`.
  */
+const DEVELOPER_ONLY_RESOURCES = new Set<ResourceScreen>(['settings']);
+const ADMINISTRATIVE_RESOURCES = new Set<ResourceScreen>(['permissions', 'users']);
+
+/**
+ * Deny by default. The permissions matrix is the sole authority for normal roles.
+ * This client-side check improves UX, but it is NOT a substitute for server-side RBAC.
+ */
 export function can(
   user: User | null | undefined,
   action: PermissionAction,
   resource: ResourceScreen
 ): boolean {
   if (!user || !user.active) return false;
-  // System Settings & Backup is strictly reserved for the Developer role
-  if (resource === 'settings') {
-    return user.role === 'Developer';
-  }
+  if (DEVELOPER_ONLY_RESOURCES.has(resource) && user.role !== 'Developer') return false;
+  if (action === 'managePermissions' && user.role !== 'Developer') return false;
   if (user.role === 'Developer') return true;
-  if (user.role === 'Owner') return true;
 
-  // Ensure core operational lab workflows (results entry, result review, requests, samples)
-  // work seamlessly across lab staff roles even if legacy IndexedDB permission rows exist
-  if (resource === 'results') {
-    if (['Doctor', 'Chemist', 'Technician', 'Receptionist'].includes(user.role)) {
-      if (['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(action)) {
-        return true;
-      }
-    }
-  }
-  if (resource === 'resultReview') {
-    if (['Doctor', 'Chemist', 'Technician'].includes(user.role)) {
-      if (['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(action)) {
-        return true;
-      }
-    }
-  }
-  if (resource === 'requests' && action === 'discount') {
-    return true;
-  }
+  // Administrative screens cannot be exposed to ordinary staff even by a
+  // corrupt or stale local permissions row.
+  if (ADMINISTRATIVE_RESOURCES.has(resource) && user.role !== 'Owner') return false;
 
-  // Microbiology: Allow all authenticated staff to view, add, edit, delete, print, export, and approve
-  if (resource === 'microbiology') {
-    return ['view', 'add', 'edit', 'delete', 'print', 'export', 'approve'].includes(action);
-  }
-
-  // Operational, Financial, HR, Catalog, Purchases & QC screens:
-  // Allow all authenticated staff roles to perform CRUD, payment, print, and management actions
-  return true;
+  const permissions = authService.getPermissionsFor(user.role, resource);
+  if (!permissions) return false;
+  return permissions[action] === true;
 }
 
 /**

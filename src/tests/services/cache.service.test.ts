@@ -61,7 +61,7 @@ describe('CacheService', () => {
     });
 
     const tests1 = await testsRepository.getAllTests();
-    expect(tests1).toHaveLength(1);
+    // getAllTests() hydrates the official medical catalog, so one custom test\n    // coexists with built-in tests instead of replacing the whole catalog.\n    expect(tests1).toEqual(expect.arrayContaining([expect.objectContaining({ id: 't-1' })]));
     expect(CacheService.hasValid('catalog:tests:all')).toBe(true);
 
     const doctors1 = await doctorsRepository.getAll();

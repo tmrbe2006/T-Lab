@@ -9,12 +9,16 @@
   #error "خطأ: يجب وضع ملف tlab-setup.iss داخل الفولدر الرئيسي لمشروع T-Lab (بجوار ملف package.json و server.ts) قبل الضغط على Compile!"
 #endif
 
-#define MyAppName "T-Lab Medical Laboratory System"
+#if !FileExists(AddBackslash(SourcePath) + "dist\index.html")
+  #error "Run npm install and npm run build BEFORE compiling this test-only installer."
+#endif
+
+#define MyAppName "T-Lab LOCAL TEST PILOT (NO PATIENT DATA)"
 #define MyAppNameAr "نظام إدارة معمل التحاليل الطبية العالمي T-Lab"
 #define MyAppVersion "6.1.0"
 #define MyAppPublisher "T-Lab Medical Systems"
 #define MyAppURL "http://localhost:3007"
-#define MyAppExeName "start-tlab-production.bat"
+#define MyAppExeName "start-tlab-pilot.bat"
 
 ; =============================================================================
 ; إعداد أيقونة البرنامج تلقائياً من الصورة (lab-test.png أو lab-test.ico)
@@ -34,7 +38,7 @@
 #endif
 
 [Setup]
-AppId={{8F6E3D2A-9B4C-4E1F-A7D8-3C5B9E102471}
+AppId={{B4D4A936-37B3-4BF9-B980-18DA1D245ADD}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} v{#MyAppVersion}
@@ -43,12 +47,12 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 ; التثبيت في C:\T-Lab-System لتجنب قيود صلاحيات القراءة فقط (UAC) ومسافات المسار في Program Files
-DefaultDirName={sd}\T-Lab-System
+DefaultDirName={localappdata}\T-Lab-Pilot-Sandbox
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 ; مجلد حفظ ملف السيتاب النهائي (.exe)
 OutputDir=Output
-OutputBaseFilename=T-Lab_Setup_v{#MyAppVersion}
+OutputBaseFilename=T-Lab_PILOT_TEST_v{#MyAppVersion}
 #if MyAppIcon != ""
 SetupIconFile={#MyAppIcon}
 UninstallDisplayIcon={app}\{#MyAppIcon}
@@ -56,7 +60,7 @@ UninstallDisplayIcon={app}\{#MyAppIcon}
 Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
@@ -66,24 +70,21 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Dirs]
 ; منح صلاحيات القراءة والكتابة الكاملة لمجلد النظام لضمان عمل السيرفر و Vite بدون أخطاء صلاحيات
-Name: "{app}"; Permissions: everyone-full
+Name: "{app}"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon} (إنشاء اختصار لنظام المعمل T-Lab على سطح المكتب)"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "importdb_keep"; Description: "الاحتفاظ بقاعدة البيانات الحالية (tlab_db) كما هي مع ترقية الجداول الجديدة تلقائياً (Lab-to-Lab + المضادات الحيوية)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive
-Name: "importdb_full"; Description: "استيراد قاعدة البيانات المرجعية الكاملة من الصفر (39 جدول + 106 تحليل + 414 بارامتر + المضادات الحيوية + Lab-to-Lab)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive unchecked
-Name: "importdb_clean"; Description: "استيراد قاعدة بيانات تشغيلية فارغة بدون حركات تجريبية (مع الاحتفاظ بالمستخدمين والتحاليل والبارامترات والمضادات الحيوية)"; GroupDescription: "إعداد قاعدة بيانات MySQL (5.5 / 8.0.28):"; Flags: exclusive unchecked
 
 [InstallDelete]
 ; حذف أي نسخة قديمة من مجلد البناء المؤقت أو كاش Vite لضمان تشغيل أحدث كود فوراً
-Type: filesandordirs; Name: "{app}\dist"
 Type: filesandordirs; Name: "{app}\node_modules\.vite"
 
 [Files]
 ; نسخ ملفات المشروع الأساسية بالكامل مع استثناء مجلدات البناء المؤقتة وكاش المسارات القديمة
-Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Output\*,dist\*,dist-installer\*,.git\*,coverage\*,node_modules\.vite\*,*.iss"
+Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Output\*,dist-installer\*,.git\*,coverage\*,node_modules\*,playwright-report\*,test-results\*,*.iss,.env,.env.*,*.sql"
 
 [Icons]
+Name: "{group}\Initialize empty SANDBOX once"; Filename: "{app}\init-tlab-pilot.bat"; WorkingDir: "{app}"
 #if MyAppIcon != ""
 ; استخدام أيقونة البرنامج المخصصة (lab-test.ico) لسطح المكتب وقائمة ابدأ
 Name: "{group}\{#MyAppName} (تشغيل النظام)"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppIcon}"
@@ -100,13 +101,32 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{sys}\shell32.dll"; IconIndex: 13; Tasks: desktopicon
 #endif
 
-[Run]
-; تشغيل النظام بعد انتهاء التثبيت
-Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "تشغيل نظام معمل التحاليل الطبية T-Lab الآن"; Flags: nowait postinstall skipifsilent shellexec
-
 [Code]
 var
-  ServerConfigPage: TInputQueryWizardPage;
+  ServerConfigPage, DatabaseConfigPage: TInputQueryWizardPage;
+
+procedure UpdateDeveloperPasswordButtonState;
+begin
+  // The wizard shows the length requirement in the field label, without a popup.
+  // Upgrades keep their existing .env and do not require a replacement password.
+  WizardForm.NextButton.Enabled :=
+    FileExists(ExpandConstant('{app}\.env')) or
+    (Length(DatabaseConfigPage.Values[2]) >= 16);
+end;
+
+procedure DeveloperPasswordChanged(Sender: TObject);
+begin
+  if WizardForm.CurPageID = DatabaseConfigPage.ID then
+    UpdateDeveloperPasswordButtonState;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = DatabaseConfigPage.ID then
+    UpdateDeveloperPasswordButtonState
+  else if CurPageID = ServerConfigPage.ID then
+    WizardForm.NextButton.Enabled := True;
+end;
 
 procedure InitializeWizard;
 begin
@@ -122,16 +142,56 @@ begin
   ServerConfigPage.Add('عنوان سيرفر MySQL (MYSQL_HOST):', False);
   ServerConfigPage.Add('بورت سيرفر MySQL (MYSQL_PORT):', False);
   ServerConfigPage.Add('اسم مستخدم MySQL (MYSQL_USER):', False);
-  ServerConfigPage.Add('كلمة مرور MySQL (MYSQL_PASSWORD):', True);
-  ServerConfigPage.Add('اسم قاعدة البيانات (MYSQL_DATABASE):', False);
-
-  // القيم الافتراضية (تتوافق مع إعدادات جهازك PORT=3007 وقاعدة tlab_db)
   ServerConfigPage.Values[0] := '3007';
   ServerConfigPage.Values[1] := '127.0.0.1';
   ServerConfigPage.Values[2] := '3306';
-  ServerConfigPage.Values[3] := 'root';
-  ServerConfigPage.Values[4] := 'root';
-  ServerConfigPage.Values[5] := 'tlab_db';
+  ServerConfigPage.Values[3] := 'tlab_app';
+
+  // Separate page: no hidden fields at normal Windows display scaling.
+  DatabaseConfigPage := CreateInputQueryPage(
+    ServerConfigPage.ID,
+    'إعداد قاعدة البيانات وحساب المبرمج (Database & Developer)',
+    'أدخل بيانات قاعدة الاختبار وكلمة مرور المبرمج الجديدة',
+    'التثبيت التجريبي يتطلب قاعدة محلية فارغة وكلمة مرور قوية لحساب Developer.'
+  );
+  DatabaseConfigPage.Add('كلمة مرور MySQL (MYSQL_PASSWORD):', True);
+  DatabaseConfigPage.Add('اسم قاعدة البيانات (MYSQL_DATABASE):', False);
+  DatabaseConfigPage.Add('كلمة مرور Developer (16 حرفًا على الأقل):', True);
+  DatabaseConfigPage.Values[0] := '';
+  DatabaseConfigPage.Values[1] := 'tlab_local_test';
+  DatabaseConfigPage.Values[2] := '';
+  DatabaseConfigPage.Edits[2].OnChange := @DeveloperPasswordChanged;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Pwd: String;
+begin
+  Result := True;
+  if CurPageID = ServerConfigPage.ID then
+  begin
+    if (Trim(ServerConfigPage.Values[1]) <> '127.0.0.1') and
+       (Trim(ServerConfigPage.Values[1]) <> 'localhost') then
+    begin
+      MsgBox('PILOT mode is restricted to a MySQL server on this PC (127.0.0.1).', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+  if CurPageID = DatabaseConfigPage.ID then
+  begin
+    Pwd := DatabaseConfigPage.Values[2];
+    if (Length(Trim(DatabaseConfigPage.Values[1])) < 6) or
+       ((Lowercase(Copy(Trim(DatabaseConfigPage.Values[1]),
+          Length(Trim(DatabaseConfigPage.Values[1]))-4, 5)) <> '_test') and
+        (Lowercase(Copy(Trim(DatabaseConfigPage.Values[1]),
+          Length(Trim(DatabaseConfigPage.Values[1]))-4, 5)) <> '_demo')) then
+    begin
+      MsgBox('PILOT must use a fresh empty database ending in _test or _demo.', mbError, MB_OK);
+      Result := False;
+    end;
+    if not FileExists(ExpandConstant('{app}\.env')) and (Length(Pwd) < 16) then
+      Result := False;
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -139,7 +199,7 @@ var
   ResultCode: Integer;
 begin
   // إيقاف أي سيرفر قديم يعمل في الخلفية قبل نسخ الملفات الجديدة
-  Exec('cmd.exe', '/c taskkill /F /IM node.exe /T >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Never terminate unrelated Node.js servers on the customer's computer.
   Result := '';
 end;
 
@@ -163,7 +223,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   AppPort, DbHost, DbPort, DbUser, DbPass, DbName: String;
-  EnvContent, PortJsonContent, StartBatContent, StopBatContent, VbsContent: String;
+  EnvContent, PortJsonContent, StartBatContent, StopBatContent, VbsContent, AdminPass: String;
   UpgradeSqlContent, UpgradeSqlPath: String;
   MySQLExe, SqlFilePath, ImportCmd: String;
   ResultCode: Integer;
@@ -182,10 +242,11 @@ begin
     DbUser := Trim(ServerConfigPage.Values[3]);
     if DbUser = '' then DbUser := 'root';
 
-    DbPass := ServerConfigPage.Values[4];
+    DbPass := DatabaseConfigPage.Values[0];
+    AdminPass := DatabaseConfigPage.Values[2];
 
-    DbName := Trim(ServerConfigPage.Values[5]);
-    if DbName = '' then DbName := 'tlab_db';
+    DbName := Trim(DatabaseConfigPage.Values[1]);
+    if DbName = '' then DbName := 'tlab_local_test';
 
     // 1. كتابة ملف .env بتعليقات ASCII نقية لمنع أي تعارض ترميز مع cmd.exe أو dotenv
     EnvContent :=
@@ -195,8 +256,8 @@ begin
       '# ============================================================================' + #13#10 +
       '' + #13#10 +
       'PORT=' + AppPort + #13#10 +
-      'HOST=0.0.0.0' + #13#10 +
-      'NODE_ENV=development' + #13#10 +
+      'HOST=127.0.0.1' + #13#10 +
+      'NODE_ENV=production' + #13#10 +
       '' + #13#10 +
       'MYSQL_HOST=' + DbHost + #13#10 +
       'MYSQL_PORT=' + DbPort + #13#10 +
@@ -205,12 +266,20 @@ begin
       'MYSQL_DATABASE=' + DbName + #13#10 +
       'MYSQL_CHARSET=utf8_general_ci' + #13#10 +
       'MYSQL_CONNECTION_TIMEOUT=8000' + #13#10 +
-      'MYSQL_AUTO_SYNC=true' + #13#10 +
+      'MYSQL_AUTO_SYNC=false' + #13#10 +
+      'TLAB_ENABLE_LEGACY_API=false' + #13#10 +
+      'TLAB_MULTIBRANCH_MODE=false' + #13#10 +
+      'TLAB_ENABLE_UNSAFE_BULK_IMPORT=false' + #13#10 +
+      'TLAB_ENABLE_SNAPSHOT_PULL=false' + #13#10 +
+      'TLAB_ALLOW_SCHEMA_BOOTSTRAP=false' + #13#10 +
+      'TLAB_ADMIN_PASSWORD=' + AdminPass + #13#10 +
       '' + #13#10 +
       'GEMINI_API_KEY=' + #13#10 +
       'APP_URL=http://localhost:' + AppPort + #13#10;
 
-    SaveStringToFile(ExpandConstant('{app}\.env'), EnvContent, False);
+    // Preserve existing credentials and production settings on upgrades.
+    if not FileExists(ExpandConstant('{app}\.env')) then
+      SaveStringToFile(ExpandConstant('{app}\.env'), EnvContent, False);
 
     // 2. كتابة ملف port.config.json تلقائياً
     PortJsonContent := '{' + #13#10 + '  "port": ' + AppPort + #13#10 + '}';
@@ -220,70 +289,24 @@ begin
     // (يتأكد من وجود Node.js، ويثبت الحزم تلقائياً إن لم تكن موجودة، ويمسح كاش Vite القديم، ويفتح المتصفح فور جاهزية البورت)
     StartBatContent :=
       '@echo off' + #13#10 +
-      'chcp 65001 >nul' + #13#10 +
-      'title T-Lab Medical Laboratory ^& ERP Server' + #13#10 +
       'cd /d "%~dp0"' + #13#10 +
-      '' + #13#10 +
-      'set "PATH=%PATH%;C:\Program Files\nodejs;C:\Program Files (x86)\nodejs;%APPDATA%\npm;%LOCALAPPDATA%\Programs\nodejs"' + #13#10 +
-      '' + #13#10 +
-      'set APP_PORT=' + AppPort + #13#10 +
-      'if exist ".env" (' + #13#10 +
-      '  for /f "tokens=2 delims==" %%a in (''findstr /B /I "PORT=" ".env" 2^>nul'') do (' + #13#10 +
-      '    set "APP_PORT=%%a"' + #13#10 +
-      '  )' + #13#10 +
-      ')' + #13#10 +
-      'set "APP_PORT=%APP_PORT: =%"' + #13#10 +
-      'if "%APP_PORT%"=="" set APP_PORT=' + AppPort + #13#10 +
-      '' + #13#10 +
-      'echo ============================================================================' + #13#10 +
-      'echo   T-Lab Medical Laboratory ^& ERP System (MySQL 5.5 / 8.0.28)' + #13#10 +
-      'echo   Working Directory: %CD%' + #13#10 +
-      'echo   Target URL       : http://localhost:%APP_PORT%' + #13#10 +
-      'echo ============================================================================' + #13#10 +
-      'echo.' + #13#10 +
-      '' + #13#10 +
-      'where node >nul 2>&1' + #13#10 +
-      'if %ERRORLEVEL% NEQ 0 (' + #13#10 +
-      '  echo [ERROR] Node.js was not found on this computer!' + #13#10 +
-      '  echo Please install Node.js LTS from https://nodejs.org/ and try again.' + #13#10 +
-      '  pause' + #13#10 +
-      '  exit /b 1' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'if not exist "node_modules\express\package.json" (' + #13#10 +
-      '  echo [1/2] Installing required packages ^(node_modules^) for first-time launch...' + #13#10 +
-      '  call npm install --legacy-peer-deps' + #13#10 +
-      '  echo.' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'if not exist "node_modules\tsx\dist\cli.mjs" (' + #13#10 +
-      '  echo [1/2] Installing tsx runtime...' + #13#10 +
-      '  call npm install --legacy-peer-deps' + #13#10 +
-      '  echo.' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'if exist "node_modules\.vite" (' + #13#10 +
-      '  rmdir /s /q "node_modules\.vite" >nul 2>&1' + #13#10 +
-      ')' + #13#10 +
-      '' + #13#10 +
-      'start "" /b powershell -NoProfile -WindowStyle Hidden -Command "for($i=0; $i -lt 30; $i++){ Start-Sleep -Seconds 1; try { $c = New-Object System.Net.Sockets.TcpClient(''127.0.0.1'', %APP_PORT%); if($c.Connected){ $c.Close(); Start-Process ''http://localhost:%APP_PORT%''; break } } catch {} }"' + #13#10 +
-      '' + #13#10 +
-      'set NODE_ENV=development' + #13#10 +
-      'if exist "node_modules\tsx\dist\cli.mjs" (' + #13#10 +
-      '  node "node_modules\tsx\dist\cli.mjs" server.ts --port %APP_PORT%' + #13#10 +
-      ') else (' + #13#10 +
-      '  call npx tsx server.ts --port %APP_PORT%' + #13#10 +
-      ')' + #13#10 +
-      'echo.' + #13#10 +
+      'echo T-Lab PILOT sandbox: synthetic data only; no production patients.' + #13#10 +
+      'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows-local-pilot.ps1"' + #13#10 +
       'pause' + #13#10;
+    SaveStringToFile(ExpandConstant('{app}\start-tlab-pilot.bat'), StartBatContent, False);
 
-    SaveStringToFile(ExpandConstant('{app}\start-tlab-production.bat'), StartBatContent, False);
+    SaveStringToFile(ExpandConstant('{app}\init-tlab-pilot.bat'),
+      '@echo off' + #13#10 +
+      'cd /d "%~dp0"' + #13#10 +
+      'echo This action initializes a NEW EMPTY test database only.' + #13#10 +
+      'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows-local-pilot.ps1" -InitializeEmptySandbox -CheckOnly' + #13#10 +
+      'pause' + #13#10, False);
 
     // 4. توليد ملف إيقاف السيرفر stop-tlab.bat وملف التشغيل الصامت launch-tlab.vbs
     StopBatContent :=
       '@echo off' + #13#10 +
-      'taskkill /F /IM node.exe /T >nul 2>&1' + #13#10 +
-      'echo T-Lab Server stopped.' + #13#10 +
+      'echo Close only the dedicated T-Lab server process window or service.' + #13#10 +
+      'echo Other Node.js services were not touched.' + #13#10 +
       'timeout /t 2 >nul' + #13#10;
     SaveStringToFile(ExpandConstant('{app}\stop-tlab.bat'), StopBatContent, False);
 
@@ -291,101 +314,11 @@ begin
       'Set WshShell = CreateObject("WScript.Shell")' + #13#10 +
       'strPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)' + #13#10 +
       'WshShell.CurrentDirectory = strPath' + #13#10 +
-      'WshShell.Run chr(34) & strPath & "\start-tlab-production.bat" & chr(34), 1, False' + #13#10 +
+      'WshShell.Run chr(34) & strPath & "\start-tlab-pilot.bat" & chr(34), 1, False' + #13#10 +
       'Set WshShell = Nothing' + #13#10;
     SaveStringToFile(ExpandConstant('{app}\launch-tlab.vbs'), VbsContent, False);
 
-    // 5. استيراد قاعدة البيانات إلى MySQL إذا اختار المستخدم الاستيراد الكامل أو الفارغ
-    MySQLExe := FindMySQLExePath();
-    SqlFilePath := '';
-    if WizardIsTaskSelected('importdb_full') then
-      SqlFilePath := ExpandConstant('{app}\public\tlab_db_complete_v7.sql')
-    else if WizardIsTaskSelected('importdb_clean') then
-      SqlFilePath := ExpandConstant('{app}\tlab_empty_except_users.sql');
-
-    if (SqlFilePath <> '') and FileExists(SqlFilePath) and (MySQLExe <> '') then
-    begin
-      if DbPass <> '' then
-        ImportCmd := '/c ""' + MySQLExe + '" --default-character-set=utf8 -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' -p' + DbPass + ' < "' + SqlFilePath + '""'
-      else
-        ImportCmd := '/c ""' + MySQLExe + '" --default-character-set=utf8 -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' < "' + SqlFilePath + '""';
-
-      Exec('cmd.exe', ImportCmd, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    end;
-
-    // 6. ترقية الجداول الجديدة تلقائياً (reference_lab_partners و lab_to_lab_dispatches) حتى مع الاحتفاظ بقاعدة البيانات الحالية
-    if MySQLExe <> '' then
-    begin
-      UpgradeSqlPath := ExpandConstant('{app}\upgrade_v6_lab_to_lab.sql');
-      UpgradeSqlContent :=
-        'CREATE DATABASE IF NOT EXISTS `' + DbName + '` CHARACTER SET utf8 COLLATE utf8_general_ci;' + #13#10 +
-        'USE `' + DbName + '`;' + #13#10 +
-        'CREATE TABLE IF NOT EXISTS `reference_lab_partners` (' + #13#10 +
-        '  `id` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `code` VARCHAR(50) NOT NULL,' + #13#10 +
-        '  `name_ar` VARCHAR(200) NOT NULL,' + #13#10 +
-        '  `name_en` VARCHAR(200) NOT NULL,' + #13#10 +
-        '  `contact_person` VARCHAR(150) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `phone` VARCHAR(40) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `whatsapp_phone` VARCHAR(40) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `address` VARCHAR(255) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `specialty_notes` VARCHAR(255) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `discount_percent` DECIMAL(6,2) NOT NULL DEFAULT 0.00,' + #13#10 +
-        '  `default_tat_hours` INT NOT NULL DEFAULT 24,' + #13#10 +
-        '  `active` TINYINT(1) NOT NULL DEFAULT 1,' + #13#10 +
-        '  `created_at` VARCHAR(40) NOT NULL,' + #13#10 +
-        '  PRIMARY KEY (`id`),' + #13#10 +
-        '  KEY `idx_ref_lab_code` (`code`)' + #13#10 +
-        ') ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;' + #13#10 +
-        'CREATE TABLE IF NOT EXISTS `lab_to_lab_dispatches` (' + #13#10 +
-        '  `id` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `dispatch_number` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `sample_id` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `sample_barcode` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `request_id` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `request_number` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `patient_id` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `patient_name` VARCHAR(150) NOT NULL,' + #13#10 +
-        '  `test_id` VARCHAR(64) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `test_name_ar` VARCHAR(200) NOT NULL,' + #13#10 +
-        '  `test_name_en` VARCHAR(200) NOT NULL,' + #13#10 +
-        '  `sample_type` VARCHAR(100) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `tube_color` VARCHAR(100) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `reference_lab_id` VARCHAR(64) NOT NULL,' + #13#10 +
-        '  `reference_lab_name_ar` VARCHAR(200) NOT NULL,' + #13#10 +
-        '  `reference_lab_name_en` VARCHAR(200) NOT NULL,' + #13#10 +
-        '  `reference_lab_phone` VARCHAR(40) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `courier_name` VARCHAR(150) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `courier_phone` VARCHAR(40) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `storage_condition` VARCHAR(30) NOT NULL DEFAULT ''refrigerated_2_8'',' + #13#10 +
-        '  `outsource_cost` DECIMAL(12,2) NOT NULL DEFAULT 0.00,' + #13#10 +
-        '  `patient_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,' + #13#10 +
-        '  `dispatch_date` VARCHAR(20) NOT NULL,' + #13#10 +
-        '  `expected_result_date` VARCHAR(20) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `dispatched_at` VARCHAR(40) DEFAULT NULL,' + #13#10 +
-        '  `received_by_partner_at` VARCHAR(40) DEFAULT NULL,' + #13#10 +
-        '  `result_received_at` VARCHAR(40) DEFAULT NULL,' + #13#10 +
-        '  `status` VARCHAR(40) NOT NULL DEFAULT ''prepared'',' + #13#10 +
-        '  `result_summary` TEXT,' + #13#10 +
-        '  `report_image_data_url` LONGTEXT,' + #13#10 +
-        '  `notes` TEXT,' + #13#10 +
-        '  `created_by` VARCHAR(100) NOT NULL DEFAULT '''',' + #13#10 +
-        '  `created_at` VARCHAR(40) NOT NULL,' + #13#10 +
-        '  PRIMARY KEY (`id`),' + #13#10 +
-        '  KEY `idx_l2l_number` (`dispatch_number`),' + #13#10 +
-        '  KEY `idx_l2l_barcode` (`sample_barcode`),' + #13#10 +
-        '  KEY `idx_l2l_partner` (`reference_lab_id`),' + #13#10 +
-        '  KEY `idx_l2l_status` (`status`)' + #13#10 +
-        ') ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;' + #13#10;
-
-      SaveStringToFile(UpgradeSqlPath, UpgradeSqlContent, False);
-
-      if DbPass <> '' then
-        ImportCmd := '/c ""' + MySQLExe + '" --default-character-set=utf8 -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' -p' + DbPass + ' < "' + UpgradeSqlPath + '""'
-      else
-        ImportCmd := '/c ""' + MySQLExe + '" --default-character-set=utf8 -h ' + DbHost + ' -P ' + DbPort + ' -u ' + DbUser + ' < "' + UpgradeSqlPath + '""';
-
-      Exec('cmd.exe', ImportCmd, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    end;
+    // No automatic SQL imports or schema upgrades during installation.
+    // Use an explicitly reviewed, backed-up test database migration.
   end;
 end;
