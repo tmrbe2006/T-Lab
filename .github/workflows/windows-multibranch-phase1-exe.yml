@@ -23,7 +23,7 @@ on:
       - 'src/services/manual-journal.service.ts'
       - 'src/services/manual-invoice.service.ts'
       - 'src/pages/finance/manual-journal-editor.ts'
-      - 'src/tests/services/financial-reconciliation.test.ts src/tests/services/accounting-chart-mapping.test.ts src/tests/services/contract-payment-allocation.test.ts'
+      - 'src/tests/services/financial-reconciliation.test.ts src/tests/services/accounting-chart-mapping.test.ts src/tests/services/accounting.service.test.ts src/tests/services/contract-payment-allocation.test.ts'
       - 'src/services/invoice-adjustment.service.ts'
       - 'src/services/accounting.service.ts'
       - 'src/services/commission.service.ts'
