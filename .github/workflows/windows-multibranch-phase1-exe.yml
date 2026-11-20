@@ -10,13 +10,19 @@ on:
       - 'server/branch-service.ts'
       - 'server/branch-pilot-api.ts'
       - 'src/pages/staff/branches.page.ts'
+      - 'src/pages/staff/branch-permissions.panel.ts'
+      - 'src/pages/login.page.ts'
+      - 'src/pages/dashboard.page.ts'
+      - 'src/pages/staff/permissions.page.ts'
+      - 'server/branch-user-permissions.ts'
+      - 'sql/tlab_branch_user_permissions_v2.sql'
       - 'src/app.ts'
       - 'src/services/mysql-sync.service.ts'
       - 'src/auth/auth.service.ts'
       - 'src/guards/permission.guard.ts'
       - 'src/router.ts'
       - 'src/types/index.ts'
-      - 'src/tests/services/branch-service.test.ts'
+      - 'src/tests/services/branch-service.test.ts src/tests/services/branch-user-permissions.test.ts'
       - 'src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts'
       - 'sql/tlab_multibranch_additive_v1.sql'
       - 'docs/MULTIBRANCH_MIGRATION_PHASE1.md'
@@ -91,6 +97,7 @@ jobs:
         run: |
           $file = 'installer/package/sql/tlab_multibranch_additive_v1.sql'
           if (!(Test-Path $file)) { throw 'Multi-branch migration missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_branch_user_permissions_v2.sql')) { throw 'User-specific branch permissions migration missing' }
           $sql = Get-Content $file -Raw
           foreach ($table in @('branches', 'user_branches', 'branch_settings', 'branch_test_prices', 'branch_inventory', 'branch_transfers', 'branch_transfer_items', 'branch_sequences', 'branch_migration_audit')) {
             $pattern = 'CREATE TABLE IF NOT EXISTS ' + [char]96 + $table + [char]96
@@ -130,7 +137,7 @@ jobs:
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
           $proc = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Inno installation failed: $($proc.ExitCode)" }
-          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'tlab-new-icon.ico')) {
+          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'tlab-new-icon.ico')) {
             if (!(Test-Path (Join-Path $target $required))) { throw "Missing installed file: $required" }
           }
           $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw
