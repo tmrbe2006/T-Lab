@@ -286,7 +286,16 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
             active: fd.get('active') === 'true',
             createdAt: existing?.createdAt || new Date().toISOString().slice(0, 10),
           };
-          await patientsRepository.save(record);
+          try {
+            await patientsRepository.save(record);
+          } catch (error) {
+            showToast(
+              i18n.bi('فشل حفظ المريض على MySQL: ', 'MySQL patient save failed: ') +
+                String(error instanceof Error ? error.message : error),
+              'error',
+            );
+            return;
+          }
           await authService.logAudit(
             isEdit ? `تعديل مريض: ${record.name}` : `إضافة مريض: ${record.name}`,
             'patients',
@@ -550,7 +559,16 @@ ${liveMySQL ? '—' : `${reqCount} ${i18n.bi('طلب', 'Reqs')}`}
               showToast(i18n.dict.common.forbiddenMessage, 'unauthorized');
               return;
             }
-            await patientsRepository.delete(target.id);
+            try {
+              await patientsRepository.delete(target.id);
+            } catch (error) {
+              showToast(
+                i18n.bi('تعذر تعطيل المريض في MySQL: ', 'MySQL patient archive failed: ') +
+                  String(error instanceof Error ? error.message : error),
+                'error',
+              );
+              return;
+            }
             await authService.logAudit(
               `حذف مريض: ${target.name}`,
               'patients',
