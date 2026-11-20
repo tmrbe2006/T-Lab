@@ -15,11 +15,13 @@ import { printService } from '../../print/print.service';
 import {
   doctorsRepository,
   invoicesRepository,
+  permissionsRepository,
   patientsRepository,
   paymentsRepository,
 } from '../../repositories';
 import { accountingService } from '../../services/accounting.service';
 import { commissionService } from '../../services/commission.service';
+import { adjustUnpaidInvoice, computeInvoiceAdjustment } from '../../services/invoice-adjustment.service';
 import {
   buildInvoiceWhatsAppMessage,
   openWhatsAppDispatchModal,
@@ -159,22 +161,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     const today = new Date().toISOString().slice(0, 10);
 
     if (inv.status === 'paid' && inv.remainingAmount <= 0) {
-      // Toggle back to unpaid if clicked when already paid
-      inv.paidAmount = 0;
-      inv.remainingAmount = inv.netTotal;
-      inv.status = 'unpaid';
-      await invoicesRepository.save(inv);
-      await authService.logAudit(
-        `تعديل حالة الفاتورة إلى غير مدفوعة: ${inv.invoiceNumber}`,
-        'invoices',
-        inv.id
-      );
-      showToast(
-        i18n.bi(`تم تعديل حالة الفاتورة (${inv.invoiceNumber}) إلى غير مدفوعة`, 'Invoice marked as unpaid'),
-        'info'
-      );
-      invoices = await invoicesRepository.getAll();
-      renderTable();
+      showToast(i18n.bi('لا يمكن إلغاء تحصيل حقيقي بمجرد تغيير حالة الفاتورة؛ يلزم قيد عكسي موثق.', 'Paid status cannot be cleared without a documented payment reversal and matching journal.'),'warning');
       return;
     }
 
@@ -233,7 +220,13 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     renderTable();
   };
 
-  const openEditInvoiceModal = (inv: Invoice) => {
+  const openEditInvoiceModal = async (inv: Invoice) => {
+    if (inv.paidAmount > 0 || inv.status === 'paid' || (await paymentsRepository.getByInvoiceId(inv.id)).length > 0) {
+      showToast(i18n.bi('الفاتورة المحصلة تحتاج تسوية محاسبية وإشعار دائن قبل التعديل.', 'A collected invoice requires accounting reversal and credit note before changes.'), 'warning');
+      return;
+    }
+    const settings = await permissionsRepository.getSettings();
+    const vatRate = settings?.defaultTaxRate ?? 14;
     const pat = patMap.get(inv.patientId);
     openCustomModal(
       `${i18n.bi('✏️ تعديل بيانات الفاتورة:', '✏️ Edit Invoice:')} ${inv.invoiceNumber}`,
@@ -251,7 +244,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             </div>
             <div>
               <label class="block font-bold text-slate-700 mb-1">${i18n.bi('الإجمالي قبل الخصم (Subtotal) *', 'Subtotal *')}</label>
-              <input id="edit-inv-sub" name="subtotal" type="number" step="0.01" min="0" required value="${inv.subtotal}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold" />
+              <input id="edit-inv-sub" name="subtotal" type="number" step="0.01" min="0" required value="${inv.subtotal}" readonly class=w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold" />
             </div>
             <div>
               <label class="block font-bold text-slate-700 mb-1">${i18n.bi('قيمة الخصم (Discount)', 'Discount Amount')}</label>
@@ -259,15 +252,15 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             </div>
             <div>
               <label class="block font-bold text-slate-700 mb-1">${i18n.bi('قيمة الضريبة (Tax)', 'Tax Amount')}</label>
-              <input id="edit-inv-tax" name="taxAmount" type="number" step="0.01" min="0" value="${inv.taxAmount}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-sky-700" />
+              <input id="edit-inv-tax" name="taxAmount" type="number" step="0.01" min="0" value="${inv.taxAmount}" readonly class=w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-sky-700" />
             </div>
             <div>
               <label class="block font-bold text-slate-700 mb-1">${i18n.bi('الصافي المطلوب (Net Total)', 'Net Total')}</label>
-              <input id="edit-inv-net" name="netTotal" type="number" step="0.01" min="0" required value="${inv.netTotal}" class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono font-extrabold text-slate-900" />
+              <input id="edit-inv-net" name="netTotal" type="number" step="0.01" min="0" required value="${inv.netTotal}" readonly class=w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono font-extrabold text-slate-900" />
             </div>
             <div>
               <label class="block font-bold text-slate-700 mb-1">${i18n.bi('المبلغ المدفوع (Paid Amount)', 'Paid Amount')}</label>
-              <input id="edit-inv-paid" name="paidAmount" type="number" step="0.01" min="0" required value="${inv.paidAmount}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold text-emerald-700" />
+              <input id="edit-inv-paid" name="paidAmount" type="number" step="0.01" min="0" required value="${inv.paidAmount}" readonly class=w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold text-emerald-700" />
             </div>
           </div>
 
@@ -300,47 +293,28 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
         const netEl = document.getElementById('edit-inv-net') as HTMLInputElement | null;
 
         const recalcNet = () => {
-          const s = Number(subEl?.value) || 0;
-          const d = Number(discEl?.value) || 0;
-          const t = Number(taxEl?.value) || 0;
-          if (netEl) {
-            netEl.value = String(Math.max(0, Math.round((s - d + t) * 100) / 100));
-          }
+          const math = computeInvoiceAdjustment(Number(subEl?.value) || 0,Number(discEl?.value) || 0,vatRate);
+          if(taxEl)taxEl.value=String(math.taxAmount);
+          if(netEl)netEl.value=String(math.netTotal);
         };
         subEl?.addEventListener('input', recalcNet);
         discEl?.addEventListener('input', recalcNet);
         taxEl?.addEventListener('input', recalcNet);
+        recalcNet();
 
         const form = document.getElementById('inv-edit-form') as HTMLFormElement | null;
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!(await enforcePermission('edit', 'invoices'))) return;
           const fd = new FormData(form);
-          const subtotal = Math.max(0, Number(fd.get('subtotal')) || 0);
-          const discountAmount = Math.max(0, Number(fd.get('discountAmount')) || 0);
-          const taxAmount = Math.max(0, Number(fd.get('taxAmount')) || 0);
-          const netTotal = Math.max(0, Number(fd.get('netTotal')) || 0);
-          const paidAmount = Math.min(netTotal, Math.max(0, Number(fd.get('paidAmount')) || 0));
-          const remainingAmount = Math.max(0, Math.round((netTotal - paidAmount) * 100) / 100);
-
-          inv.date = String(fd.get('date') || inv.date);
-          inv.subtotal = subtotal;
-          inv.discountAmount = discountAmount;
-          inv.taxAmount = taxAmount;
-          inv.netTotal = netTotal;
-          inv.paidAmount = paidAmount;
-          inv.remainingAmount = remainingAmount;
-          inv.status = remainingAmount === 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
-          inv.paymentMethod = (fd.get('paymentMethod') as PaymentMethod) || 'cash';
-          const cName = String(fd.get('contractName') || '').trim();
-          inv.contractName = cName || undefined;
-
-          await invoicesRepository.save(inv);
-          await authService.logAudit(
-            `تعديل بيانات الفاتورة ${inv.invoiceNumber}`,
-            'invoices',
-            inv.id
-          );
+          try {
+            const adjusted = await adjustUnpaidInvoice(inv.id,Math.max(0,Number(fd.get('discountAmount')) || 0),
+              vatRate,user?.username || 'accountant');
+            await authService.logAudit('تعديل خصم وضريبة الفاتورة وربط الطلب والقيود: '+adjusted.invoiceNumber,'invoices',adjusted.id);
+          } catch (error) {
+            showToast(String(error instanceof Error ? error.message:error),'error');
+            return;
+          }
           showToast(
             i18n.bi(`تم حفظ تعديلات الفاتورة (${inv.invoiceNumber}) بنجاح`, `Invoice ${inv.invoiceNumber} updated`),
             'success'
@@ -545,7 +519,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     document.querySelectorAll<HTMLButtonElement>('.inv-edit-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const target = invoices.find((x) => x.id === btn.getAttribute('data-edit-inv'));
-        if (target) openEditInvoiceModal(target);
+        if (target) void openEditInvoiceModal(target);
       });
     });
 
@@ -675,6 +649,11 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
               : undefined,
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'invoices'))) return;
+            const recordedPayments = await paymentsRepository.getByInvoiceId(target.id);
+            if (recordedPayments.length || target.paidAmount > 0) {
+              showToast(i18n.bi('لا يجوز حذف فاتورة مرتبطة بدفعات. يلزم إلغاء محاسبي موثق.', 'Invoice linked to payments cannot be deleted without an audited reversal.'),'warning');
+              return;
+            }
             await invoicesRepository.delete(target.id);
             await doctorsRepository.deleteCommissionByInvoiceId(target.id);
             await authService.logAudit(`حذف فاتورة: ${target.invoiceNumber}`, 'invoices', target.id, reason || '');
