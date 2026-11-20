@@ -95,7 +95,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
     const initDisc = existingReq
       ? { type: existingReq.discountType, value: existingReq.discountValue }
       : discountService.getPatientDefaultDiscount(selectedPat);
-    const initTaxRate = existingReq ? existingReq.taxRate : (labSettings?.defaultTaxRate ?? 14);
+    const initTaxRate = labSettings?.defaultTaxRate ?? 0;
     const initType: RequestType = existingReq ? existingReq.type : 'referred';
     const initDate = existingReq?.createdAt
       ? existingReq.createdAt.slice(0, 10)
@@ -212,7 +212,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                   id="req-test-search-input"
                   type="search"
                   autocomplete="off"
-                  placeholder="${i18n.bi('🔍 ابحث عن اسم التحليل بالعربي أو الإنجليزي أو الكود (مثال: CBC, Urea, صورة دم, غدة)...', '🔍 Search test by Arabic/English name or code (e.g., CBC, Urea, TSH)...')}"
+                  placeholder="${i18n.bi('ابحث عن التحليل بالاسم العربي أو الإنجليزي أو الكود؛ لا توجد تحاليل محددة مسبقًا', 'Search tests by name or code; no tests are preselected')}"
                   class="w-full rounded-md border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
                 />
               </div>
@@ -378,7 +378,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           const chosen = getSelectedTests();
           const dType = (discTypeEl?.value as DiscountType) || 'none';
           const dVal = Number(discValEl?.value) || 0;
-          const tRate = Number(taxRateEl?.value) || 14;
+          const tRate = Number(taxRateEl?.value ?? initTaxRate);
           const math = invoiceService.calculateInvoiceTotals(chosen, dType, dVal, tRate, 0);
           const selectedContract = contracts.find((c) => c.id === contractSel?.value);
           const patientShare = selectedContract
