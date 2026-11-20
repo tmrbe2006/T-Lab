@@ -626,6 +626,9 @@ class MySQLSyncService {
             <button id="${prefix}-backup-browser" type="button" class="rounded-lg bg-slate-800 px-4 py-2 text-white font-bold">
               ${i18n.bi('نسخة احتياطية لبيانات المتصفح الـ49 — دون حذف', 'Backup all 49 browser stores — no deletion')}
             </button>
+            <button id="${prefix}-compare-ids" type="button" class="rounded-lg bg-indigo-800 px-4 py-2 text-white font-bold">
+              ${i18n.bi('مقارنة معرفات المتصفح مع MySQL — بدون تعديل', 'Compare browser vs MySQL IDs — read only')}
+            </button>
           </div>
           <div id="${prefix}-storage-audit-result" role="status" class="text-xs whitespace-pre-wrap rounded-lg bg-slate-50 border p-3" hidden></div>
           <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
@@ -955,6 +958,35 @@ class MySQLSyncService {
             `${result.fileName} | ${result.tableCount} tables | ${result.rowCount} records`;
         } catch (error) {
           if (output) output.textContent = i18n.bi('فشل النسخ الاحتياطي؛ لم تُمسح أي بيانات: ', 'Backup failed; no data deleted: ') +
+            String(error instanceof Error ? error.message : error);
+        }
+      });
+      container.querySelector(`#${prefix}-compare-ids`)?.addEventListener('click', async () => {
+        const output = container.querySelector<HTMLElement>(`#${prefix}-storage-audit-result`);
+        if (!output) return;
+        output.hidden = false;
+        output.textContent = i18n.bi('جاري مقارنة معرفات السجلات فقط...', 'Comparing record IDs only...');
+        try {
+          const { getBrowserMySQLPreflightManifest } = await import('./browser-migration-backup');
+          const idsByStore = await getBrowserMySQLPreflightManifest();
+          const response = await fetch('/api/branch-pilot/migration-preflight', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idsByStore }),
+          });
+          const result = await response.json() as {
+            ok?:boolean; error?:string;
+            comparison?:Array<{store:string;browserRecords:number;mysqlRecords:number|null;matchingIds:number;browserOnly:number;mysqlOnly:number|null;mysqlTableExists:boolean}>;
+          };
+          if (!response.ok || !result.ok) throw new Error(result.error || 'PREFLIGHT_FAILED');
+          output.textContent = i18n.bi(
+            'مقارنة معرفات فقط — لم يتم نقل أو تعديل سجلات. اختلاف المحتوى لن يظهر إلا بعد فحص الحقول. لا تحذف IndexedDB.\\n',
+            'ID comparison only. No data moved or changed. Field content still needs reconciliation. Do not delete IndexedDB.\\n',
+          ) + (result.comparison || []).map(item =>
+            `${item.store}: browser=${item.browserRecords}, MySQL=${item.mysqlRecords ?? 'MISSING'}, matching=${item.matchingIds}, notImported=${item.browserOnly}, serverOnly=${item.mysqlOnly ?? 'N/A'}`
+          ).join('\n');
+        } catch (error) {
+          output.textContent = i18n.bi('فشلت المقارنة دون تغيير أي بيانات: ', 'Preflight failed without changes: ') +
             String(error instanceof Error ? error.message : error);
         }
       });
