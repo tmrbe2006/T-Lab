@@ -30,7 +30,7 @@ jobs:
           node-version: '22'
       - name: Validate and build
         run: |
-          npm ci --no-audit --no-fund
+          npm install --no-audit --no-fund
           npm run lint
           npm run build
           npx vitest run src/tests/services/mysql-patients.repository.test.ts
