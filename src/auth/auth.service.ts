@@ -5,8 +5,16 @@ import type { PermissionAction, ResourceScreen, RolePermission, User } from '../
 
 const SESSION_KEY = 'medlab_current_user';
 
+export interface ActiveBranchContext {
+  branchId: string;
+  code: string;
+  nameAr: string;
+  permissions: Array<{ resource: string; actions: Record<string, boolean> }>;
+}
+
 class AuthService {
   private currentUser: User | null = null;
+  private activeBranch: ActiveBranchContext | null = null;
   private permissionsCache: Map<string, Record<PermissionAction, boolean>> = new Map();
 
   async init(): Promise<void> {
@@ -17,6 +25,28 @@ class AuthService {
         const parsed = JSON.parse(raw) as User;
         const freshUser = await usersRepository.getByUsername(parsed.username);
         if (freshUser && freshUser.active) {
+          if (window.location.port === '3127') {
+            try {
+              const response = await fetch('/api/branch-pilot/staff-session', { credentials: 'same-origin', cache: 'no-store' });
+              const result = await response.json() as {
+                ok: boolean; userId: string; username: string;
+                branch: {branchId:string;code:string;nameAr:string};
+                permissions: ActiveBranchContext['permissions'];
+              };
+              if (!response.ok || !result.ok || result.userId !== freshUser.id || result.username !== freshUser.username) {
+                localStorage.removeItem(SESSION_KEY);
+                this.currentUser = null;
+                this.activeBranch = null;
+                return;
+              }
+              this.activeBranch = { ...result.branch, permissions: result.permissions };
+            } catch {
+              localStorage.removeItem(SESSION_KEY);
+              this.currentUser = null;
+              this.activeBranch = null;
+              return;
+            }
+          }
           this.currentUser = freshUser;
           localStorage.setItem(SESSION_KEY, JSON.stringify(freshUser));
         } else {
@@ -91,18 +121,35 @@ class AuthService {
     return this.currentUser;
   }
 
+  getActiveBranch(): ActiveBranchContext | null {
+    return this.activeBranch;
+  }
+
+  getBranchPermission(resource: ResourceScreen, action: PermissionAction): boolean {
+    // No stored user/branch override means no access in the branch pilot.
+    if (!this.activeBranch) return false;
+    const row = this.activeBranch.permissions.find((p) => p.resource === resource);
+    return row?.actions?.[action] === true;
+  }
+
   getPermissionsFor(role: string, resource: ResourceScreen): Record<PermissionAction, boolean> | undefined {
     return this.permissionsCache.get(`${role}_${resource}`);
   }
 
-  async login(username: string, passwordPlain: string): Promise<{ ok: boolean; user?: User }> {
+  async login(username: string, passwordPlain: string, branch?: ActiveBranchContext): Promise<{ ok: boolean; user?: User }> {
     const user = await usersRepository.getByUsername(username.trim());
     if (!user || !user.active || user.passwordHash !== passwordPlain) {
       return { ok: false };
     }
     // Switching the browser identity must revoke any previous elevated
     // local branch-administrator session on the server.
-    await this.revokeBranchPilotSession();
+    if (window.location.port === '3127') {
+      // Browser identity must exactly match the server-verified branch identity.
+      if (!branch) return { ok: false };
+    } else {
+      await this.revokeBranchPilotSession();
+    }
+    this.activeBranch = branch || null;
     this.currentUser = user;
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
     await this.logAudit('تسجيل دخول إلى النظام / User Sign-In', 'auth', user.id, `Username: ${user.username} (${user.role})`);
@@ -115,6 +162,7 @@ class AuthService {
     }
     await this.revokeBranchPilotSession();
     this.currentUser = null;
+    this.activeBranch = null;
     localStorage.removeItem(SESSION_KEY);
   }
 
