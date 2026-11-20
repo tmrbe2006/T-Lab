@@ -193,7 +193,7 @@ function getUserMenuStorageKey(username?: string): string {
 function loadMenuPreferences(username?: string): UserMenuPreferences {
   const defaultPrefs: UserMenuPreferences = {
     layoutMode: 'grouped_expanded',
-    showAllScreensRegardlessOfRole: true,
+    showAllScreensRegardlessOfRole: false,
     hiddenGroups: [],
     hiddenRoutes: [],
     groupOrder: DEFAULT_SIDEBAR_GROUPS.map((g) => g.id),
@@ -229,7 +229,7 @@ function loadMenuPreferences(username?: string): UserMenuPreferences {
 
     return {
       layoutMode: parsed.layoutMode || defaultPrefs.layoutMode,
-      showAllScreensRegardlessOfRole: parsed.showAllScreensRegardlessOfRole ?? true,
+      showAllScreensRegardlessOfRole: false,
       hiddenGroups: Array.isArray(parsed.hiddenGroups) ? parsed.hiddenGroups : [],
       hiddenRoutes: Array.isArray(parsed.hiddenRoutes) ? parsed.hiddenRoutes : [],
       groupOrder: baseOrder,
@@ -555,7 +555,7 @@ export class MedicalLabApp {
     const collectCurrentFormPrefs = (form: HTMLFormElement): UserMenuPreferences => {
       const fd = new FormData(form);
       const layoutMode = (fd.get('layoutMode') as MenuLayoutMode) || prefs.layoutMode || 'grouped_expanded';
-      const showAllScreensRegardlessOfRole = Boolean(fd.get('showAllScreensRegardlessOfRole'));
+      const showAllScreensRegardlessOfRole = false; // Role grants always take precedence
       const hiddenGroups: string[] = [];
       const hiddenRoutes: string[] = [];
       const customGroupTitlesAr: Record<string, string> = { ...prefs.customGroupTitlesAr };
@@ -687,8 +687,8 @@ export class MedicalLabApp {
               </label>
             </div>
             <label class="flex items-center gap-2 pt-1 font-bold text-emerald-900 cursor-pointer">
-              <input type="checkbox" name="showAllScreensRegardlessOfRole" value="1" ${prefs.showAllScreensRegardlessOfRole ? 'checked' : ''} class="w-4 h-4 accent-emerald-600 rounded" />
-              <span>✅ ${i18n.bi('إظهار جميع القوائم والشاشات الـ 37 كاملة في القائمة الجانبية بدون إخفاء', 'Show all 37 screens in sidebar without hiding')}</span>
+              <input type="checkbox" name="showAllScreensRegardlessOfRole" value="1" disabled class="w-4 h-4 accent-emerald-600 rounded" />
+              <span>✅ ${i18n.bi('تم تعطيل إظهار الشاشات بدون صلاحيات لحماية الأدوار', 'Show-all bypass disabled for role security')}</span>
             </label>
           </div>
 
@@ -1586,7 +1586,7 @@ export class MedicalLabApp {
       this.expandedGroups.add(activeGroup.id);
     }
 
-    const canViewDashboard = prefs.showAllScreensRegardlessOfRole || can(user, 'view', 'dashboard');
+    const canViewDashboard = can(user, 'view', 'dashboard');
     const isDeveloper = user.role === 'Developer';
     const visibleGroups = orderedGroups
       .filter((grp) => !prefs.hiddenGroups.includes(grp.id))
@@ -1601,8 +1601,8 @@ export class MedicalLabApp {
             return false;
           }
           if (prefs.hiddenRoutes.includes(itemKey)) return false;
-          if (prefs.showAllScreensRegardlessOfRole) return true;
-          return !item.resource || can(user, 'view', item.resource);
+          const requiredResource = item.resource || SIDEBAR_ITEMS.find((entry) => entry.route === item.route)?.resource;
+          return requiredResource ? can(user, 'view', requiredResource) : isDeveloper;
         }),
       }))
       .filter((grp) => grp.items.length > 0 || grp.isCustomGroup);
@@ -2212,7 +2212,7 @@ export class MedicalLabApp {
     }
 
     const matchedNav = SIDEBAR_ITEMS.find((i) => i.route === currentRoute);
-    if (!prefs.showAllScreensRegardlessOfRole && matchedNav?.resource && !can(user, 'view', matchedNav.resource)) {
+    if (matchedNav?.resource && !can(user, 'view', matchedNav.resource)) {
       await authService.logAudit(
         `محاولة فتح شاشة غير مصرح بها (403): ${currentRoute}`,
         matchedNav.resource,
