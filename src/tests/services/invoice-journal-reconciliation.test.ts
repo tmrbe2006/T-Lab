@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '../../db/database';
 import { accountingService } from '../../services/accounting.service';
-import { adjustUnpaidInvoice } from '../../services/invoice-adjustment.service';
+import { adjustUnpaidInvoice, synchronizeUnpaidRequestInvoice } from '../../services/invoice-adjustment.service';
 import type { Invoice, LabRequest, InvoiceItem } from '../../types';
 
 const invoice: Invoice = {
@@ -72,6 +72,51 @@ describe('unpaid request/invoice adjustments and balanced accounting entries', (
     expect(req?.netTotal).toBe(369);
     expect(req?.discountType).toBe('percentage');
     expect(req?.discountValue).toBe(10);
+  });
+
+  it('updates patient invoice + medical request + item prices + journals in one transaction', async () => {
+    await accountingService.recordInvoiceJournal(invoice,'owner');
+    const requestItems = [
+      {id:'r_cbc',requestId:request.id,testId:'cbc',price:200,commissionEligible:true},
+      {id:'r_urea',requestId:request.id,testId:'urea',price:110,commissionEligible:true},
+    ];
+    const revisedItems = [
+      { ...items[0], price:200 },
+      { ...items[1], price:110 },
+    ];
+    const newInvoice:Invoice = {
+      ...invoice,subtotal:310,discountType:'fixed',discountValue:50,
+      discountAmount:50,taxRate:14,taxAmount:36.4,netTotal:296.4,
+      remainingAmount:296.4,patientShareAmount:296.4,companyShareAmount:0,
+    };
+    const newRequest:LabRequest = {
+      ...request,subtotal:310,discountType:'fixed',discountValue:50,
+      discountAmount:50,taxRate:14,taxAmount:36.4,netTotal:296.4,
+    };
+    const corrected=await synchronizeUnpaidRequestInvoice(
+      newRequest,requestItems,newInvoice,revisedItems,'owner');
+    expect(corrected.netTotal).toBe(296.4);
+    expect((await db.requests.get(request.id))?.netTotal).toBe(296.4);
+    expect((await db.invoices.get(invoice.id))?.netTotal).toBe(296.4);
+    expect((await db.invoiceItems.where('invoiceId').equals(invoice.id).count())).toBe(2);
+    const current = await db.journalEntries.where('referenceId').equals(invoice.id).toArray();
+    const active = current.filter(j=>j.referenceType==='invoice' && !j.reversalEntryId);
+    expect(active).toHaveLength(1);
+    expect(active[0].totalDebit).toBe(296.4);
+    expect(active[0].totalCredit).toBe(296.4);
+  });
+
+  it('rolls back clinical and financial writes together when the original invoice is already collected', async () => {
+    await db.invoices.put({...invoice,paidAmount:20,remainingAmount:447.4,status:'partial'});
+    const revised={...request,subtotal:900,netTotal:900};
+    await expect(synchronizeUnpaidRequestInvoice(
+      revised, [{id:'ri_new',requestId:request.id,testId:'cbc',price:900,commissionEligible:true}],
+      {...invoice,subtotal:900,netTotal:900},
+      [{...items[0],price:900}],
+      'owner',
+    )).rejects.toThrow('PAID_INVOICE_REQUIRES_CREDIT_NOTE_AND_PAYMENT_REVERSAL');
+    expect((await db.requests.get(request.id))?.subtotal).toBe(410);
+    expect((await db.invoices.get(invoice.id))?.netTotal).toBe(467.4);
   });
 
   it('rejects changes to collected invoices without modifying their stored amount', async () => {
