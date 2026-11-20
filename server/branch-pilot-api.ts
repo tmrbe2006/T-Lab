@@ -104,6 +104,37 @@ export function installBranchPilotRoutes(app: Express): void {
     next();
   });
 
+  // Read-only local health probe. Uses server-side .env credentials only.
+  // It never creates a schema, modifies a row, or returns a password.
+  // Deliberately precedes the privileged session gate so the Windows
+  // connection panel can show a truthful status before administrator login.
+  app.get('/api/branch-pilot/connection-status', async (_req, res) => {
+    let db: mysql.Connection | null = null;
+    try {
+      db = await dbConnection();
+      const [versionRows] = await db.query<mysql.RowDataPacket[]>('SELECT VERSION() AS version, DATABASE() AS dbname');
+      const [tableRows] = await db.query<mysql.RowDataPacket[]>('SHOW TABLES');
+      const dbname = String(versionRows[0]?.dbname || process.env.MYSQL_DATABASE || '');
+      res.json({
+        ok: true,
+        version: String(versionRows[0]?.version || ''),
+        database: dbname,
+        existingTablesCount: tableRows.length,
+        // Credentials intentionally omitted, including database username.
+      });
+    } catch (error) {
+      const code = (error as { code?: string }).code || '';
+      const safeReason =
+        code === 'ER_ACCESS_DENIED_ERROR' ? 'MYSQL_AUTH_FAILED' :
+        code === 'ER_BAD_DB_ERROR' ? 'DATABASE_NOT_FOUND' :
+        code === 'ECONNREFUSED' ? 'MYSQL_SERVER_UNREACHABLE' :
+        code === 'ENOTFOUND' ? 'MYSQL_HOST_NOT_FOUND' : 'MYSQL_CONNECTION_FAILED';
+      res.status(503).json({ ok: false, error: safeReason });
+    } finally {
+      if (db) await db.end().catch(() => undefined);
+    }
+  });
+
   app.post('/api/branch-pilot/login', async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
