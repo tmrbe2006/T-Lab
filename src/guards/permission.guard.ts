@@ -17,15 +17,29 @@ export function can(
   // These administrative boundaries cannot be weakened by editable role rows.
   if (resource === 'settings') return user.role === 'Developer';
   if (resource === 'branches') {
-    return (user.role === 'Developer' || user.role === 'Owner') &&
-      ['view', 'add', 'edit', 'print'].includes(action);
+    if (user.role === 'Developer') return ['view', 'add', 'edit', 'print'].includes(action);
+    return user.role === 'Owner' && ['view', 'edit', 'print'].includes(action);
   }
   if (resource === 'permissions') {
     return (user.role === 'Developer' || user.role === 'Owner') &&
       ['view', 'print', 'edit', 'managePermissions'].includes(action);
   }
 
-  // System administrator and laboratory owner retain operational access.
+  if (typeof window !== 'undefined' && window.location.port === '3127') {
+    // In the pilot, the current user must have a verified server branch session.
+    const branch = authService.getActiveBranch();
+    if (!branch) return false;
+    // Developer is privileged; Owner can be restricted per-branch if explicitly configured.
+    if (user.role === 'Developer') return true;
+    if (user.role === 'Owner') {
+      const configured = branch.permissions.find((row) => row.resource === resource);
+      return configured ? configured.actions[action] === true : true;
+    }
+    // For ordinary staff, any missing user/branch/screen permission is denied.
+    return authService.getBranchPermission(resource, action);
+  }
+
+  // In the original non-branch edition preserve legacy role permissions.
   if (user.role === 'Developer' || user.role === 'Owner') return true;
 
   // The saved role matrix is the sole authority for all ordinary roles.
