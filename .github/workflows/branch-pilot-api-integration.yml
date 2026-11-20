@@ -94,6 +94,8 @@ jobs:
           test "$code" = 200
           branch_response=$(curl -fsS -b developer-cookies.txt -X POST -H 'Content-Type: application/json' -d '{"nameAr":"الفرع الثاني","nameEn":"Branch Two"}' http://127.0.0.1:3127/api/branch-pilot/branches)
           echo "$branch_response" | grep '"code":"BR-002"'
+          next_response=$(curl -fsS -b developer-cookies.txt -X POST -H 'Content-Type: application/json' -d '{"nameAr":"الفرع الثالث","nameEn":"Branch Three"}' http://127.0.0.1:3127/api/branch-pilot/branches)
+          echo "$next_response" | grep '"code":"BR-003"'
           new_id=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT id FROM branches WHERE code='BR-002'")
           test -n "$new_id"
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"userId\":\"usr_staff\",\"branchId\":\"$new_id\"}" http://127.0.0.1:3127/api/branch-pilot/assign)
@@ -101,6 +103,19 @@ jobs:
           assigned=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM user_branches WHERE user_id='usr_staff' AND branch_id='$new_id'")
           test "$assigned" = 1
           # An assigned employee sees only their branch and cannot access an unassigned branch.
+          # Owner sets full 38-screen matrix for this user on BR-002 only.
+          BRANCH_ID="$new_id" node --import tsx --input-type=module -e "
+          import { BRANCH_ACTIONS, BRANCH_RESOURCES } from './server/branch-user-permissions.ts';
+          const rows=BRANCH_RESOURCES.map(resource => ({
+            resource,actions:Object.fromEntries(BRANCH_ACTIONS.map(action => [action,resource==='patients' && action==='view']))
+          }));
+          process.stdout.write(JSON.stringify({userId:'usr_staff',branchId:process.env.BRANCH_ID,rows}));
+          " > branch-permission-payload.json
+          curl -fsS -b cookies.txt -X POST -H 'Content-Type: application/json' --data-binary @branch-permission-payload.json http://127.0.0.1:3127/api/branch-pilot/user-permissions | grep '"ok":true'
+          curl -fsS -b cookies.txt "http://127.0.0.1:3127/api/branch-pilot/user-permissions?userId=usr_staff&branchId=$new_id" | grep '"resource":"patients"'
+          assigned_rows=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM user_branch_permissions WHERE user_id='usr_staff' AND branch_id='$new_id'")
+          test "$assigned_rows" = 38
+          # The same employee cannot have access to the unassigned BR-003.
           staff_branches=$(curl -fsS -X POST -H 'Content-Type: application/json' -d '{"username":"staff","password":"staff-password"}' http://127.0.0.1:3127/api/branch-pilot/staff-branches)
           echo "$staff_branches" | grep "BR-002"
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"staff","password":"staff-password","branchId":"unknown_branch"}' http://127.0.0.1:3127/api/branch-pilot/staff-login)
@@ -108,6 +123,7 @@ jobs:
           code=$(curl -s -c staff-cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"username\":\"staff\",\"password\":\"staff-password\",\"branchId\":\"$new_id\"}" http://127.0.0.1:3127/api/branch-pilot/staff-login)
           test "$code" = 200
           curl -fsS -b staff-cookies.txt http://127.0.0.1:3127/api/branch-pilot/staff-session | grep "$new_id"
+          curl -fsS -b staff-cookies.txt http://127.0.0.1:3127/api/branch-pilot/staff-session | grep '"resource":"patients"'
           code=$(curl -s -b staff-cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/users)
           test "$code" = 403
 
