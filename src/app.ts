@@ -1593,6 +1593,7 @@ export class MedicalLabApp {
 
     const canViewDashboard = can(user, 'view', 'dashboard');
     const isDeveloper = user.role === 'Developer';
+    const activeBranch = authService.getActiveBranch();
     const visibleGroups = orderedGroups
       .filter((grp) => !prefs.hiddenGroups.includes(grp.id))
       .map((grp) => ({
@@ -1630,6 +1631,7 @@ export class MedicalLabApp {
             <span>${i18n.bi(user.fullNameAr, user.fullNameEn)}</span>
             <span aria-hidden="true">·</span>
             <span class="font-semibold text-sky-300">${d.roles[user.role]}</span>
+            ${activeBranch ? '<span aria-hidden="true">·</span><span id="active-branch-label" class="font-bold text-emerald-200"></span>' : ''}
           </div>
 
           <div class="flex flex-wrap items-center gap-2 shrink-0">
@@ -2022,6 +2024,11 @@ export class MedicalLabApp {
         </div>
       </div>
     `;
+
+    const selectedBranchLabel = document.getElementById('active-branch-label');
+    if (selectedBranchLabel && activeBranch) {
+      selectedBranchLabel.textContent = activeBranch.code + ' — ' + activeBranch.nameAr;
+    }
 
     themeService.bindToolbarEvents();
 
