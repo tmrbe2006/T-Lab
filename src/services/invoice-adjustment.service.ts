@@ -1,7 +1,8 @@
 import { db } from '../db/database';
 import { discountService } from './discount.service';
 import { accountingService } from './accounting.service';
-import type { DiscountType, Invoice, InvoiceItem, JournalEntry } from '../types';
+import { requestsRepository } from '../repositories/requests.repository';
+import type { DiscountType, Invoice, InvoiceItem, JournalEntry, LabRequest, RequestItem } from '../types';
 
 const cents=(n:number)=>Math.round(n*100)/100;
 
@@ -94,6 +95,51 @@ export async function adjustUnpaidInvoice(
     await accountingService.recordInvoiceJournal(updated,actor);
     return updated;
   });
+}
+
+/**
+ * Atomically update a laboratory request and its *unpaid* linked invoice,
+ * test items, co-pay/contract shares and balanced reversal journal.
+ * The previous screen wrote the clinical request before the financial write,
+ * which could leave inconsistent records if the second operation failed.
+ */
+export async function synchronizeUnpaidRequestInvoice(
+  request: LabRequest,
+  requestItems: RequestItem[],
+  invoice: Invoice,
+  invoiceItems: InvoiceItem[],
+  actor: string,
+): Promise<Invoice> {
+  if (!requestItems.length || !invoiceItems.length || invoice.requestId !== request.id ||
+      requestItems.some((item) => item.requestId !== request.id) ||
+      invoiceItems.some((item) => item.invoiceId !== invoice.id)) {
+    throw new Error('INVALID_LINKED_REQUEST_ITEMS');
+  }
+  const reconciled = await db.transaction('rw', [
+    db.requests, db.requestItems, db.invoices, db.invoiceItems,
+    db.payments, db.journalEntries, db.corporateContracts,
+  ], async () => {
+    const previous = await db.invoices.get(invoice.id);
+    if (!previous || previous.status === 'cancelled') throw new Error('INVOICE_NOT_FOUND_OR_CANCELLED');
+    const payments = await db.payments.where('invoiceId').equals(invoice.id).toArray();
+    if (previous.paidAmount > 0 || previous.status === 'paid' ||
+        payments.some((p) => p.status === 'active')) {
+      throw new Error('PAID_INVOICE_REQUIRES_CREDIT_NOTE_AND_PAYMENT_REVERSAL');
+    }
+    await db.requests.put(request);
+    await db.requestItems.where('requestId').equals(request.id).delete();
+    await db.requestItems.bulkPut(requestItems);
+    await db.invoices.put(invoice);
+    await db.invoiceItems.where('invoiceId').equals(invoice.id).delete();
+    await db.invoiceItems.bulkPut(invoiceItems);
+    return adjustUnpaidInvoice(invoice.id, request.discountAmount, request.taxRate, actor, {
+      type: request.discountType,
+      value: request.discountValue,
+    });
+  });
+  // Result drafts are generated after the clinical/financial transaction commits.
+  await requestsRepository.ensureDraftResultsForAllRequests();
+  return reconciled;
 }
 
 /** Auditable cancellation for unpaid invoices: retain original document and reverse the ledger. */
