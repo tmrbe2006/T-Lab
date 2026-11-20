@@ -1349,17 +1349,6 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
 
           <div class="flex flex-wrap items-center gap-2">
             ${
-              user?.role === 'Developer'
-                ? `<button
-                    id="dash-open-perf-btn"
-                    type="button"
-                    class="rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    ⚡ ${i18n.bi('اختبار أداء البرنامج (Performance Test)', 'Run Performance Test')}
-                  </button>`
-                : ''
-            }
-            ${
               !hasOperationalData
                 ? `
                   <div class="flex items-center gap-1 p-1 bg-slate-100 rounded-lg border border-slate-200">
@@ -1393,13 +1382,6 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
               can(user, 'print', 'dashboard')
                 ? `<button id="dash-print-btn" type="button" class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap shrink-0">
                     ${i18n.dict.actions.print}
-                  </button>`
-                : ''
-            }
-            ${
-              user?.role === 'Developer'
-                ? `<button id="dash-testplan-btn" type="button" class="rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700 cursor-pointer whitespace-nowrap shrink-0">
-                    ${i18n.dict.nav.testPlan}
                   </button>`
                 : ''
             }
@@ -2263,14 +2245,6 @@ export async function renderDashboardPage(container: HTMLElement): Promise<void>
 
     document.getElementById('d3-replay-transitions-btn')?.addEventListener('click', () => {
       triggerD3Animations();
-    });
-
-    document.getElementById('dash-open-perf-btn')?.addEventListener('click', () => {
-      document.getElementById('top-perf-benchmark-btn')?.click();
-    });
-
-    document.getElementById('dash-testplan-btn')?.addEventListener('click', () => {
-      router.navigate('testPlan');
     });
 
     document.getElementById('dash-print-btn')?.addEventListener('click', () => {
