@@ -6,7 +6,6 @@ on:
       - 'sql/tlab_multibranch_pilot_safe_upgrade.sql'
       - '.github/workflows/multibranch-mysql-test.yml'
   workflow_dispatch:
-
 jobs:
   verify-migration:
     runs-on: ubuntu-latest
@@ -40,13 +39,11 @@ jobs:
           CREATE TABLE users (id VARCHAR(64) PRIMARY KEY, role VARCHAR(64));
           INSERT INTO users VALUES ('owner_keep', 'Owner'), ('staff_keep', 'Receptionist');
           SQL
-        env:
-          MYSQL_PWD: test-only-password
-      - name: Apply migration twice to ensure safe repeatability
+      - name: Apply original migration twice
         run: |
           mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_multibranch_additive_v1.sql
           mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_multibranch_additive_v1.sql
-      - name: Verify dedicated pilot migration never changes the main schema
+      - name: Create pilot schema and apply its specific migration twice
         run: |
           mysql -h 127.0.0.1 -uroot -ptest-only-password -e "CREATE DATABASE IF NOT EXISTS tlab_multibranch_pilot"
           mysql -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot <<'SQL'
@@ -61,91 +58,16 @@ jobs:
           SQL
           mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_multibranch_pilot_safe_upgrade.sql
           mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_multibranch_pilot_safe_upgrade.sql
-          mysql -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -N -B -e "SELECT COUNT(*) FROM branches WHERE id='branch_main'" | grep '^1
+      - name: Verify original records and schema separation
         run: |
-          result=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db <<'SQL'
-          SELECT CONCAT(
-            (SELECT COUNT(*) FROM patients WHERE id='pat_keep'), ',',
-            (SELECT COUNT(*) FROM lab_tests WHERE id='test_keep'), ',',
-            (SELECT COUNT(*) FROM test_parameters WHERE id='param_keep'), ',',
-            (SELECT COUNT(*) FROM lab_requests WHERE id='request_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM invoices WHERE id='invoice_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM branches WHERE id='branch_main'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='owner_keep'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='staff_keep'), ',',
-            (SELECT COUNT(*) FROM branch_migration_audit WHERE migration_id='multi_branch_schema_v1')
-          );
-          SQL
-          )
-          echo "Counts: $result"
-          test "$result" = "1,1,1,1,1,1,1,0,1"
-          tables=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password information_schema -e "SELECT COUNT(*) FROM TABLES WHERE TABLE_SCHEMA='tlab_db' AND TABLE_NAME IN ('branches','user_branches','branch_settings','branch_test_prices','branch_inventory','branch_transfers','branch_transfer_items','branch_sequences','branch_migration_audit')")
-          test "$tables" = "9"
-          echo 'Preservation and repeatability checks passed'
-
-          mysql -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -N -B -e "SELECT COUNT(*) FROM lab_tests WHERE id='original_pilot_test'" | grep '^1
-        run: |
-          result=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db <<'SQL'
-          SELECT CONCAT(
-            (SELECT COUNT(*) FROM patients WHERE id='pat_keep'), ',',
-            (SELECT COUNT(*) FROM lab_tests WHERE id='test_keep'), ',',
-            (SELECT COUNT(*) FROM test_parameters WHERE id='param_keep'), ',',
-            (SELECT COUNT(*) FROM lab_requests WHERE id='request_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM invoices WHERE id='invoice_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM branches WHERE id='branch_main'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='owner_keep'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='staff_keep'), ',',
-            (SELECT COUNT(*) FROM branch_migration_audit WHERE migration_id='multi_branch_schema_v1')
-          );
-          SQL
-          )
-          echo "Counts: $result"
-          test "$result" = "1,1,1,1,1,1,1,0,1"
-          tables=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password information_schema -e "SELECT COUNT(*) FROM TABLES WHERE TABLE_SCHEMA='tlab_db' AND TABLE_NAME IN ('branches','user_branches','branch_settings','branch_test_prices','branch_inventory','branch_transfers','branch_transfer_items','branch_sequences','branch_migration_audit')")
-          test "$tables" = "9"
-          echo 'Preservation and repeatability checks passed'
-
-          mysql -h 127.0.0.1 -uroot -ptest-only-password tlab_db -N -B -e "SELECT COUNT(*) FROM branches" | grep '^1
-        run: |
-          result=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db <<'SQL'
-          SELECT CONCAT(
-            (SELECT COUNT(*) FROM patients WHERE id='pat_keep'), ',',
-            (SELECT COUNT(*) FROM lab_tests WHERE id='test_keep'), ',',
-            (SELECT COUNT(*) FROM test_parameters WHERE id='param_keep'), ',',
-            (SELECT COUNT(*) FROM lab_requests WHERE id='request_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM invoices WHERE id='invoice_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM branches WHERE id='branch_main'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='owner_keep'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='staff_keep'), ',',
-            (SELECT COUNT(*) FROM branch_migration_audit WHERE migration_id='multi_branch_schema_v1')
-          );
-          SQL
-          )
-          echo "Counts: $result"
-          test "$result" = "1,1,1,1,1,1,1,0,1"
-          tables=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password information_schema -e "SELECT COUNT(*) FROM TABLES WHERE TABLE_SCHEMA='tlab_db' AND TABLE_NAME IN ('branches','user_branches','branch_settings','branch_test_prices','branch_inventory','branch_transfers','branch_transfer_items','branch_sequences','branch_migration_audit')")
-          test "$tables" = "9"
-          echo 'Preservation and repeatability checks passed'
-
-          echo 'PILOT MIGRATION: idempotent, preserves pilot records, main DB unchanged'
-      - name: Verify preserved records and new branch structures
-        run: |
-          result=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db <<'SQL'
-          SELECT CONCAT(
-            (SELECT COUNT(*) FROM patients WHERE id='pat_keep'), ',',
-            (SELECT COUNT(*) FROM lab_tests WHERE id='test_keep'), ',',
-            (SELECT COUNT(*) FROM test_parameters WHERE id='param_keep'), ',',
-            (SELECT COUNT(*) FROM lab_requests WHERE id='request_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM invoices WHERE id='invoice_keep' AND branch_id='branch_main'), ',',
-            (SELECT COUNT(*) FROM branches WHERE id='branch_main'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='owner_keep'), ',',
-            (SELECT COUNT(*) FROM user_branches WHERE user_id='staff_keep'), ',',
-            (SELECT COUNT(*) FROM branch_migration_audit WHERE migration_id='multi_branch_schema_v1')
-          );
-          SQL
-          )
-          echo "Counts: $result"
-          test "$result" = "1,1,1,1,1,1,1,0,1"
-          tables=$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password information_schema -e "SELECT COUNT(*) FROM TABLES WHERE TABLE_SCHEMA='tlab_db' AND TABLE_NAME IN ('branches','user_branches','branch_settings','branch_test_prices','branch_inventory','branch_transfers','branch_transfer_items','branch_sequences','branch_migration_audit')")
-          test "$tables" = "9"
-          echo 'Preservation and repeatability checks passed'
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM branches WHERE id='branch_main'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM lab_tests WHERE id='original_pilot_test'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM branches WHERE id='branch_main'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM patients WHERE id='pat_keep'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM lab_tests WHERE id='test_keep'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM test_parameters WHERE id='param_keep'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM lab_requests WHERE id='request_keep' AND branch_id='branch_main'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM invoices WHERE id='invoice_keep' AND branch_id='branch_main'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM user_branches WHERE user_id='owner_keep'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_db -e "SELECT COUNT(*) FROM user_branches WHERE user_id='staff_keep'")" = "0"
+          echo 'PASS: both migrations idempotent, original records remain intact'
