@@ -33,7 +33,7 @@ export async function payDoctorCommission(
     const updated: DoctorCommission = {
       ...existing, paidAmount:round(existing.paidAmount+amount),
       remainingAmount:0, status:'paid',
-      payoutDate:date, payoutNotes:notes.trim(), payoutJournalId:journal.id,
+      payoutAmount:amount,payoutDate:date, payoutNotes:notes.trim(), payoutJournalId:journal.id,
       payoutCancelledAt:undefined, payoutCancellationReason:undefined,
     };
     await db.commissions.put(updated);
