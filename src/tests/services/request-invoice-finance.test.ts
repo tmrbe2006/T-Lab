@@ -43,6 +43,21 @@ describe('request → invoice → journal monetary rules', () => {
     expect(computeInvoiceAdjustment(410, 50, 0).netTotal).toBe(360);
   });
 
+  it('allocates the final rounding cent so invoice item totals always match the posted net', () => {
+    const small = [
+      {id:'t1',price:0.01,commissionEligible:true},
+      {id:'t2',price:0.01,commissionEligible:true},
+      {id:'t3',price:0.01,commissionEligible:true},
+    ];
+    const bill=invoiceService.calculateInvoiceTotals(small,'none',0,14);
+    expect(bill.netTotal).toBe(0.03);
+    expect(Math.round(bill.itemShares.reduce((sum,item)=>sum+item.netAfterDiscountAndTax,0)*100)/100).toBe(bill.netTotal);
+    const big=invoiceService.calculateInvoiceTotals(
+      [{id:'t1',price:103,commissionEligible:true},{id:'t2',price:101,commissionEligible:false},{id:'t3',price:97,commissionEligible:true}],
+      'percentage',12.5,14.25);
+    expect(Math.round(big.itemShares.reduce((sum,item)=>sum+item.netAfterDiscountAndTax,0)*100)/100).toBe(big.netTotal);
+  });
+
   it('rejects invalid rates instead of silently recording contradictory totals', () => {
     expect(() => invoiceService.calculateInvoiceTotals(tests, 'none', 0, 150)).toThrow('INVALID_TAX_RATE');
     expect(() => invoiceService.calculateInvoiceTotals(tests, 'none', 0, -3)).toThrow('INVALID_TAX_RATE');
