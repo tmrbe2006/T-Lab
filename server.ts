@@ -7,6 +7,7 @@ import mysql from 'mysql2/promise';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { installBranchPilotRoutes } from './server/branch-pilot-api';
 import {
   buildCreateTableSQL,
   MYSQL_TABLES_CONFIG,
@@ -331,6 +332,9 @@ async function startServer() {
   });
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+
+  // Step-up authenticated, loopback-only multi-branch administration pilot.
+  installBranchPilotRoutes(app);
 
   // 0. Get & Save Preferred Local Server Port (port.config.json)
   app.get('/api/server/port-config', (_req, res) => {
