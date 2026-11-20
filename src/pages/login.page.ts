@@ -170,6 +170,40 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
     pwaManager.triggerInstall();
   });
 
+  const branchSelect = document.getElementById('login-branch') as HTMLSelectElement | null;
+  const loginError = (message: string) => {
+    const box = document.getElementById('login-error-box');
+    if (box) { box.textContent = message; box.classList.remove('hidden'); }
+    showToast(message, 'error');
+  };
+  const resetBranchSelection = () => {
+    if (branchSelect) {
+      branchSelect.replaceChildren(new Option('تحقق من الحساب أولًا / Verify account first', ''));
+      branchSelect.disabled = true;
+    }
+  };
+  if (branchPilot) {
+    document.getElementById('login-username')?.addEventListener('input', resetBranchSelection);
+    document.getElementById('login-password')?.addEventListener('input', resetBranchSelection);
+    document.getElementById('login-load-branches')?.addEventListener('click', async () => {
+      const username = (document.getElementById('login-username') as HTMLInputElement)?.value || '';
+      const password = (document.getElementById('login-password') as HTMLInputElement)?.value || '';
+      try {
+        const response = await fetch('/api/branch-pilot/staff-branches', {
+          method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({username,password}),
+        });
+        const data = await response.json() as {ok:boolean;error?:string;branches?:Array<{branchId:string;code:string;nameAr:string}>};
+        if (!response.ok || !data.ok) throw new Error(data.error || 'INVALID_CREDENTIALS');
+        if (!data.branches?.length) throw new Error(i18n.bi('لم يتم إسناد فروع لك. اطلب من الإدارة تحديد فروعك وصلاحياتك.', 'No assigned branches. Ask the administrator to assign branches and permissions.'));
+        branchSelect?.replaceChildren(new Option('-- اختر الفرع / Choose branch --', ''));
+        data.branches.forEach((b) => branchSelect?.add(new Option(b.code + ' — ' + b.nameAr, b.branchId)));
+        if (branchSelect) branchSelect.disabled = false;
+        document.getElementById('login-error-box')?.classList.add('hidden');
+      } catch (error) { resetBranchSelection(); loginError(String(error instanceof Error ? error.message : error)); }
+    });
+  }
+
   document.querySelectorAll<HTMLButtonElement>('.demo-acc-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const u = btn.getAttribute('data-demo-user') || '';
@@ -190,7 +224,34 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
     const passEl = document.getElementById('login-password') as HTMLInputElement | null;
     const errBox = document.getElementById('login-error-box');
 
-    const res = await authService.login(userEl?.value || '', passEl?.value || '');
+    let branchContext: import('../auth/auth.service').ActiveBranchContext | undefined;
+    let verified: {userId:string;role:import('../types').RoleName} | undefined;
+    if (branchPilot) {
+      if (!branchSelect?.value || branchSelect.disabled) {
+        loginError(i18n.bi('يجب التحقق من الحساب واختيار الفرع أولًا.', 'Verify your account and select a branch first.'));
+        return;
+      }
+      try {
+        const response = await fetch('/api/branch-pilot/staff-login', {
+          method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            username:userEl?.value || '', password:passEl?.value || '', branchId:branchSelect.value,
+          }),
+        });
+        const data = await response.json() as {
+          ok:boolean;error?:string;userId:string;role:import('../types').RoleName;
+          branch:{branchId:string;code:string;nameAr:string};
+          permissions:import('../auth/auth.service').ActiveBranchContext['permissions'];
+        };
+        if (!response.ok || !data.ok) throw new Error(data.error || 'BRANCH_NOT_ASSIGNED');
+        branchContext = { ...data.branch, permissions:data.permissions };
+        verified = { userId:data.userId, role:data.role };
+      } catch (error) {
+        loginError(String(error instanceof Error ? error.message : error));
+        return;
+      }
+    }
+    const res = await authService.login(userEl?.value || '', passEl?.value || '', branchContext, verified);
     if (!res.ok) {
       if (errBox) {
         errBox.textContent = d.login.invalidCredentials;
