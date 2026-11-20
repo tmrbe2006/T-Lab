@@ -1,4 +1,5 @@
 import { accountingRepository } from '../repositories';
+import { db } from '../db/database';
 import type { DoctorCommission, Expense, Invoice, JournalEntry, Payment } from '../types';
 
 export class AccountingService {
@@ -136,38 +137,42 @@ export class AccountingService {
     doctorNameAr: string,
     doctorNameEn: string,
     createdBy: string
-  ): Promise<JournalEntry> {
-    const entry: JournalEntry = {
-      id: `je_ca_${crypto.randomUUID()}`,
-      entryNumber: `JE-${String(Date.now()).slice(-6)}`,
-      date: commission.date,
-      referenceType: 'commission_accrual',
-      referenceId: commission.id,
-      descriptionAr: `احتساب عمولة طبيب محول (${doctorNameAr}) عن الفاتورة ${commission.invoiceNumber}`,
-      descriptionEn: `Accrue Referring Doctor Commission (${doctorNameEn}) for ${commission.invoiceNumber}`,
-      lines: [
-        {
-          accountCode: '5101',
-          accountNameAr: 'مصروف عمولات الأطباء',
-          accountNameEn: 'Doctor Commissions Expense',
-          debit: commission.commissionAmount,
-          credit: 0,
-        },
-        {
-          accountCode: '2102',
-          accountNameAr: 'ذمم الأطباء المحولين',
-          accountNameEn: 'Doctors Payable',
-          debit: 0,
-          credit: commission.commissionAmount,
-        },
-      ],
-      totalDebit: commission.commissionAmount,
-      totalCredit: commission.commissionAmount,
-      createdBy,
-    };
-
-    await accountingRepository.saveJournalEntry(entry);
-    return entry;
+  ): Promise<JournalEntry | null> {
+    // Post only the DIFFERENCE between calculated and previously accrued
+    // commissions. Otherwise every partial payment repeats the full expense.
+    return db.transaction('rw',db.journalEntries,async()=>{
+      const all=await db.journalEntries.toArray();
+      const accrualIds=new Set(all.filter(j=>
+        j.referenceType==='commission_accrual' && j.referenceId===commission.id
+      ).map(j=>j.id));
+      const prior=all.filter(j=>
+        (j.referenceType==='commission_accrual' && j.referenceId===commission.id) ||
+        (j.referenceType==='reversal' && accrualIds.has(j.referenceId))
+      );
+      const accrued=Math.round(prior.reduce((sum,j)=>
+        sum+j.lines.filter(l=>l.accountCode==='5101').reduce((s,l)=>s+l.debit-l.credit,0),0)*100)/100;
+      const diff=Math.round((commission.commissionAmount-accrued)*100)/100;
+      if (Math.abs(diff)<0.01)return null;
+      const amount=Math.abs(diff);
+      const increase=diff>0;
+      const entry:JournalEntry={
+        id:'je_ca_'+crypto.randomUUID(),
+        entryNumber:'JE-CA-'+Date.now(),
+        date:commission.date,referenceType:'commission_accrual',
+        referenceId:commission.id,
+        descriptionAr:(increase?'تسوية استحقاق عمولة طبيب: ':'تخفيض استحقاق عمولة طبيب: ')+doctorNameAr+' / '+commission.invoiceNumber,
+        descriptionEn:(increase?'Accrue doctor commission difference: ':'Reduce doctor commission accrual: ')+doctorNameEn+' / '+commission.invoiceNumber,
+        lines:[
+          {accountCode:'5101',accountNameAr:'مصروف عمولات الأطباء',accountNameEn:'Doctor Commission Expense',
+            debit:increase?amount:0,credit:increase?0:amount},
+          {accountCode:'2102',accountNameAr:'ذمم الأطباء المحولين',accountNameEn:'Doctors Payable',
+            debit:increase?0:amount,credit:increase?amount:0},
+        ],
+        totalDebit:amount,totalCredit:amount,status:'posted',createdBy,
+      };
+      await db.journalEntries.put(entry);
+      return entry;
+    });
   }
 
   /**
