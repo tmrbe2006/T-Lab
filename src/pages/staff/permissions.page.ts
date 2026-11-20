@@ -8,6 +8,11 @@ import { permissionsRepository } from '../../repositories';
 import type { PermissionAction, RoleName } from '../../types';
 
 export async function renderPermissionsPage(container: HTMLElement): Promise<void> {
+  if (window.location.port === '3127') {
+    const { renderBranchPermissionPanel } = await import('./branch-permissions.panel');
+    await renderBranchPermissionPanel(container);
+    return;
+  }
   const user = authService.getCurrentUser();
   let selectedRole: RoleName = 'Receptionist';
   let rolePerms = await permissionsRepository.getPermissionsByRole(selectedRole);
