@@ -72,9 +72,10 @@ jobs:
           if (!(Test-Path $file)) { throw 'Multi-branch migration missing' }
           $sql = Get-Content $file -Raw
           foreach ($table in @('branches', 'user_branches', 'branch_settings', 'branch_test_prices', 'branch_inventory', 'branch_transfers', 'branch_transfer_items', 'branch_sequences', 'branch_migration_audit')) {
-            if ($sql -notmatch "CREATE TABLE IF NOT EXISTS \`$table\`") { throw "Missing $table" }
+            $pattern = 'CREATE TABLE IF NOT EXISTS ' + [char]96 + $table + [char]96
+            if (!$sql.Contains($pattern)) { throw "Missing $table" }
           }
-          if ($sql -match '(?im)^\\s*(DROP\\s+TABLE|TRUNCATE\\s+TABLE|DELETE\\s+FROM|REPLACE\\s+INTO)\\b') { throw 'Destructive data statement found' }
+          if ($sql -match '(?im)^\s*(DROP\s+TABLE|TRUNCATE\s+TABLE|DELETE\s+FROM|REPLACE\s+INTO)\b') { throw 'Destructive data statement found' }
           Write-Host 'SQL includes nine branch tables and no destructive table/data statement'
       - name: Install Inno Setup
         shell: pwsh
