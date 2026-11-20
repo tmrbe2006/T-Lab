@@ -44,6 +44,7 @@ export const ALL_RESOURCES: ResourceScreen[] = [
   'employees',
   'users',
   'permissions',
+  'branches',
   'tests',
   'scientificDepartments',
   'sampleTubes',
