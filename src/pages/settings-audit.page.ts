@@ -195,7 +195,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
         </div>
         <div>
           <label class="block font-semibold mb-1">${i18n.bi('الضريبة الافتراضية (%)', 'Default Tax Rate (%)')}</label>
-          <input name="defaultTaxRate" type="number" step="0.5" value="${s.defaultTaxRate}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+          <input name="defaultTaxRate" type="number" min="0" max="100" step="0.5" value="${s.defaultTaxRate}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
         </div>
         <div>
           <label class="block font-semibold mb-1">${i18n.bi('هل تشمل عمولة الطبيب الضريبة؟', 'Doctor Commission Includes Tax?')}</label>
@@ -285,7 +285,7 @@ export async function renderSettingsPage(container: HTMLElement): Promise<void> 
       addressAr: String(fd.get('addressAr') || ''),
       phone: String(fd.get('phone') || ''),
       currency: String(fd.get('currency') || 'EGP'),
-      defaultTaxRate: Number(fd.get('defaultTaxRate')) || 14,
+      defaultTaxRate: Math.max(0, Math.min(100, Number(fd.get('defaultTaxRate') ?? s.defaultTaxRate))),
       commissionIncludesTax: fd.get('commissionIncludesTax') === 'true',
       enableCriticalAlerts: fd.get('enableCriticalAlerts') === 'true',
     };
