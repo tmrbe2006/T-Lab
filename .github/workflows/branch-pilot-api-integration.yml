@@ -5,6 +5,8 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'server/branch-service.ts'
       - 'server/branch-access.ts'
+      - 'server/branch-user-permissions.ts'
+      - 'sql/tlab_branch_user_permissions_v2.sql'
       - 'server.ts'
       - 'sql/tlab_multibranch_additive_v1.sql'
       - '.github/workflows/branch-pilot-api-integration.yml'
@@ -39,6 +41,7 @@ jobs:
           mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db <<'SQL'
           CREATE TABLE users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64), role VARCHAR(64), active TINYINT(1), raw_json LONGTEXT);
           INSERT INTO users VALUES ('usr_owner', 'owner', 'Owner', 1, '{"passwordHash":"test-only-admin-password"}');
+          INSERT INTO users VALUES ('usr_dev', 'developer', 'Developer', 1, '{"passwordHash":"dev-test-password"}');
           INSERT INTO users VALUES ('usr_staff', 'staff', 'Receptionist', 1, '{"passwordHash":"staff-password"}');
           CREATE TABLE patients (id VARCHAR(64) PRIMARY KEY);
           CREATE TABLE lab_tests (id VARCHAR(64) PRIMARY KEY);
@@ -47,6 +50,7 @@ jobs:
           CREATE TABLE invoices (id VARCHAR(64) PRIMARY KEY);
           SQL
           mysql -h 127.0.0.1 -uroot -pintegration-only-password < sql/tlab_multibranch_additive_v1.sql
+          sed 's/USE `tlab_multibranch_pilot`;/USE `tlab_db`;/' sql/tlab_branch_user_permissions_v2.sql | mysql -h 127.0.0.1 -uroot -pintegration-only-password
       - name: Start local-only branch administration and verify actual HTTP/MySQL operations
         env:
           PORT: '3127'
@@ -83,14 +87,30 @@ jobs:
           curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/schema-status | grep '"ready":true'
           curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/schema-status | grep '"missingTables":\[\]'
           curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/branches | grep branch_main
-          code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"code":"BR-002","nameAr":"الفرع الثاني","nameEn":"Branch Two"}' http://127.0.0.1:3127/api/branch-pilot/branches)
-          test "$code" = 201
+          # Owner may assign users and manage permissions, but never create branches.
+          code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"nameAr":"الفرع الثاني","nameEn":"Branch Two"}' http://127.0.0.1:3127/api/branch-pilot/branches)
+          test "$code" = 403
+          code=$(curl -s -c developer-cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"developer","password":"dev-test-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
+          test "$code" = 200
+          branch_response=$(curl -fsS -b developer-cookies.txt -X POST -H 'Content-Type: application/json' -d '{"nameAr":"الفرع الثاني","nameEn":"Branch Two"}' http://127.0.0.1:3127/api/branch-pilot/branches)
+          echo "$branch_response" | grep '"code":"BR-002"'
           new_id=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT id FROM branches WHERE code='BR-002'")
           test -n "$new_id"
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"userId\":\"usr_staff\",\"branchId\":\"$new_id\"}" http://127.0.0.1:3127/api/branch-pilot/assign)
           test "$code" = 200
           assigned=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM user_branches WHERE user_id='usr_staff' AND branch_id='$new_id'")
           test "$assigned" = 1
+          # An assigned employee sees only their branch and cannot access an unassigned branch.
+          staff_branches=$(curl -fsS -X POST -H 'Content-Type: application/json' -d '{"username":"staff","password":"staff-password"}' http://127.0.0.1:3127/api/branch-pilot/staff-branches)
+          echo "$staff_branches" | grep "BR-002"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"staff","password":"staff-password","branchId":"unknown_branch"}' http://127.0.0.1:3127/api/branch-pilot/staff-login)
+          test "$code" = 403
+          code=$(curl -s -c staff-cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"username\":\"staff\",\"password\":\"staff-password\",\"branchId\":\"$new_id\"}" http://127.0.0.1:3127/api/branch-pilot/staff-login)
+          test "$code" = 200
+          curl -fsS -b staff-cookies.txt http://127.0.0.1:3127/api/branch-pilot/staff-session | grep "$new_id"
+          code=$(curl -s -b staff-cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/users)
+          test "$code" = 403
+
           curl -fsS -b cookies.txt -X POST http://127.0.0.1:3127/api/branch-pilot/logout
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
           test "$code" = 401
