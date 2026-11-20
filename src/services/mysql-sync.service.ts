@@ -623,6 +623,9 @@ class MySQLSyncService {
             <button id="${prefix}-storage-audit" type="button" class="rounded-lg bg-amber-700 px-4 py-2 text-white font-bold">
               ${i18n.bi('فحص جداول MySQL الـ49 ومصدر البيانات', 'Audit 49 MySQL tables and data source')}
             </button>
+            <button id="${prefix}-backup-browser" type="button" class="rounded-lg bg-slate-800 px-4 py-2 text-white font-bold">
+              ${i18n.bi('نسخة احتياطية لبيانات المتصفح الـ49 — دون حذف', 'Backup all 49 browser stores — no deletion')}
+            </button>
           </div>
           <div id="${prefix}-storage-audit-result" role="status" class="text-xs whitespace-pre-wrap rounded-lg bg-slate-50 border p-3" hidden></div>
           <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
@@ -938,6 +941,23 @@ class MySQLSyncService {
         }
       };
       container.querySelector(`#${prefix}-pilot-test`)?.addEventListener('click', () => { void check(); });
+      container.querySelector(`#${prefix}-backup-browser`)?.addEventListener('click', async () => {
+        const output = container.querySelector<HTMLElement>(`#${prefix}-storage-audit-result`);
+        if (!window.confirm(i18n.bi(
+          'سيتم تنزيل ملف يحتوي على بيانات مرضى ومالية وحسابات مستخدمين حساسة. احفظه في مكان آمن ولا تشاركه. لن تُحذف أو تُرفع أي بيانات. هل تريد المتابعة؟',
+          'The backup contains sensitive patient, financial and account data. Store it securely and do not share it. No data will be deleted or uploaded. Continue?'
+        ))) return;
+        if (output) { output.hidden = false; output.textContent = i18n.bi('جاري نسخ البيانات بدون تعديل...', 'Reading browser data without changes...'); }
+        try {
+          const { downloadUnmodifiedBrowserBackup } = await import('./browser-migration-backup');
+          const result = await downloadUnmodifiedBrowserBackup();
+          if (output) output.textContent = i18n.bi('تم طلب تنزيل النسخة الاحتياطية: ', 'Browser backup download requested: ') +
+            `${result.fileName} | ${result.tableCount} tables | ${result.rowCount} records`;
+        } catch (error) {
+          if (output) output.textContent = i18n.bi('فشل النسخ الاحتياطي؛ لم تُمسح أي بيانات: ', 'Backup failed; no data deleted: ') +
+            String(error instanceof Error ? error.message : error);
+        }
+      });
       container.querySelector(`#${prefix}-storage-audit`)?.addEventListener('click', async () => {
         const output = container.querySelector<HTMLElement>(`#${prefix}-storage-audit-result`);
         if (!output) return;
