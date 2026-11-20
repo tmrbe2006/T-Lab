@@ -1,7 +1,7 @@
 ; Non-destructive, isolated Windows evaluation installer for the original main branch.
 ; This installer never executes SQL, stops services, or rewrites existing installations.
-#define AppName "T-Lab Multi-Branch Admin Pilot"
-#define AppVersion "6.1.0-mb2"
+#define AppName "T-Lab Multi-Branch Permissions Pilot"
+#define AppVersion "6.1.0-mb3"
 [Setup]
 AppId={{A4977193-AD98-4B98-BB78-69554FB0A4DD}
 AppName={#AppName}
@@ -9,7 +9,7 @@ AppVersion={#AppVersion}
 DefaultDirName={localappdata}\T-Lab-MultiBranch-Pilot
 DefaultGroupName={#AppName}
 OutputDir=Output
-OutputBaseFilename=T-Lab_MultiBranch_Phase2_Windows
+OutputBaseFilename=T-Lab_MultiBranch_Phase3_Windows
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
