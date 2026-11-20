@@ -30,6 +30,7 @@ export const ar = {
     employees: 'الموظفون',
     users: 'المستخدمون',
     permissions: 'الصلاحيات والأدوار',
+    branches: 'إدارة الفروع',
     tests: 'كتالوج التحاليل',
     scientificDepartments: 'الأقسام العلمية للتحاليل',
     sampleTubes: 'أنابيب السحب',
