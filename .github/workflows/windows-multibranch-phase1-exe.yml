@@ -35,7 +35,8 @@ jobs:
           Copy-Item dist,src,node_modules -Destination installer/package -Recurse -Force
           Copy-Item server.ts,package.json -Destination installer/package -Force
           Copy-Item sql,docs -Destination installer/package -Recurse -Force
-          Copy-Item installer/launch-multibranch-pilot.cmd -Destination installer/package/launch-rbac-review.cmd -Force
+          Copy-Item installer/launch-multibranch-pilot.cmd -Destination installer/package/launch-multibranch-pilot.cmd -Force
+          if (!(Test-Path installer/package/launch-multibranch-pilot.cmd)) { throw 'Expected startup command missing from package' }
           Copy-Item (Get-Command node.exe).Source -Destination installer/package/node.exe
           if (Test-Path public) { Copy-Item public -Destination installer/package -Recurse -Force }
           if (Test-Path .env) { throw "Do not package local secrets" }
@@ -102,6 +103,21 @@ jobs:
           $exe = 'installer/Output/T-Lab_MultiBranch_Phase1_Windows.exe'
           if (!(Test-Path $exe)) { throw "Expected EXE missing" }
           Get-FileHash $exe -Algorithm SHA256
+      - name: Silent-install EXE and verify actual Windows shortcut target
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'installer/Output/T-Lab_MultiBranch_Phase1_Windows.exe').Path
+          $target = Join-Path $env:RUNNER_TEMP 'T-Lab-MultiBranch-install-test'
+          New-Item -ItemType Directory -Force $target | Out-Null
+          $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
+          $proc = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Inno installation failed: $($proc.ExitCode)" }
+          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'tlab-new-icon.ico')) {
+            if (!(Test-Path (Join-Path $target $required))) { throw "Missing installed file: $required" }
+          }
+          $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw
+          if (!$command.Contains('--static-dist')) { throw 'Installed launcher lacks static mode' }
+          Write-Host 'INNO INSTALLED FILES VERIFIED: launcher, Node, server, frontend, SQL, icon.'
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
