@@ -24,6 +24,7 @@ import { accountingService } from '../../services/accounting.service';
 import { discountService } from '../../services/discount.service';
 import { ensureEnterpriseSeedData } from '../../services/enterprise-lab.service';
 import { invoiceService } from '../../services/invoice.service';
+import { adjustUnpaidInvoice } from '../../services/invoice-adjustment.service';
 import { db } from '../../db/database';
 import type {
   DiscountType,
@@ -538,6 +539,12 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
           const reqDate = (reqDateInput?.value || '').trim() || new Date().toISOString().slice(0, 10);
 
           if (isEdit && existingReq) {
+            const linkedInvoice = (await invoicesRepository.getAll()).find(inv=>inv.requestId===existingReq.id);
+            if (linkedInvoice && (linkedInvoice.paidAmount>0 || linkedInvoice.status==='paid' ||
+                (await db.payments.where('invoiceId').equals(linkedInvoice.id).count())>0)) {
+              showToast(i18n.bi('لا يمكن تغيير تحاليل أو خصم طلب مرتبط بفاتورة سبق تحصيلها دون إشعار دائن وتسوية مالية.', 'This request has collected payments; a credit note and accounting settlement are required before changes.'),'warning');
+              return;
+            }
             const updatedReq: LabRequest = {
               ...existingReq,
               patientId: patSel?.value || existingReq.patientId,
@@ -608,6 +615,9 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
                 };
               });
               await invoicesRepository.save(updatedInv, invItems);
+              // Reconcile the original issued invoice journal via a reversal and
+              // new balanced journal, and keep patient/company claims in sync.
+              await adjustUnpaidInvoice(linkedInv.id,math.discountAmount,math.taxRate,user?.username || 'accountant');
             }
 
             await authService.logAudit(
