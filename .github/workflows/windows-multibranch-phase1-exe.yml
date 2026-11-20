@@ -54,6 +54,7 @@ jobs:
           $node = Join-Path $folder 'node.exe'
           $stdout = Join-Path $env:RUNNER_TEMP 'tlab-smoke-out.log'
           $stderr = Join-Path $env:RUNNER_TEMP 'tlab-smoke-err.log'
+          $env:TLAB_BRANCH_PILOT_ADMIN_ENABLED = 'true'
           $p = Start-Process -FilePath $node -ArgumentList @('--import', 'tsx', 'server.ts', '--static-dist', '--port', '3127') -WorkingDirectory $folder -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
           try {
             $ready = $false
@@ -70,6 +71,11 @@ jobs:
               Get-Content $stderr -ErrorAction SilentlyContinue
               throw 'Packaged T-Lab did not serve built UI on Windows'
             }
+            $legacy = Invoke-WebRequest -Uri 'http://127.0.0.1:3127/api/mysql/env-config' -UseBasicParsing -SkipHttpErrorCheck
+            if ($legacy.StatusCode -ne 403) { throw "Legacy MySQL API unexpectedly accessible: $($legacy.StatusCode)" }
+            $unauthed = Invoke-WebRequest -Uri 'http://127.0.0.1:3127/api/branch-pilot/branches' -UseBasicParsing -SkipHttpErrorCheck
+            if ($unauthed.StatusCode -ne 401) { throw "Unauthenticated branch API unexpectedly accessible: $($unauthed.StatusCode)" }
+            Write-Host 'BRANCH PILOT SECURITY SMOKE TEST VERIFIED'
             Write-Host 'PACKAGED WINDOWS STARTUP AND HTTP 200 VERIFIED'
           }
           finally {
