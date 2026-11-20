@@ -28,7 +28,8 @@ function calculateAgeFromBirthDate(birthDateStr: string): number | null {
 
 export async function renderPatientsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  const liveMySQL = window.location.port === '3127';
+  const liveMySQL = window.location.port === '3127' &&
+    window.localStorage.getItem('tlab_patients_data_source') === 'mysql';
   let allPatients: Patient[];
   try {
     allPatients = await patientsRepository.getAll();
@@ -346,7 +347,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
           </div>
         </div>
 
-        ${liveMySQL ? `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 font-semibold">${i18n.bi('مصدر البيانات: MySQL مباشر | المرضى المرتبطون بالفرع المختار فقط. أعداد الطلبات لن تُعرض من بيانات المتصفح.', 'Source: live MySQL | patients assigned to selected branch only. Browser request counts are not used.')}</div>` : ''}
+        ${liveMySQL ? `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 font-semibold">${i18n.bi('مصدر البيانات: MySQL مباشر | المرضى المرتبطون بالفرع المختار فقط. أعداد الطلبات لن تُعرض من بيانات المتصفح.', 'Source: live MySQL | patients assigned to selected branch only. Browser request counts are not used.')}</div>` : window.location.port === '3127' ? `<div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 font-semibold">${i18n.bi('وضع الاستعادة: بيانات المرضى والطلبات محفوظة في المتصفح كما في النسخ السابقة، وليست بيانات MySQL أو معزولة بين الفروع. لا تحذف بيانات المتصفح. زر MySQL يختبر الخادم فقط.', 'Recovery mode: patients and requests come from existing browser storage, not MySQL or isolated per branch. Do not clear browser data. The MySQL button checks server connectivity only.')}</div>` : ''}
         <div class="flex flex-wrap items-center justify-between gap-3">
           <input
             id="pat-search-input"
