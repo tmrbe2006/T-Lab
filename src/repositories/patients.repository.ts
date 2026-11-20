@@ -2,11 +2,17 @@ import { db } from '../db/database';
 import type { Patient } from '../types';
 
 /**
- * In the Windows branch pilot, the MySQL server is authoritative.
- * No IndexedDB fallback: an offline server must be reported as an error,
- * never as "zero patients". The legacy single-lab app remains unchanged.
+ * Compatibility recovery: old patients are in this browser's IndexedDB, while
+ * some installations have an EMPTY MySQL patients table and no branch mapping.
+ * Keep the original local records as the DEFAULT source so the dashboard and
+ * patient screens continue to work without deleting or moving anything.
+ *
+ * An explicitly chosen MySQL mode is supported only after a separate verified
+ * migration. Never silently switch modes based on the green server badge.
  */
-const pilot = () => typeof window !== 'undefined' && window.location.port === '3127';
+const pilot = () => typeof window !== 'undefined' &&
+  window.location.port === '3127' &&
+  window.localStorage?.getItem('tlab_patients_data_source') === 'mysql';
 async function mysqlPatients<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const result = await fetch('/api/branch-pilot/patients' + path, {
     method, credentials:'same-origin', cache:'no-store',
