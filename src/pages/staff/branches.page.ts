@@ -39,6 +39,7 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
     return;
   }
 
+  const canCreate = current?.role === 'Developer';
   const heading = i18n.bi('إدارة الفروع — نسخة تجريبية محلية', 'Branch Administration — Local Pilot');
   const note = i18n.bi(
     'إدارة الفروع للمبرمج والمالك فقط. استخدم اسم المستخدم وكلمة المرور الخاصة بتسجيل الدخول لبرنامج T-Lab والمسجلين بجدول users في قاعدة MySQL الحالية؛ لا تستخدم حساب MySQL root أو كلمة مرور قاعدة البيانات. عزل المرضى والفواتير بين الفروع لم يكتمل بعد.',
@@ -157,13 +158,13 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
         </div>
       </div>
       <div class="grid lg:grid-cols-2 gap-4">
-        <form id="branch-create" class="rounded-xl border bg-white p-4 space-y-3">
-          <h2 class="font-bold">${esc(i18n.bi('إضافة فرع', 'Create Branch'))}</h2>
-          <input name="code" required maxlength="32" placeholder="BR-002" class="border rounded p-2 w-full" />
+        ${canCreate ? `<form id="branch-create" class="rounded-xl border bg-white p-4 space-y-3">
+          <h2 class="font-bold">${esc(i18n.bi('إضافة فرع — للمبرمج فقط', 'Create branch — Developer only'))}</h2>
+          <p class="text-sm text-slate-600">${esc(i18n.bi('كود الفرع يُنشأ تلقائيًا بالتسلسل BR-002، BR-003… ولا يُدخل يدويًا.', 'Branch code is allocated automatically: BR-002, BR-003…'))}</p>
           <input name="nameAr" required maxlength="191" placeholder="${esc(i18n.bi('اسم الفرع بالعربية', 'Branch Arabic name'))}" class="border rounded p-2 w-full" />
           <input name="nameEn" maxlength="191" placeholder="Branch English name" class="border rounded p-2 w-full" />
           <button class="bg-sky-700 text-white rounded p-2 font-semibold">${esc(i18n.bi('حفظ الفرع', 'Save branch'))}</button>
-        </form>
+        </form>` : `<div class="rounded-xl border bg-white p-4 text-slate-700">${esc(i18n.bi('إنشاء الفروع متاح للمبرمج فقط. يمكنك إسناد الموظفين للفروع وإدارة صلاحياتهم.', 'Only the Developer can create branches. You can assign users and manage branch permissions.'))}</div>`}
         <form id="branch-assign" class="rounded-xl border bg-white p-4 space-y-3">
           <h2 class="font-bold">${esc(i18n.bi('إسناد مستخدم إلى فرع', 'Assign user to branch'))}</h2>
           <select name="userId" required class="border rounded p-2 w-full">
@@ -187,9 +188,11 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
         const form = event.currentTarget as HTMLFormElement;
         const data = Object.fromEntries(new FormData(form).entries()) as Record<string, string>;
         try {
-          await api(path, data);
+          const outcome = await api<{ok:boolean;code?:string}>(path, data);
           await showBranches();
-          setMessage(i18n.bi('تم حفظ البيانات بنجاح.', 'Saved successfully.'));
+          setMessage(outcome.code
+            ? i18n.bi('تم إنشاء الفرع بالكود التلقائي: ', 'Branch created with automatic code: ') + outcome.code
+            : i18n.bi('تم حفظ البيانات بنجاح.', 'Saved successfully.'));
         } catch (err) {
           setMessage(i18n.bi('تعذر الحفظ: ', 'Save failed: ') + String(err instanceof Error ? err.message : err));
         }
