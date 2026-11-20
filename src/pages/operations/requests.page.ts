@@ -282,7 +282,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             </div>
             <div class="sm:col-span-3">
               <label class="block font-semibold mb-0.5 text-[11px]">${i18n.bi('الضريبة (تُحسب بعد الخصم %)', 'Tax After Discount (%)')}</label>
-              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="100" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono" />
+              <input id="req-tax-rate" name="taxRate" readonly title="${i18n.bi('يتم ضبط الضريبة من إعدادات البرنامج','Tax rate is defined in settings')}" type="number" min="0" max="100" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono" />
             </div>
           </div>
 
