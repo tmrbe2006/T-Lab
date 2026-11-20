@@ -217,7 +217,8 @@ export function installBranchPilotRoutes(app: Express): void {
       }
       attempts.delete(ip);
       const token = randomBytes(32).toString('hex');
-      sessions.set(token, { ...identity, username, expires: Date.now() + SESSION_DURATION_MS });
+      const previous = getSession(req);
+      sessions.set(token, { ...identity, username, branchId: previous?.userId === identity.userId ? previous.branchId : undefined, expires: Date.now() + SESSION_DURATION_MS });
       res.setHeader('Set-Cookie', secureCookie(token, 3600));
       res.json({ ok: true, role: identity.role });
     } catch (error) { respondError(res, error); }
@@ -297,7 +298,8 @@ export function installBranchPilotRoutes(app: Express): void {
     const adminOnly = req.path === '/users' || req.path === '/schema-status' ||
       req.path === '/assign' || req.path.startsWith('/user-permissions') ||
       (req.path === '/branches' && req.method !== 'GET') ||
-      (req.path === '/branches' && req.method === 'GET' && !!session.branchId);
+      (req.path === '/branches' && req.method === 'GET' && !!session.branchId) ||
+      req.path === '/user-branches';
     if (adminOnly && session.role !== 'Developer' && session.role !== 'Owner') {
       res.status(403).json({ ok: false, error: 'FORBIDDEN' });
       return;
@@ -322,6 +324,21 @@ export function installBranchPilotRoutes(app: Express): void {
       if (!data) { res.status(403).json({ ok: false, error: 'BRANCH_NOT_ASSIGNED' }); return; }
       res.json({ ok: true, userId: s.userId, role: s.role, username: s.username, ...data });
     } catch (error) { respondError(res, error); }
+  });
+
+  app.get('/api/branch-pilot/user-branches', async (req, res) => {
+    const userId = req.query.userId;
+    if (!validBranchId(userId)) { res.status(400).json({ok:false,error:'INVALID_USER'}); return; }
+    try {
+      const branches = await useDatabase(async (db) => {
+        const [rows] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT b.id, b.code, b.name_ar FROM user_branches ub INNER JOIN branches b ON b.id=ub.branch_id AND b.active=1 WHERE ub.user_id=? ORDER BY b.code',
+          [userId],
+        );
+        return rows.map((row) => ({branchId:String(row.id),code:String(row.code),nameAr:String(row.name_ar)}));
+      });
+      res.json({ok:true,branches});
+    } catch (error) {respondError(res,error);}
   });
 
   app.get('/api/branch-pilot/user-permissions', async (req, res) => {
