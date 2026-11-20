@@ -76,6 +76,14 @@ async function useDatabase<T>(fn: (db: mysql.Connection) => Promise<T>): Promise
 }
 
 function respondError(res: Response, error: unknown): void {
+  if ((error as { code?: string })?.code === 'ER_NO_SUCH_TABLE') {
+    res.status(409).json({
+      ok: false,
+      error: 'BRANCH_SCHEMA_MISSING',
+      hint: 'Apply additive sql/tlab_multibranch_additive_v1.sql to a restored test copy of the configured database after taking a full verified backup.',
+    });
+    return;
+  }
   if (error instanceof Error && error.message === 'FORBIDDEN') {
     res.status(403).json({ ok: false, error: 'FORBIDDEN' });
     return;
@@ -192,6 +200,28 @@ export function installBranchPilotRoutes(app: Express): void {
       userId: session.userId, role: session.role, active: true, assignedBranchIds: new Set<string>(),
     } satisfies BranchPrincipal;
     next();
+  });
+
+  // Schema diagnostics are read-only and available only after the privileged
+  // application account is authenticated on the server.
+  app.get('/api/branch-pilot/schema-status', async (_req, res) => {
+    try {
+      const status = await useDatabase(async (db) => {
+        const required = ['users', 'branches', 'user_branches', 'branch_settings',
+          'branch_test_prices', 'branch_inventory', 'branch_transfers',
+          'branch_transfer_items', 'branch_sequences', 'branch_migration_audit'];
+        const [rows] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT TABLE_NAME AS table_name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()',
+        );
+        const existing = new Set(rows.map((r) => String(r.table_name)));
+        const [nameRows] = await db.query<mysql.RowDataPacket[]>(
+          'SELECT DATABASE() AS name',
+        );
+        const missing = required.filter((t) => !existing.has(t));
+        return { database: String(nameRows[0]?.name || ''), missingTables: missing, ready: missing.length === 0 };
+      });
+      res.json({ ok: true, ...status });
+    } catch (error) { respondError(res, error); }
   });
 
   app.get('/api/branch-pilot/branches', async (_req, res) => {
