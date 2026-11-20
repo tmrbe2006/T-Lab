@@ -1,7 +1,7 @@
 import { db } from '../db/database';
 import { discountService } from './discount.service';
 import { accountingService } from './accounting.service';
-import type { Invoice, InvoiceItem, JournalEntry } from '../types';
+import type { DiscountType, Invoice, InvoiceItem, JournalEntry } from '../types';
 
 const cents=(n:number)=>Math.round(n*100)/100;
 
@@ -33,6 +33,7 @@ function reversalOf(original:JournalEntry,actor:string):JournalEntry {
 /** Atomic local pilot adjustment. Paid invoices must use a separate refund/credit-note workflow. */
 export async function adjustUnpaidInvoice(
   invoiceId:string, discountAmount:number, taxRate:number, actor:string,
+  discountSpec?: {type:DiscountType;value:number},
 ):Promise<Invoice>{
   return db.transaction('rw',[db.invoices,db.invoiceItems,db.requests,db.journalEntries,db.payments,db.corporateContracts],async()=>{
     const original=await db.invoices.get(invoiceId);
@@ -45,13 +46,24 @@ export async function adjustUnpaidInvoice(
     if (!items.length) throw new Error('INVOICE_HAS_NO_TEST_ITEMS');
     const subtotal=cents(items.reduce((s,it)=>s+(Number(it.price)||0),0));
     const amount=computeInvoiceAdjustment(subtotal,discountAmount,taxRate);
+    // Preserve the selected discount mode (percentage vs fixed) consistently
+    // in both the medical request and its invoice. Invoice edit uses fixed by default.
+    const resolvedDiscountType:DiscountType = discountSpec?.type ??
+      (amount.discountAmount > 0 ? 'fixed' : 'none');
+    const resolvedDiscountValue = discountSpec?.value ?? amount.discountAmount;
+    if (discountSpec) {
+      const expected=discountService.calculateDiscount(subtotal,resolvedDiscountType,resolvedDiscountValue);
+      if (Math.abs(expected.discountAmount-amount.discountAmount)>0.01) {
+        throw new Error('DISCOUNT_MODE_VALUE_MISMATCH');
+      }
+    }
     const contract=original.contractId?await db.corporateContracts.get(original.contractId):null;
     const pct=contract?Math.max(0,Math.min(100,Number(contract.patientCoPayPercent)||0)):100;
     const patientShareAmount=cents(amount.netTotal*pct/100);
     const companyShareAmount=cents(amount.netTotal-patientShareAmount);
     const updated:Invoice={
-      ...original,...amount,discountType:amount.discountAmount>0?'fixed':'none',
-      discountValue:amount.discountAmount,patientShareAmount,companyShareAmount,
+      ...original,...amount,discountType:resolvedDiscountType,
+      discountValue:resolvedDiscountValue,patientShareAmount,companyShareAmount,
       paidAmount:0,remainingAmount:amount.netTotal,status:'unpaid',
     };
     await db.invoices.put(updated);
