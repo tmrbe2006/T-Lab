@@ -333,6 +333,23 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
+  // In the multi-branch pilot, legacy MySQL endpoints lack server sessions and
+  // branch predicates. Disable them rather than permit cross-branch access,
+  // bulk imports, database settings changes or leakage of .env credentials.
+  // This deliberately does not affect the original single-lab mode.
+  app.use((req, res, next) => {
+    if (process.env.TLAB_BRANCH_PILOT_ADMIN_ENABLED === 'true' && (
+      req.path.startsWith('/api/mysql/') ||
+      req.path === '/api/server/save-env' ||
+      (req.path === '/api/server/port-config' && req.method !== 'GET') ||
+      req.path === '/api/server/inno-setup-script'
+    )) {
+      res.status(403).json({ ok: false, error: 'Legacy database API disabled in multi-branch pilot' });
+      return;
+    }
+    next();
+  });
+
   // Step-up authenticated, loopback-only multi-branch administration pilot.
   installBranchPilotRoutes(app);
 
