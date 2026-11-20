@@ -1001,17 +1001,19 @@ class MySQLSyncService {
           });
           const info = await response.json() as {
             ok?: boolean; error?: string; schema?: string; mappedStores?: number;
-            allMappedTablesExist?: boolean; allScreensUseMySQL?: boolean;
-            tables?: Array<{store:string;mysqlTable:string;exists:boolean;mysqlRows:number|null}>;
+            allMappedTablesExist?: boolean; allMappedColumnsExist?: boolean; allScreensUseMySQL?: boolean;
+            tables?: Array<{store:string;mysqlTable:string;exists:boolean;mysqlRows:number|null;missingColumns?:string[]}>;
             missingTables?: string[];
           };
           if (!response.ok || !info.ok) throw new Error(info.error || 'MYSQL_AUDIT_FAILED');
           const rows = (info.tables || []).map(t =>
-            `${t.mysqlTable}: ${t.exists ? `${t.mysqlRows} ${i18n.bi('سجل', 'rows')}` : i18n.bi('الجدول غير موجود', 'MISSING')}`);
+            `${t.mysqlTable}: ${t.exists ? `${t.mysqlRows} ${i18n.bi('سجل', 'rows')}` : i18n.bi('الجدول غير موجود', 'MISSING')}` +
+            (t.missingColumns?.length ? ` | ${i18n.bi('أعمدة ناقصة', 'Missing columns')}: ${t.missingColumns.join(', ')}` : ''));
           output.textContent =
             i18n.bi('قاعدة البيانات: ', 'Database: ') + (info.schema || '') + '\n' +
             i18n.bi('المخازن التي لها تعريف MySQL: ', 'Stores with MySQL mappings: ') + (info.mappedStores || 0) + '\n' +
             i18n.bi('هل كل الجداول موجودة؟ ', 'All tables exist? ') + (info.allMappedTablesExist ? 'YES' : 'NO') + '\n' +
+            i18n.bi('هل جميع الأعمدة مطابقة؟ ', 'All mapped columns exist? ') + (info.allMappedColumnsExist ? 'YES' : 'NO') + '\n' +
             i18n.bi('هل جميع الشاشات تستخدم MySQL؟ لا — التحويل لم يكتمل بعد.', 'Do all screens use MySQL? NO — migration is not complete.') + '\n' +
             rows.join('\n');
         } catch(error) {
