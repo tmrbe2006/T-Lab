@@ -1,4 +1,4 @@
-name: Build T-Lab Multi-Branch phase 1 Windows EXE
+name: Build T-Lab Multi-Branch phase 2 Windows EXE
 on:
   push:
     paths:
@@ -11,6 +11,10 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'src/pages/staff/branches.page.ts'
       - 'src/app.ts'
+      - 'src/auth/auth.service.ts'
+      - 'src/guards/permission.guard.ts'
+      - 'src/router.ts'
+      - 'src/types/index.ts'
       - 'src/tests/services/branch-service.test.ts'
       - 'src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts'
       - 'sql/tlab_multibranch_additive_v1.sql'
@@ -113,13 +117,13 @@ jobs:
       - name: Confirm artifact exists
         shell: pwsh
         run: |
-          $exe = 'installer/Output/T-Lab_MultiBranch_Phase1_Windows.exe'
+          $exe = 'installer/Output/T-Lab_MultiBranch_Phase2_Windows.exe'
           if (!(Test-Path $exe)) { throw "Expected EXE missing" }
           Get-FileHash $exe -Algorithm SHA256
       - name: Silent-install EXE and verify actual Windows shortcut target
         shell: pwsh
         run: |
-          $exe = (Resolve-Path 'installer/Output/T-Lab_MultiBranch_Phase1_Windows.exe').Path
+          $exe = (Resolve-Path 'installer/Output/T-Lab_MultiBranch_Phase2_Windows.exe').Path
           $target = Join-Path $env:RUNNER_TEMP 'T-Lab-MultiBranch-install-test'
           New-Item -ItemType Directory -Force $target | Out-Null
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
@@ -134,7 +138,7 @@ jobs:
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
-          name: T-Lab-MultiBranch-Phase1-Windows-EXE
-          path: installer/Output/T-Lab_MultiBranch_Phase1_Windows.exe
+          name: T-Lab-MultiBranch-Phase2-Windows-EXE
+          path: installer/Output/T-Lab_MultiBranch_Phase2_Windows.exe
           if-no-files-found: error
           retention-days: 14
