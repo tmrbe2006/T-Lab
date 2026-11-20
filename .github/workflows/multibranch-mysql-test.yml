@@ -5,6 +5,7 @@ on:
       - 'sql/tlab_multibranch_additive_v1.sql'
       - 'sql/tlab_multibranch_pilot_safe_upgrade.sql'
       - 'sql/tlab_mysql_only_missing_tables_v4.sql'
+      - 'sql/tlab_mysql_only_all_49_tables_create_safe.sql'
       - '.github/workflows/multibranch-mysql-test.yml'
   workflow_dispatch:
 jobs:
@@ -67,6 +68,15 @@ jobs:
           test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM reference_lab_partners WHERE id='ref_lab_keep'")" = "1"
           test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM lab_to_lab_dispatches")" = "0"
           echo 'PASS: two missing mapped tables created and existing partner data preserved'
+
+      - name: Verify all 49 additive MySQL table definitions are safe and repeatable
+        run: |
+          mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_mysql_only_all_49_tables_create_safe.sql
+          mysql -h 127.0.0.1 -uroot -ptest-only-password < sql/tlab_mysql_only_all_49_tables_create_safe.sql
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='tlab_multibranch_pilot'")" -ge 49
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM reference_lab_partners WHERE id='ref_lab_keep'")" = "1"
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -ptest-only-password tlab_multibranch_pilot -e "SELECT COUNT(*) FROM lab_tests WHERE id='original_pilot_test'")" = "1"
+          echo 'PASS: all 49 schema definitions applied without destroying existing data'
 
       - name: Verify original records and schema separation
         run: |
