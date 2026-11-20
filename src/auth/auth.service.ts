@@ -19,6 +19,29 @@ class AuthService {
 
   async init(): Promise<void> {
     await this.reloadPermissionsCache();
+    if (window.location.port === '3127') {
+      try {
+        const response = await fetch('/api/branch-pilot/staff-session', { credentials: 'same-origin', cache: 'no-store' });
+        const data = await response.json() as {
+          ok:boolean; userId:string; username:string; role:User['role'];
+          branch:{branchId:string;code:string;nameAr:string};
+          permissions:ActiveBranchContext['permissions'];
+        };
+        if (response.ok && data.ok) {
+          this.currentUser = {
+            id:data.userId, username:data.username, role:data.role,
+            passwordHash:'', fullNameAr:data.username, fullNameEn:data.username,
+            active:true, createdAt:'',
+          };
+          this.activeBranch = { ...data.branch, permissions:data.permissions };
+          return;
+        }
+      } catch { /* server session expired or unavailable */ }
+      this.currentUser = null;
+      this.activeBranch = null;
+      localStorage.removeItem(SESSION_KEY);
+      return;
+    }
     const raw = localStorage.getItem(SESSION_KEY);
     if (raw) {
       try {
@@ -136,10 +159,23 @@ class AuthService {
     return this.permissionsCache.get(`${role}_${resource}`);
   }
 
-  async login(username: string, passwordPlain: string, branch?: ActiveBranchContext): Promise<{ ok: boolean; user?: User }> {
-    const user = await usersRepository.getByUsername(username.trim());
-    if (!user || !user.active || user.passwordHash !== passwordPlain) {
-      return { ok: false };
+  async login(
+    username: string, passwordPlain: string, branch?: ActiveBranchContext,
+    verified?: { userId:string; role:User['role'] },
+  ): Promise<{ ok: boolean; user?: User }> {
+    let user: User | undefined;
+    if (window.location.port === '3127') {
+      if (!branch || !verified?.userId) return { ok: false };
+      // The server authenticated these credentials and selected this branch.
+      // IndexedDB demo users must not override the verified MySQL account.
+      user = {
+        id: verified.userId, username:username.trim(), role:verified.role,
+        passwordHash:'', fullNameAr:username.trim(), fullNameEn:username.trim(),
+        active:true, createdAt:'',
+      };
+    } else {
+      user = await usersRepository.getByUsername(username.trim());
+      if (!user || !user.active || user.passwordHash !== passwordPlain) return { ok: false };
     }
     // Switching the browser identity must revoke any previous elevated
     // local branch-administrator session on the server.
