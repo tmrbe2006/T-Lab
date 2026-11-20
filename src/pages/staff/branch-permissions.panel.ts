@@ -73,7 +73,15 @@ export async function renderBranchPermissionPanel(container: HTMLElement): Promi
       const tr = document.createElement('tr');
       const title = document.createElement('td');
       title.className = 'p-2 font-bold whitespace-nowrap';
-      title.textContent = ((i18n.dict.nav as Record<string,string>)[resource] || resource) + ' (' + resource + ')';
+      const screenLabel = ((i18n.dict.nav as Record<string,string>)[resource] || resource) + ' (' + resource + ')';
+      const selectAllLabel = document.createElement('label');
+      selectAllLabel.className = 'inline-flex items-center gap-2 cursor-pointer';
+      const selectAll = document.createElement('input');
+      selectAll.type = 'checkbox';
+      selectAll.className = 'bp-row-all w-4 h-4 accent-emerald-600';
+      selectAll.setAttribute('aria-label', i18n.bi('تحديد كل صلاحيات شاشة ', 'Select all permissions for ') + screenLabel);
+      selectAllLabel.append(selectAll, document.createTextNode(screenLabel));
+      title.append(selectAllLabel);
       tr.append(title);
       for (const action of ALL_ACTIONS) {
         const td = document.createElement('td');
@@ -91,6 +99,21 @@ export async function renderBranchPermissionPanel(container: HTMLElement): Promi
         td.append(cb);
         tr.append(td);
       }
+      // Row Select All controls only enabled actions in THIS screen.
+      // Disabled/locked actions remain unchanged.
+      const enabledActions = Array.from(tr.querySelectorAll<HTMLInputElement>('.bp-allow:not(:disabled)'));
+      const syncRowSelectAll = () => {
+        const checked = enabledActions.filter((cb) => cb.checked).length;
+        selectAll.checked = enabledActions.length > 0 && checked === enabledActions.length;
+        selectAll.indeterminate = checked > 0 && checked < enabledActions.length;
+        selectAll.disabled = enabledActions.length === 0;
+      };
+      selectAll.addEventListener('change', () => {
+        for (const cb of enabledActions) cb.checked = selectAll.checked;
+        syncRowSelectAll();
+      });
+      for (const cb of enabledActions) cb.addEventListener('change', syncRowSelectAll);
+      syncRowSelectAll();
       body.append(tr);
     }
     table.append(body);
