@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import mysql from 'mysql2/promise';
+import { MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
 import {
   createBranch, listAccessibleBranches, setUserBranchAssignment,
   type BranchDatabase,
@@ -295,7 +296,7 @@ export function installBranchPilotRoutes(app: Express): void {
     } satisfies BranchPrincipal;
     res.locals.branchSession = session;
     // Employees cannot invoke branch administration by reusing a staff session.
-    const adminOnly = req.path === '/users' || req.path === '/schema-status' ||
+    const adminOnly = req.path === '/users' || req.path === '/schema-status' || req.path === '/storage-audit' ||
       req.path === '/assign' || req.path.startsWith('/user-permissions') ||
       (req.path === '/branches' && req.method !== 'GET') ||
       (req.path === '/branches' && req.method === 'GET' && !!session.branchId) ||
@@ -356,6 +357,58 @@ export function installBranchPilotRoutes(app: Express): void {
       }, res.locals.branchPrincipal, req.body?.userId, req.body?.branchId, req.body?.rows));
       res.json({ ok: true });
     } catch (error) { respondError(res, error); }
+  });
+
+  /**
+   * Read-only migration inventory. Never interpret a successful MySQL ping
+   * or a complete table list as proof the browser modules use MySQL.
+   * Available to an authenticated Owner or Developer only.
+   */
+  app.get('/api/branch-pilot/storage-audit', async (_req, res) => {
+    try {
+      const audit = await useDatabase(async (db) => {
+        const [names] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()',
+        );
+        const present = new Set(names.map(row => String(row.name).toLowerCase()));
+        const tables: Array<{
+          store: string; mysqlTable: string; exists: boolean; mysqlRows: number | null;
+        }> = [];
+        for (const mapping of MYSQL_TABLES_CONFIG) {
+          // Validate even constant identifiers, never accept table names from a request.
+          if (!/^[a-z][a-z0-9_]*$/.test(mapping.mysqlTable)) {
+            throw new Error('UNSAFE_SCHEMA_MAPPING');
+          }
+          const exists = present.has(mapping.mysqlTable.toLowerCase());
+          let mysqlRows: number | null = null;
+          if (exists) {
+            const [countRows] = await db.query<mysql.RowDataPacket[]>(
+              `SELECT COUNT(*) AS total FROM \`${mapping.mysqlTable}\``,
+            );
+            mysqlRows = Number(countRows[0]?.total || 0);
+          }
+          tables.push({ store: mapping.dexieTable, mysqlTable: mapping.mysqlTable, exists, mysqlRows });
+        }
+        const missing = tables.filter(item => !item.exists).map(item => item.mysqlTable);
+        const [activeDb] = await db.query<mysql.RowDataPacket[]>('SELECT DATABASE() AS schema_name');
+        return {
+          schema: String(activeDb[0]?.schema_name || ''),
+          mappedStores: tables.length,
+          tableCount: present.size,
+          missingTables: missing,
+          tables,
+          allMappedTablesExist: missing.length === 0,
+          // Frontend Dexie usage is independently audited; table existence
+          // CANNOT attest that requests, results or invoices use MySQL.
+          allScreensUseMySQL: false,
+          browserDataReconciled: false,
+          productionReady: false,
+        };
+      });
+      res.json({ ok: true, ...audit });
+    } catch (error) {
+      respondError(res, error);
+    }
   });
 
   // Schema diagnostics are read-only and available only after the privileged
