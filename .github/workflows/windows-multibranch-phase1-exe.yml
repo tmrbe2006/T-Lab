@@ -39,6 +39,7 @@ on:
       - 'src/services/doctor-payout.service.ts'
       - 'src/tests/services/request-invoice-finance.test.ts'
       - 'src/tests/services/doctor-payout-ledger.test.ts'
+      - 'src/tests/services/invoice-journal-reconciliation.test.ts'
       - 'src/services/mysql-sync.service.ts'
       - 'src/auth/auth.service.ts'
       - 'src/guards/permission.guard.ts'
@@ -65,7 +66,7 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts
+        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts
       - name: Build frontend
         run: npm run build
       - name: Prepare offline installer payload
