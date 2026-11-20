@@ -67,18 +67,35 @@ export async function listAccessibleBranches(
 export async function createBranch(
   database: BranchDatabase,
   principal: BranchPrincipal | null | undefined,
-  input: { id: string; code: string; nameAr: string; nameEn?: string | null },
-): Promise<void> {
+  input: { id: string; nameAr: string; nameEn?: string | null },
+): Promise<string> {
   if (principal?.role !== 'Developer' || !principal.active) throw new BranchAccessError('FORBIDDEN');
-  if (!validBranchId(input.id) || !/^[A-Za-z0-9-]{2,32}$/.test(input.code)) {
-    throw new TypeError('Invalid branch ID or code');
-  }
+  if (!validBranchId(input.id)) throw new TypeError('Invalid branch ID');
   const name = normalizedName(input.nameAr);
   const english = input.nameEn ? normalizedName(input.nameEn) : null;
+  // Allocate numeric branch codes atomically on the SAME MySQL connection.
+  // The unique branch code constraint remains the final concurrency safeguard.
+  const [maxRows] = await database.execute(
+    "SELECT COALESCE(MAX(CAST(SUBSTRING(code, 4) AS UNSIGNED)), 1) AS n FROM branches WHERE code REGEXP '^BR-[0-9]+$'",
+  );
+  const nextMinimum = Math.max(1, Number((maxRows as Array<{ n?: number }>)[0]?.n || 1));
+  await database.execute(
+    "INSERT IGNORE INTO branch_sequences (branch_id, sequence_name, next_value) VALUES ('branch_main', 'branch_code', ?)",
+    [nextMinimum],
+  );
+  await database.execute(
+    "UPDATE branch_sequences SET next_value = LAST_INSERT_ID(GREATEST(next_value, ?) + 1) WHERE branch_id='branch_main' AND sequence_name='branch_code'",
+    [nextMinimum],
+  );
+  const [idRows] = await database.execute('SELECT LAST_INSERT_ID() AS n');
+  const number = Number((idRows as Array<{ n?: number }>)[0]?.n);
+  if (!Number.isSafeInteger(number) || number <= 1) throw new Error('Branch code sequence unavailable');
+  const code = `BR-${String(number).padStart(3, '0')}`;
   await database.execute(
     'INSERT INTO branches (id, code, name_ar, name_en, active, is_main, created_at) VALUES (?, ?, ?, ?, 1, 0, NOW())',
-    [input.id, input.code, name, english],
+    [input.id, code, name, english],
   );
+  return code;
 }
 
 export async function setUserBranchAssignment(
