@@ -45,17 +45,17 @@ describe('live MySQL patients are never read from browser fallback in branch pil
     });
   });
   it('rejects missing migration and never substitutes an empty local list',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'}});
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> 'mysql'}});
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(respond(409,{ok:false,error:'PATIENT_BRANCH_MIGRATION_REQUIRED'})));
     await expect(patientsRepository.getAll()).rejects.toThrow('PATIENT_BRANCH_MIGRATION_REQUIRED');
   });
   it('rejects malformed or non-MySQL success responses',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'}});
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> 'mysql'}});
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(respond(200,{ok:true,patients:[original]})));
     await expect(patientsRepository.getAll()).rejects.toThrow('MYSQL_PATIENTS_RESPONSE_INVALID');
   });
   it('posts a new record to MySQL without writing to IndexedDB',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'}});
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> 'mysql'}});
     const fetchMock=vi.fn().mockResolvedValueOnce(respond(200,{ok:true,source:'mysql',patients:[]}))
       .mockResolvedValueOnce(respond(201,{ok:true,patient:original}));
     vi.stubGlobal('fetch',fetchMock);
@@ -64,7 +64,7 @@ describe('live MySQL patients are never read from browser fallback in branch pil
     expect(fetchMock.mock.calls[1][1].method).toBe('POST');
   });
   it('edits an existing patient only via authenticated branch server API',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'}});
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> 'mysql'}});
     const fetchMock=vi.fn().mockResolvedValueOnce(respond(200,{ok:true,source:'mysql',patients:[original]}))
       .mockResolvedValueOnce(respond(200,{ok:true}));
     vi.stubGlobal('fetch',fetchMock);
