@@ -80,7 +80,7 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
         </div>
 
         <div class="rounded-xl border border-sky-200 bg-sky-50 p-4 flex flex-wrap items-center gap-4">
-          <label class="font-bold text-sm text-sky-900">${i18n.bi('إجمالي المنصرف في تاريخ', 'Total paid on date')}
+          <label class="font-bold text-sm text-sky-900">${i18n.bi('صافي إجمالي المصروف في تاريخ (بعد الإلغاءات)', 'Net payouts on date (excluding reversals)')}
              <input id="com-daily-date" type="date" value="${dailyDate}" class="block border rounded p-2 mt-1 bg-white" /></label>
           <div class="font-mono font-bold text-xl text-emerald-800">${totalPaidOnDate.toFixed(2)} EGP</div>
         </div>
@@ -140,8 +140,8 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
                       <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${c.commissionAmount} EGP</td>
                       <td class="py-2.5 px-3 font-semibold ${c.status === 'paid' ? 'text-emerald-700' : 'text-amber-700'}">
                         ${i18n.dict.statuses[c.status] || c.status}
-                        ${c.payoutJournalId && c.payoutDate ? `<div class="text-xs font-normal text-slate-500 mt-1">${escapeText(c.payoutDate)} · ${escapeText(c.payoutNotes || '')}</div>` : ''}
-                        ${c.payoutCancelledAt ? `<div class="text-xs text-rose-700">${i18n.bi('صرف ملغى','Reversed')}</div>` : ''}
+                        ${c.payoutDate ? `<div class="text-xs font-normal text-slate-500 mt-1">${i18n.bi('تاريخ الصرف: ','Payout date: ')}${escapeText(c.payoutDate)} · ${escapeText(c.payoutNotes || '')}</div>` : ''}
+                        ${c.payoutCancelledAt ? `<div class="text-xs text-rose-700">${i18n.bi('صرف ملغى بتاريخ: ','Reversed on: ')}${escapeText(c.payoutCancelledAt.slice(0,10))} · ${escapeText(c.payoutCancellationReason || '')}</div>` : ''}
                       </td>
                       <td class="py-2.5 px-3">
                         ${
