@@ -23,6 +23,7 @@ import { accountingService } from '../../services/accounting.service';
 import { commissionService } from '../../services/commission.service';
 import { adjustUnpaidInvoice, computeInvoiceAdjustment, voidUnpaidInvoice } from '../../services/invoice-adjustment.service';
 import { createManualInvoice } from '../../services/manual-invoice.service';
+import { checkPaymentAllowance, paymentAllocation, type PaymentPayer } from '../../services/payment-allocation.service';
 import {
   buildInvoiceWhatsAppMessage,
   openWhatsAppDispatchModal,
@@ -94,12 +95,18 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
        });
   };
 
-  const openAddPaymentModal = (inv: Invoice) => {
+  const openAddPaymentModal = async (inv: Invoice) => {
     if (inv.remainingAmount <= 0 || inv.status === 'cancelled') {
       showToast(i18n.bi('هذه الفاتورة مسددة بالكامل', 'Invoice is already paid in full'), 'warning');
       return;
     }
 
+    const previousPayments = await paymentsRepository.getByInvoiceId(inv.id);
+    const allocated = paymentAllocation(inv,previousPayments);
+    if (allocated.unreconciled) {
+      showToast(i18n.bi('هذه الفاتورة بها تحصيل سابق غير مطابق لسجل الدفعات. يجب المراجعة قبل أي تحصيل جديد.', 'Existing collections do not match payment records; reconcile them first.'),'warning');
+      return;
+    }
     openCustomModal(
       `${i18n.bi('تسجيل دفعة مالية للفاتورة:', 'Record Payment for Invoice:')} ${inv.invoiceNumber}`,
       `
@@ -109,10 +116,21 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             <div><div class="text-slate-500">${i18n.dict.common.paid}</div><div class="font-mono font-bold text-emerald-700 tabular-nums">${inv.paidAmount} EGP</div></div>
             <div><div class="text-slate-500">${i18n.dict.common.remaining}</div><div class="font-mono font-bold text-rose-700 tabular-nums">${inv.remainingAmount} EGP</div></div>
           </div>
+          ${inv.contractId ? `
+            <div class="rounded border border-indigo-200 bg-indigo-50 p-3 space-y-2">
+              <p class="font-bold">${i18n.bi('المستحق على المريض','Patient Due')}: ${allocated.patientDue.toFixed(2)} EGP |
+                ${i18n.bi('المطالبة على جهة التعاقد','Corporate Claim Due')}: ${allocated.companyDue.toFixed(2)} EGP</p>
+              <label class="block">${i18n.bi('من الذي قام بالدفع؟','Who is paying?')}
+                <select name="payerType" id="inv-pay-payer" class="block border rounded w-full p-2 mt-1">
+                  <option value="patient">${i18n.bi('المريض','Patient')}</option>
+                  <option value="contract">${i18n.bi('جهة التعاقد/التأمين','Corporate / Insurance')}</option>
+                </select>
+              </label>
+            </div>` : ''}
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block font-semibold mb-1">${i18n.bi('المبلغ المحصل الآن (EGP) *', 'Collected Amount (EGP) *')}</label>
-              <input name="amount" type="number" min="1" max="${inv.remainingAmount}" step="0.01" required value="${inv.remainingAmount}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold" />
+              <input name="amount" type="number" min="0.01" max="${allocated.patientDue || allocated.companyDue}" step="0.01" required value="${allocated.patientDue || allocated.companyDue}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold" />
             </div>
             <div>
               <label class="block font-semibold mb-1">${i18n.bi('طريقة الدفع', 'Payment Method')}</label>
@@ -135,13 +153,26 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
         </form>
       `,
       (close) => {
+        const payerSel = document.getElementById('inv-pay-payer') as HTMLSelectElement | null;
+        const amountInput = document.querySelector<HTMLInputElement>('#inv-pay-form input[name="amount"]');
+        payerSel?.addEventListener('change', () => {
+          const max = payerSel.value === 'contract' ? allocated.companyDue : allocated.patientDue;
+          if(amountInput) { amountInput.max=String(max); amountInput.value=String(max); }
+        });
         const form = document.getElementById('inv-pay-form') as HTMLFormElement | null;
         form?.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!(await enforcePermission('addPayment', 'invoices'))) return;
           const fd = new FormData(form);
-          const amt = Math.min(inv.remainingAmount, Math.max(0, Number(fd.get('amount')) || 0));
-          if (amt <= 0) return;
+          let amt=0;
+          const payerType:PaymentPayer=fd.get('payerType')==='contract'?'contract':'patient';
+          try {
+            amt=checkPaymentAllowance(inv,await paymentsRepository.getByInvoiceId(inv.id),
+              payerType,Number(fd.get('amount')));
+          } catch (error) {
+            showToast(String(error instanceof Error ? error.message : error),'warning');
+            return;
+          }
 
           const method = (fd.get('method') as PaymentMethod) || 'cash';
           const today = new Date().toISOString().slice(0, 10);
@@ -162,6 +193,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             date: today,
             amount: amt,
             method,
+            payerType,
             createdBy: user?.username || 'accountant',
             status: 'active',
             notes: String(fd.get('notes') || '').trim(),
@@ -202,6 +234,10 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     if (!(await enforcePermission('addPayment', 'invoices'))) return;
     if (inv.status === 'cancelled') return;
     const today = new Date().toISOString().slice(0, 10);
+    if (inv.contractId && inv.status !== 'paid') {
+      await openAddPaymentModal(inv);
+      return;
+    }
 
     if (inv.status === 'paid' && inv.remainingAmount <= 0) {
       showToast(i18n.bi('لا يمكن إلغاء تحصيل حقيقي بمجرد تغيير حالة الفاتورة؛ يلزم قيد عكسي موثق.', 'Paid status cannot be cleared without a documented payment reversal and matching journal.'),'warning');
@@ -579,7 +615,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
     document.querySelectorAll<HTMLButtonElement>('.inv-pay-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const target = invoices.find((x) => x.id === btn.getAttribute('data-pay'));
-        if (target) openAddPaymentModal(target);
+        if (target) void openAddPaymentModal(target);
       });
     });
 
