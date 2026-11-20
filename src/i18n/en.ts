@@ -30,6 +30,7 @@ export const en = {
     employees: 'Employees',
     users: 'System Users',
     permissions: 'Roles & Permissions',
+    branches: 'Branch Administration',
     tests: 'Test Catalog',
     scientificDepartments: 'Scientific Departments',
     sampleTubes: 'Sample Collection Tubes',
