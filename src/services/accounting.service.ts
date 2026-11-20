@@ -74,9 +74,9 @@ export class AccountingService {
           credit: 0,
         },
         {
-          accountCode: '1204',
-          accountNameAr: 'ذمم العملاء / المرضى',
-          accountNameEn: 'Accounts Receivable (Patients)',
+          accountCode: payment.payerType === 'contract' ? '1205' : '1204',
+          accountNameAr: payment.payerType === 'contract' ? 'ذمم شركات التأمين والتعاقدات' : 'ذمم العملاء / المرضى',
+          accountNameEn: payment.payerType === 'contract' ? 'Corporate Receivables' : 'Accounts Receivable (Patients)',
           debit: 0,
           credit: payment.amount,
         },
