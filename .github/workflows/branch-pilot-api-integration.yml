@@ -80,6 +80,8 @@ jobs:
           test "$code" = 401
           code=$(curl -s -c cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"owner","password":"test-only-admin-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
           test "$code" = 200
+          curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/schema-status | grep '"ready":true'
+          curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/schema-status | grep '"missingTables":\[\]'
           curl -fsS -b cookies.txt http://127.0.0.1:3127/api/branch-pilot/branches | grep branch_main
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"code":"BR-002","nameAr":"الفرع الثاني","nameEn":"Branch Two"}' http://127.0.0.1:3127/api/branch-pilot/branches)
           test "$code" = 201
