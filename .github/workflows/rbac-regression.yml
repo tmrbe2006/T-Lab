@@ -23,6 +23,6 @@ jobs:
       - name: TypeScript check
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/rbac-permission.guard.test.ts
+        run: npx vitest run src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts
       - name: Production build
         run: npm run build
