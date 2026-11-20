@@ -163,6 +163,7 @@ export const DEFAULT_SIDEBAR_GROUPS: NavGroup[] = [
       { route: 'employees', resource: 'employees', labelKey: 'employees' },
       { route: 'users', resource: 'users', labelKey: 'users' },
       { route: 'permissions', resource: 'permissions', labelKey: 'permissions' },
+      { route: 'branches', resource: 'branches', labelKey: 'branches' },
       { route: 'printing', resource: 'printing', labelKey: 'printing' },
       { route: 'settings', resource: 'settings', labelKey: 'settings' },
       { route: 'auditLogs', resource: 'permissions', labelKey: 'auditLogs' },
@@ -367,6 +368,10 @@ export const loadPage = async (
     case 'permissions': {
       const { renderPermissionsPage } = await import('./pages/staff/permissions.page');
       return renderPermissionsPage;
+    }
+    case 'branches': {
+      const { renderBranchesPage } = await import('./pages/staff/branches.page');
+      return renderBranchesPage;
     }
     case 'tests': {
       const { renderTestsCatalogPage } = await import('./pages/catalog/tests-catalog.page');
