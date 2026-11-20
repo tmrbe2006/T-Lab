@@ -39,6 +39,10 @@ export async function openManualJournalEditor(
       document.getElementById('manual-journal-form')?.addEventListener('submit',async event=>{
         event.preventDefault();
         if(!(await enforcePermission(action,'journalEntries')))return;
+        const confirmation = existing
+          ? i18n.bi('تأكيد تصحيح القيد بقيد عكسي وقيد بديل مع الاحتفاظ بالسجل؟', 'Confirm correction by reversing the original and posting a replacement journal?')
+          : i18n.bi('تأكيد إضافة قيد يومية جديد وترحيله للحسابات؟', 'Confirm creation and posting of this journal entry?');
+        if (!window.confirm(confirmation)) return;
         const form=event.currentTarget as HTMLFormElement;
         const data=new FormData(form);
         const input:ManualJournalInput={
