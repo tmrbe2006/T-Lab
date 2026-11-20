@@ -103,6 +103,33 @@ export async function renderBranchesPage(container: HTMLElement): Promise<void> 
   };
 
   const showBranches = async () => {
+    // Check actual server schema before requesting branch or staff tables.
+    // This gives clear repair instructions rather than a generic login error.
+    try {
+      const status = await api<{ ok: boolean; ready: boolean; database: string; missingTables: string[] }>('/schema-status');
+      if (!status.ready) {
+        shell(`
+          <div class="rounded-xl border border-amber-300 bg-amber-50 p-5 space-y-3">
+            <h2 class="font-bold text-amber-900">${esc(i18n.bi('التحقق من حساب المالك نجح، لكن جداول الفروع غير مكتملة', 'Owner login succeeded, but branch schema is incomplete'))}</h2>
+            <p>${esc(i18n.bi('قاعدة البيانات الفعلية: ', 'Active database: '))}<strong>${esc(status.database)}</strong></p>
+            <p>${esc(i18n.bi('الجداول المطلوبة غير الموجودة:', 'Missing required tables:'))} ${esc(status.missingTables.join(', '))}</p>
+            <p>${esc(i18n.bi(
+              'لا يُصلح ذلك بإدخال كلمة المرور مرة أخرى. خذ نسخة احتياطية مؤكدة، وطبّق سكريبت sql/tlab_multibranch_additive_v1.sql على نسخة اختبار من هذه القاعدة عبر MySQL Workbench أولاً. لا تشغّل أوامر تفريغ أو إعادة إنشاء القاعدة الأصلية.',
+              'Re-entering your password will not fix missing tables. Take a verified backup and apply sql/tlab_multibranch_additive_v1.sql to a restored TEST copy of this database in MySQL Workbench first. Do not reset the original database.'
+            ))}</p>
+            <a class="text-sky-800 underline font-semibold" href="https://github.com/tmrbe2006/T-Lab/blob/main/sql/tlab_multibranch_additive_v1.sql" target="_blank" rel="noopener noreferrer">${esc(i18n.bi('فتح سكريبت الترقية الآمن', 'Open additive migration SQL'))}</a>
+          </div>
+        `);
+        return;
+      }
+    } catch (err) {
+      const msg = String(err instanceof Error ? err.message : err);
+      if (/Session required/.test(msg)) { showLogin(); return; }
+      shell('<div class="rounded-xl border p-4 bg-white"></div>');
+      setMessage(i18n.bi('تعذر التأكد من جداول قاعدة الفروع: ', 'Could not check branch schema: ') + msg);
+      return;
+    }
+
     let branches: Branch[], users: StaffUser[];
     try {
       const responses = await Promise.all([
