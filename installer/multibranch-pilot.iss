@@ -30,4 +30,4 @@ Name: "{autodesktop}\T-Lab Multi-Branch Schema Pilot"; Filename: "{app}\launch-m
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
 [Run]
-Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\tlab-new-icon.ico"; Description: "Start T-Lab Multi-Branch Schema Pilot (local evaluation)"; Flags: postinstall skipifsilent nowait
+Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; Description: "Start T-Lab Multi-Branch Schema Pilot (local evaluation)"; Flags: postinstall skipifsilent nowait
