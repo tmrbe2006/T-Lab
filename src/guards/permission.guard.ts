@@ -16,6 +16,10 @@ export function can(
 
   // These administrative boundaries cannot be weakened by editable role rows.
   if (resource === 'settings') return user.role === 'Developer';
+  if (resource === 'branches') {
+    return (user.role === 'Developer' || user.role === 'Owner') &&
+      ['view', 'add', 'edit', 'print'].includes(action);
+  }
   if (resource === 'permissions') {
     return (user.role === 'Developer' || user.role === 'Owner') &&
       ['view', 'print', 'edit', 'managePermissions'].includes(action);
