@@ -24,6 +24,7 @@ import { commissionService } from '../../services/commission.service';
 import { adjustUnpaidInvoice, computeInvoiceAdjustment, voidUnpaidInvoice } from '../../services/invoice-adjustment.service';
 import { createManualInvoice } from '../../services/manual-invoice.service';
 import { checkPaymentAllowance, paymentAllocation, type PaymentPayer } from '../../services/payment-allocation.service';
+import { recordInvoiceReceipt } from '../../services/payment-processing.service';
 import {
   buildInvoiceWhatsAppMessage,
   openWhatsAppDispatchModal,
@@ -175,31 +176,16 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
           }
 
           const method = (fd.get('method') as PaymentMethod) || 'cash';
-          const today = new Date().toISOString().slice(0, 10);
-
-          inv.paidAmount = Math.round((inv.paidAmount + amt) * 100) / 100;
-          inv.remainingAmount = Math.max(0, Math.round((inv.netTotal - inv.paidAmount) * 100) / 100);
-          inv.status = inv.remainingAmount === 0 ? 'paid' : 'partial';
-          inv.paymentMethod = method;
-
-          await invoicesRepository.save(inv);
-
-          const newPay: Payment = {
-            id: `pay_${Date.now()}`,
-            paymentNumber: `PAY-2026-${String(Date.now()).slice(-4)}`,
-            invoiceId: inv.id,
-            invoiceNumber: inv.invoiceNumber,
-            patientId: inv.patientId,
-            date: today,
-            amount: amt,
-            method,
-            payerType,
-            createdBy: user?.username || 'accountant',
-            status: 'active',
-            notes: String(fd.get('notes') || '').trim(),
-          };
-          await paymentsRepository.save(newPay);
-          await accountingService.recordPaymentJournal(newPay, user?.username || 'accountant');
+          try {
+            const receipt=await recordInvoiceReceipt({
+              invoiceId:inv.id,payerType,amount:amt,method,
+              actor:user?.username || 'accountant',notes:String(fd.get('notes')||'').trim(),
+            });
+            Object.assign(inv,receipt.invoice);
+          } catch(error) {
+            showToast(String(error instanceof Error?error.message:error),'error');
+            return;
+          }
 
           // Sync Referring Doctor Commission strictly on the collected amount!
           const items = await invoicesRepository.getItemsByInvoiceId(inv.id);
@@ -233,7 +219,6 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
   const markInvoicePaidImmediately = async (inv: Invoice) => {
     if (!(await enforcePermission('addPayment', 'invoices'))) return;
     if (inv.status === 'cancelled') return;
-    const today = new Date().toISOString().slice(0, 10);
     if (inv.contractId && inv.status !== 'paid') {
       await openAddPaymentModal(inv);
       return;
@@ -244,30 +229,19 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
       return;
     }
 
-    const amt = Math.max(0, Math.round((inv.netTotal - inv.paidAmount) * 100) / 100);
-    inv.paidAmount = inv.netTotal;
-    inv.remainingAmount = 0;
-    inv.status = 'paid';
-    inv.paymentMethod = inv.paymentMethod || 'cash';
-    await invoicesRepository.save(inv);
-
-    if (amt > 0) {
-      const newPay: Payment = {
-        id: `pay_${Date.now()}`,
-        paymentNumber: `PAY-2026-${String(Date.now()).slice(-4)}`,
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        patientId: inv.patientId,
-        date: today,
-        amount: amt,
-        method: 'cash',
-        createdBy: user?.username || 'accountant',
-        status: 'active',
-        notes: 'سداد كامل للفاتورة (تم الدفع)',
-      };
-      await paymentsRepository.save(newPay);
-      await accountingService.recordPaymentJournal(newPay, user?.username || 'accountant');
-
+    const amount=Math.max(0,Math.round((inv.netTotal-inv.paidAmount)*100)/100);
+    if(amount<=0)return;
+    try {
+      const receipt=await recordInvoiceReceipt({
+        invoiceId:inv.id,payerType:'patient',amount,method:'cash',
+        actor:user?.username || 'accountant',notes:'سداد كامل للفاتورة',
+      });
+      Object.assign(inv,receipt.invoice);
+    } catch(error) {
+      showToast(String(error instanceof Error?error.message:error),'error');
+      return;
+    }
+    {
       const items = await invoicesRepository.getItemsByInvoiceId(inv.id);
       const syncedComm = await commissionService.syncInvoiceCommission(inv, items);
       if (syncedComm && inv.doctorId) {
