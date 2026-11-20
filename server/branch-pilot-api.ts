@@ -296,7 +296,7 @@ export function installBranchPilotRoutes(app: Express): void {
     } satisfies BranchPrincipal;
     res.locals.branchSession = session;
     // Employees cannot invoke branch administration by reusing a staff session.
-    const adminOnly = req.path === '/users' || req.path === '/schema-status' || req.path === '/storage-audit' ||
+    const adminOnly = req.path === '/users' || req.path === '/schema-status' || req.path === '/storage-audit' || req.path === '/migration-preflight' ||
       req.path === '/assign' || req.path.startsWith('/user-permissions') ||
       (req.path === '/branches' && req.method !== 'GET') ||
       (req.path === '/branches' && req.method === 'GET' && !!session.branchId) ||
@@ -408,6 +408,88 @@ export function installBranchPilotRoutes(app: Express): void {
       res.json({ ok: true, ...audit });
     } catch (error) {
       respondError(res, error);
+    }
+  });
+
+  /**
+   * Read-only reconciliation of browser primary keys versus MySQL IDs.
+   * Never copies, changes, deletes or overwrites records.
+   * Only source IDs are submitted; no clinical values or passwords.
+   */
+  app.post('/api/branch-pilot/migration-preflight', async (req, res) => {
+    const provided = req.body?.idsByStore;
+    const allowed = MYSQL_TABLES_CONFIG;
+    if (!provided || typeof provided !== 'object' || Array.isArray(provided) ||
+        Object.keys(provided).length !== allowed.length ||
+        allowed.some(m => !(m.dexieTable in provided))) {
+      res.status(400).json({ ok: false, error: 'COMPLETE_49_STORE_ID_MANIFEST_REQUIRED' });
+      return;
+    }
+    let submitted = 0;
+    for (const mapping of allowed) {
+      const ids: unknown = provided[mapping.dexieTable];
+      if (!Array.isArray(ids) || ids.length > 100000 ||
+          ids.some(id => typeof id !== 'string' || id.length < 1 || id.length > 191) ||
+          new Set(ids).size !== ids.length) {
+        res.status(400).json({ ok: false, error: 'INVALID_OR_DUPLICATE_STORE_IDS' });
+        return;
+      }
+      submitted += ids.length;
+    }
+    if (submitted > 300000) {
+      res.status(413).json({ ok: false, error: 'MIGRATION_MANIFEST_TOO_LARGE' });
+      return;
+    }
+    try {
+      const summary = await useDatabase(async (db) => {
+        const [rows] = await db.execute<mysql.RowDataPacket[]>(
+          'SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()',
+        );
+        const names = new Set(rows.map(row => String(row.name).toLowerCase()));
+        const comparison: Array<{
+          store:string; mysqlTable:string; mysqlTableExists:boolean;
+          browserRecords:number; mysqlRecords:number|null;
+          matchingIds:number; browserOnly:number; mysqlOnly:number|null;
+        }> = [];
+        for (const mapping of allowed) {
+          const idList = provided[mapping.dexieTable] as string[];
+          if (!/^[a-z][a-z0-9_]*$/.test(mapping.mysqlTable)) throw new Error('UNSAFE_SCHEMA_MAPPING');
+          const exists = names.has(mapping.mysqlTable.toLowerCase());
+          if (!exists) {
+            comparison.push({store:mapping.dexieTable,mysqlTable:mapping.mysqlTable,
+              mysqlTableExists:false,browserRecords:idList.length,mysqlRecords:null,
+              matchingIds:0,browserOnly:idList.length,mysqlOnly:null});
+            continue;
+          }
+          const [rowCount] = await db.query<mysql.RowDataPacket[]>(
+            `SELECT COUNT(*) AS total FROM \`${mapping.mysqlTable}\``,
+          );
+          const mysqlRecords = Number(rowCount[0]?.total || 0);
+          let matchingIds = 0;
+          for (let start = 0; start < idList.length; start += 400) {
+            const chunk = idList.slice(start, start + 400);
+            const [matched] = await db.query<mysql.RowDataPacket[]>(
+              `SELECT id FROM \`${mapping.mysqlTable}\` WHERE id IN (${chunk.map(() => '?').join(',')})`,
+              chunk,
+            );
+            matchingIds += matched.length;
+          }
+          comparison.push({ store:mapping.dexieTable,mysqlTable:mapping.mysqlTable,
+            mysqlTableExists:true,browserRecords:idList.length,mysqlRecords,
+            matchingIds,browserOnly:idList.length-matchingIds,
+            mysqlOnly:Math.max(0,mysqlRecords-matchingIds) });
+        }
+        return comparison;
+      });
+      res.json({
+        ok:true, readonly:true, noDataTransferred:true,
+        // ID equality alone cannot guarantee clinical or financial field equality.
+        fieldLevelReconciliationRequired:true,
+        readyToDeleteIndexedDB:false,
+        comparison:summary,
+      });
+    } catch(error) {
+      respondError(res,error);
     }
   });
 
