@@ -64,6 +64,7 @@ on:
       - 'installer/tlab-new-icon.png'
       - 'installer/build-icon.ps1'
       - 'scripts/verify-mysql-import.mjs'
+      - 'scripts/mysql-cutover-readiness.mjs'
   workflow_dispatch:
 jobs:
   build-windows:
@@ -80,6 +81,8 @@ jobs:
         run: npm run lint
       - name: RBAC regression tests
         run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts
+      - name: Audit remaining browser database dependencies (pilot warning)
+        run: node scripts/mysql-cutover-readiness.mjs
       - name: Build frontend
         run: npm run build
       - name: Prepare offline installer payload
@@ -184,6 +187,13 @@ jobs:
           $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw
           if (!$command.Contains('--static-dist')) { throw 'Installed launcher lacks static mode' }
           Write-Host 'INNO INSTALLED FILES VERIFIED: launcher, Node, server, frontend, SQL, icon.'
+      - name: Upload MySQL-only migration readiness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: T-Lab-MySQL-Migration-Readiness-Report
+          path: reports/mysql-cutover-readiness.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
