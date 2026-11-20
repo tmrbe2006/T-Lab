@@ -68,7 +68,7 @@ describe('AccountingService', () => {
       expect(entry.totalDebit).toBe(entry.totalCredit);
       expect(entry.totalDebit).toBe(500);
       expect(entry.lines).toHaveLength(2); // مدين: نقدية، دائن: ذمم
-      expect(entry.lines[0].accountCode).toBe('1101');
+      expect(entry.lines[0].accountCode).toBe('1201');
 
       const bankPayment: Payment = {
         ...cashPayment,
@@ -77,7 +77,7 @@ describe('AccountingService', () => {
         method: 'card',
       };
       const bankEntry = await accountingService.recordPaymentJournal(bankPayment, 'cashier');
-      expect(bankEntry.lines[0].accountCode).toBe('1102');
+      expect(bankEntry.lines[0].accountCode).toBe('1202');
     });
   });
 
@@ -100,7 +100,7 @@ describe('AccountingService', () => {
       expect(entry.totalDebit).toBe(entry.totalCredit);
       expect(entry.totalDebit).toBe(350);
       expect(entry.lines[0].accountCode).toBe('5102');
-      expect(entry.lines[1].accountCode).toBe('1101');
+      expect(entry.lines[1].accountCode).toBe('1201');
     });
   });
 
@@ -131,6 +131,7 @@ describe('AccountingService', () => {
         'Dr. Ahmed',
         'admin'
       );
+      if (!accrualEntry) throw new Error('Expected new accrual');
       expect(accrualEntry.totalDebit).toBe(accrualEntry.totalCredit);
       expect(accrualEntry.totalDebit).toBe(100);
       expect(accrualEntry.lines[0].accountCode).toBe('5101');
@@ -146,7 +147,7 @@ describe('AccountingService', () => {
       expect(payoutEntry.totalDebit).toBe(payoutEntry.totalCredit);
       expect(payoutEntry.totalDebit).toBe(100);
       expect(payoutEntry.lines[0].accountCode).toBe('2102');
-      expect(payoutEntry.lines[1].accountCode).toBe('1101');
+      expect(payoutEntry.lines[1].accountCode).toBe('1201');
     });
   });
 });
