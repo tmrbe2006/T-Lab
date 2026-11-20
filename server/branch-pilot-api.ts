@@ -523,6 +523,9 @@ export function installBranchPilotRoutes(app: Express): void {
     if (error instanceof TypeError) {
       res.status(400).json({ok:false,error:message});return;
     }
+    if ((error as {code?:string})?.code==='ER_DUP_ENTRY') {
+      res.status(409).json({ok:false,error:'DUPLICATE_PATIENT_ID_OR_CODE'});return;
+    }
     if ((error as {code?:string})?.code==='ER_NO_SUCH_TABLE') {
       res.status(409).json({ok:false,error:'PATIENT_BRANCH_MIGRATION_REQUIRED',
         hint:'Apply sql/tlab_patient_branch_access_v3.sql to a verified backup TEST copy of tlab_multibranch_pilot first'});return;
@@ -535,7 +538,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try {
       const patients=await withPatientDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT p.* FROM patients p INNER JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE pa.branch_id=? ORDER BY p.code',
+          'SELECT p.* FROM patients p INNER JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code',
           [session.branchId!]);
         return rows.map(patientFromRow);
       });
