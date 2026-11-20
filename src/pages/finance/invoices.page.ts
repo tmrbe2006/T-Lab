@@ -507,12 +507,10 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                               ? `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 cursor-pointer shadow-2xs">
                                   ✅ ${i18n.bi('تم الدفع', 'Mark Paid')}
                                 </button>`
-                              : `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 hover:bg-amber-100 cursor-pointer" title="${i18n.bi('إرجاع الفاتورة إلى غير مدفوعة', 'Revert to Unpaid')}">
-                                  🔄 ${i18n.bi('إلغاء الدفع', 'Unpay')}
-                                </button>`
+                              : ''
                           }
                           ${
-                            canAddPay && inv.remainingAmount > 0
+                            canAddPay && inv.status !== 'cancelled' && inv.remainingAmount > 0
                               ? `<button type="button" data-pay="${inv.id}" class="inv-pay-btn rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800 hover:bg-emerald-100 font-bold cursor-pointer">
                                   💰 ${i18n.bi('دفعة جزئية', 'Partial Pay')}
                                 </button>`
