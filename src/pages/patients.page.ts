@@ -28,8 +28,38 @@ function calculateAgeFromBirthDate(birthDateStr: string): number | null {
 
 export async function renderPatientsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  let allPatients = await patientsRepository.getAll();
-  const allRequests = await requestsRepository.getAllRequests();
+  const liveMySQL = window.location.port === '3127';
+  let allPatients: Patient[];
+  try {
+    allPatients = await patientsRepository.getAll();
+  } catch (error) {
+    // Never present an empty browser list as a successful MySQL query.
+    container.replaceChildren();
+    const alert = document.createElement('section');
+    alert.className = 'rounded-xl border border-rose-300 bg-rose-50 p-6 space-y-3';
+    const title = document.createElement('h2');
+    title.className = 'font-bold text-rose-900 text-lg';
+    title.textContent = i18n.bi('فشل تحميل المرضى من قاعدة MySQL', 'Unable to load patients from MySQL');
+    const details = document.createElement('p');
+    details.className = 'text-sm font-mono text-rose-800';
+    details.textContent = error instanceof Error ? error.message : 'MYSQL_PATIENTS_UNAVAILABLE';
+    const hint = document.createElement('p');
+    hint.className = 'text-sm text-slate-700';
+    hint.textContent = i18n.bi(
+      'لم يتم عرض بيانات المتصفح بدل MySQL. تحقق من اختيار الفرع وتسجيل الدخول، ومن تطبيق سكريبت ربط المرضى بالفروع على نسخة اختبار ووجود بيانات المرضى في قاعدة MySQL.',
+      'No IndexedDB fallback was used. Verify branch selection, login, patient-branch mapping migration and MySQL patient records.',
+    );
+    const refresh = document.createElement('button');
+    refresh.className = 'px-4 py-2 rounded bg-sky-700 text-white';
+    refresh.textContent = i18n.bi('إعادة المحاولة', 'Retry');
+    refresh.addEventListener('click', () => { void renderPatientsPage(container); });
+    alert.append(title,details,hint,refresh);
+    container.append(alert);
+    return;
+  }
+  // The legacy local requests repository is not branch-scoped. Do not expose
+  // local patient history counts as if they came from the selected MySQL branch.
+  const allRequests = liveMySQL ? [] : await requestsRepository.getAllRequests();
   let searchQuery = '';
   let currentPage = 1;
   const itemsPerPage = 15;
@@ -104,7 +134,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
             </tr>
             <tr>
               <th>${i18n.bi('عدد الطلبات المسجلة', 'Total Lab Requests')}</th>
-              <td class="tabular-nums">${reqCount}</td>
+              <td class="tabular-nums">${liveMySQL ? '—' : reqCount}</td>
               <th>${i18n.dict.common.notes}</th>
               <td>${p.notes || '-'}</td>
             </tr>
@@ -307,6 +337,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
           </div>
         </div>
 
+        ${liveMySQL ? `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 font-semibold">${i18n.bi('مصدر البيانات: MySQL مباشر | المرضى المرتبطون بالفرع المختار فقط. أعداد الطلبات لن تُعرض من بيانات المتصفح.', 'Source: live MySQL | patients assigned to selected branch only. Browser request counts are not used.')}</div>` : ''}
         <div class="flex flex-wrap items-center justify-between gap-3">
           <input
             id="pat-search-input"
@@ -355,7 +386,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
                       <td class="py-2.5 px-3 font-mono font-semibold ${p.hasDefaultDiscount ? 'text-emerald-700' : 'text-slate-400'} tabular-nums">${discText}</td>
                       <td class="py-2.5 px-3 font-mono tabular-nums">
                         <button type="button" data-hist-id="${p.id}" class="pat-hist-btn text-sky-700 hover:underline font-semibold cursor-pointer">
-                          ${reqCount} ${i18n.bi('طلب', 'Reqs')}
+${liveMySQL ? '—' : `${reqCount} ${i18n.bi('طلب', 'Reqs')}`}
                         </button>
                       </td>
                       <td class="py-2.5 px-3">
