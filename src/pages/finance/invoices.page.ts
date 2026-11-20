@@ -472,14 +472,14 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                       </td>
                       <td class="py-2.5 px-3">
                         <div class="flex flex-wrap items-center gap-1.5">
-                          <button type="button" data-edit-inv="${inv.id}" class="inv-edit-btn rounded-md border border-sky-600 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
+                          ${can(user,'edit','invoices') ? `<button type="button" data-edit-inv="${inv.id}" class="inv-edit-btn rounded-md border border-sky-600 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700 hover:bg-sky-100 cursor-pointer">
                             ✏️ ${i18n.bi('تعديل', 'Edit')}
-                          </button>
-                          <button type="button" data-del="${inv.id}" class="inv-del-btn rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
-                            🗑️ ${i18n.dict.actions.delete}
-                          </button>
+                          </button>` : ''}
+                          ${can(user,'delete','invoices') ? `<button type="button" data-del="${inv.id}" class="inv-del-btn rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 cursor-pointer">
+                            🗑️ ${i18n.bi('إلغاء فاتورة', 'Void Invoice')}
+                          </button>` : ''}
                           ${
-                            inv.status !== 'paid' && inv.status !== 'cancelled' && inv.remainingAmount > 0
+                            canAddPay && inv.status !== 'paid' && inv.status !== 'cancelled' && inv.remainingAmount > 0
                               ? `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 cursor-pointer shadow-2xs">
                                   ✅ ${i18n.bi('تم الدفع', 'Mark Paid')}
                                 </button>`
