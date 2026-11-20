@@ -121,6 +121,7 @@ export class CommissionService {
       paidAmount: alreadyPaid,
       remainingAmount: remaining,
       status: remaining === 0 && alreadyPaid > 0 ? 'paid' : alreadyPaid > 0 ? 'partial' : 'accrued',
+      payoutAmount: existing?.payoutAmount,
       payoutDate: existing?.payoutDate,
       payoutNotes: existing?.payoutNotes,
       payoutJournalId: existing?.payoutJournalId,
