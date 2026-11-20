@@ -13,7 +13,7 @@ const matrix = () => BRANCH_RESOURCES.map((resource) => ({
   actions: Object.fromEntries(BRANCH_ACTIONS.map((a) => [a, a === 'view'])) as Record<string, boolean>,
 }));
 const fake = (allowed = true) => {
-  const execute = vi.fn(async (sql:string) =>
+  const execute = vi.fn(async (sql:string, _params?:unknown[]) =>
     sql.includes('SELECT 1 AS allowed') ? [[...(allowed ? [{allowed:1}] : [])],[]] : [[],[]]);
   return {execute} as BranchDatabase & {execute:typeof execute};
 };
@@ -56,7 +56,7 @@ describe('user-specific branch permissions', () => {
 
   it('only loads the requested branch permissions and never grants malformed rows', async () => {
     const db: BranchDatabase = {
-      execute: vi.fn(async () => [[
+      execute: vi.fn(async (_sql: string, _params?: unknown[]): Promise<[unknown, unknown]> => [[
         {resource:'patients',actions_json:'{"view":true,"delete":false}'},
         {resource:'requests',actions_json:'bad json'},
       ],[]]),
