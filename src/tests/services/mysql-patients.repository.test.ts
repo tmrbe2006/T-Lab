@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { patientsRepository } from '../../repositories/patients.repository';
+import { db } from '../../db/database';
 import type { Patient } from '../../types';
 
 const original:Patient = {
@@ -16,8 +17,26 @@ const respond = (status:number, data:unknown) => ({
 afterEach(()=>vi.unstubAllGlobals());
 
 describe('live MySQL patients are never read from browser fallback in branch pilot',()=>{
+  it('recovers old browser patient records by default when MySQL is empty or migration is absent',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> null}});
+    const fetchMock=vi.fn().mockRejectedValue(new Error('SERVER_UNAVAILABLE'));
+    vi.stubGlobal('fetch',fetchMock);
+    await db.patients.put(original);
+    try {
+      const list=await patientsRepository.getAll();
+      expect(list).toContainEqual(original);
+      expect(fetchMock).not.toHaveBeenCalled();
+      const updated={...original,name:'Preserved Browser Patient'};
+      await patientsRepository.save(updated);
+      expect((await db.patients.get(original.id))?.name).toBe('Preserved Browser Patient');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await db.patients.delete(original.id);
+    }
+  });
+
   it('loads authoritative server records for the verified branch',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'}});
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> 'mysql'}});
     const fetchMock=vi.fn().mockResolvedValue(respond(200,{ok:true,source:'mysql',patients:[original]}));
     vi.stubGlobal('fetch',fetchMock);
     expect(await patientsRepository.getAll()).toEqual([original]);
