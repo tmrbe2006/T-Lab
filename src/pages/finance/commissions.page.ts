@@ -44,7 +44,7 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
     const totalAccrued = filteredRows.reduce((s, c) => s + c.commissionAmount, 0);
     const totalPaid = filteredRows.reduce((s, c) => s + c.paidAmount, 0);
     const totalRemaining = filteredRows.reduce((s, c) => s + c.remainingAmount, 0);
-    const totalPaidOnDate = filteredRows.filter(c => c.payoutDate === dailyDate && !!c.payoutJournalId && !c.payoutCancelledAt).reduce((s,c)=>s+c.paidAmount,0);
+    const totalPaidOnDate = filteredRows.filter(c => c.payoutDate === dailyDate && !!c.payoutJournalId && !c.payoutCancelledAt).reduce((s,c)=>s+(c.payoutAmount ?? c.paidAmount),0);
 
     container.innerHTML = `
       <div class="space-y-4">
