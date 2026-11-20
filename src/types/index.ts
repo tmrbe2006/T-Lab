@@ -588,6 +588,11 @@ export interface DoctorCommission {
   paidAmount: number;
   remainingAmount: number;
   status: 'accrued' | 'partial' | 'paid';
+  payoutDate?: string;
+  payoutNotes?: string;
+  payoutJournalId?: string;
+  payoutCancelledAt?: string;
+  payoutCancellationReason?: string;
 }
 
 export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
