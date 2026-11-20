@@ -16,16 +16,18 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\node.exe
+SetupIconFile=tlab-new-icon.ico
+UninstallDisplayIcon={app}\tlab-new-icon.ico
 CloseApplications=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
+Source: "tlab-new-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "package\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".env,*.log"
 [Icons]
-Name: "{autoprograms}\T-Lab Multi-Branch Schema Pilot"; Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"
-Name: "{autodesktop}\T-Lab Multi-Branch Schema Pilot"; Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\T-Lab Multi-Branch Schema Pilot"; Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\tlab-new-icon.ico"
+Name: "{autodesktop}\T-Lab Multi-Branch Schema Pilot"; Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\tlab-new-icon.ico"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
 [Run]
-Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; Description: "Start T-Lab Multi-Branch Schema Pilot (local evaluation)"; Flags: postinstall skipifsilent nowait
+Filename: "{app}\launch-multibranch-pilot.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\tlab-new-icon.ico"; Description: "Start T-Lab Multi-Branch Schema Pilot (local evaluation)"; Flags: postinstall skipifsilent nowait
