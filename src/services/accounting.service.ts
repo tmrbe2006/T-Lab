@@ -178,17 +178,19 @@ export class AccountingService {
     amountPaid: number,
     doctorNameAr: string,
     doctorNameEn: string,
-    createdBy: string
+    createdBy: string,
+    payoutDate?: string,
+    payoutNotes?: string
   ): Promise<JournalEntry> {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = payoutDate || new Date().toISOString().slice(0, 10);
     const entry: JournalEntry = {
-      id: `je_cp_${Date.now()}`,
+      id: `je_cp_${crypto.randomUUID()}`,
       entryNumber: `JE-${String(Date.now()).slice(-6)}`,
       date: today,
       referenceType: 'commission_payout',
       referenceId: commission.id,
-      descriptionAr: `صرف عمولة نقدية للطبيب (${doctorNameAr}) عن الفاتورة ${commission.invoiceNumber}`,
-      descriptionEn: `Payout Doctor Commission (${doctorNameEn}) for ${commission.invoiceNumber}`,
+      descriptionAr: `صرف عمولة نقدية للطبيب (${doctorNameAr}) عن الفاتورة ${commission.invoiceNumber}${payoutNotes ? ' — ' + payoutNotes : ''}`,
+      descriptionEn: `Payout Doctor Commission (${doctorNameEn}) for ${commission.invoiceNumber}${payoutNotes ? ' — ' + payoutNotes : ''}`,
       lines: [
         {
           accountCode: '2102',
