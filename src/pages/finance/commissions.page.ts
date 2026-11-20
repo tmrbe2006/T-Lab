@@ -3,13 +3,14 @@ import {
   bindTablePagination,
   createPaginationControls,
   paginateArray,
+  openCustomModal,
   showToast,
 } from '../../components/common';
 import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
 import { doctorsRepository, patientsRepository } from '../../repositories';
-import { accountingService } from '../../services/accounting.service';
+import { payDoctorCommission, reverseDoctorCommissionPayout } from '../../services/doctor-payout.service';
 
 export async function renderCommissionsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
@@ -23,6 +24,8 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
   let selectedDocId = 'all';
   let currentPage = 1;
   const itemsPerPage = 15;
+  const escapeText = (text: unknown) => String(text ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x] || x));
+  let dailyDate = new Date().toLocaleDateString('en-CA');
 
   const getFiltered = () => {
     if (selectedDocId === 'all') return commissions;
@@ -41,6 +44,7 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
     const totalAccrued = filteredRows.reduce((s, c) => s + c.commissionAmount, 0);
     const totalPaid = filteredRows.reduce((s, c) => s + c.paidAmount, 0);
     const totalRemaining = filteredRows.reduce((s, c) => s + c.remainingAmount, 0);
+    const totalPaidOnDate = filteredRows.filter(c => c.payoutDate === dailyDate && !!c.payoutJournalId && !c.payoutCancelledAt).reduce((s,c)=>s+c.paidAmount,0);
 
     container.innerHTML = `
       <div class="space-y-4">
@@ -75,6 +79,11 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
           </div>
         </div>
 
+        <div class="rounded-xl border border-sky-200 bg-sky-50 p-4 flex flex-wrap items-center gap-4">
+          <label class="font-bold text-sm text-sky-900">${i18n.bi('إجمالي المنصرف في تاريخ', 'Total paid on date')}
+             <input id="com-daily-date" type="date" value="${dailyDate}" class="block border rounded p-2 mt-1 bg-white" /></label>
+          <div class="font-mono font-bold text-xl text-emerald-800">${totalPaidOnDate.toFixed(2)} EGP</div>
+        </div>
         <!-- Verified Formula Reference Box -->
         <div class="rounded-xl bg-slate-900 text-slate-100 p-4 text-xs flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -131,6 +140,8 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
                       <td class="py-2.5 px-3 font-mono font-bold text-slate-900 tabular-nums">${c.commissionAmount} EGP</td>
                       <td class="py-2.5 px-3 font-semibold ${c.status === 'paid' ? 'text-emerald-700' : 'text-amber-700'}">
                         ${i18n.dict.statuses[c.status] || c.status}
+                        ${c.payoutJournalId && c.payoutDate ? `<div class="text-xs font-normal text-slate-500 mt-1">${escapeText(c.payoutDate)} · ${escapeText(c.payoutNotes || '')}</div>` : ''}
+                        ${c.payoutCancelledAt ? `<div class="text-xs text-rose-700">${i18n.bi('صرف ملغى','Reversed')}</div>` : ''}
                       </td>
                       <td class="py-2.5 px-3">
                         ${
@@ -138,8 +149,9 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
                             ? `<button data-payout="${c.id}" class="com-pay-btn rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 cursor-pointer">
                                 ${i18n.dict.actions.payCommission}
                               </button>`
-                            : '<span class="text-slate-400">—</span>'
+                            : ''
                         }
+                        ${canPay && c.payoutJournalId && !c.payoutCancelledAt ? `<button data-reverse="${c.id}" type="button" class="com-reverse-btn ms-1 rounded border border-rose-400 text-rose-700 px-2 py-1 text-xs">${i18n.bi('إلغاء الصرف','Reverse payout')}</button>` : ''}
                       </td>
                     </tr>
                   `;
@@ -157,6 +169,10 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
       renderView();
     }, 'com-pag');
 
+    document.getElementById('com-daily-date')?.addEventListener('change', e => {
+      dailyDate = (e.target as HTMLInputElement).value;
+      renderView();
+    });
     const docSel = document.getElementById('com-doc-filter') as HTMLSelectElement | null;
     docSel?.addEventListener('change', () => {
       selectedDocId = docSel.value;
@@ -211,40 +227,74 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
       printService.printA4(i18n.dict.nav.commissions, html, docTitle);
     });
 
-    document.querySelectorAll<HTMLButtonElement>('.com-pay-btn').forEach((btn) => {
+    document.querySelectorAll<HTMLButtonElement>('.com-pay-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if (!(await enforcePermission('payCommission', 'commissions'))) return;
-        const target = commissions.find((x) => x.id === btn.getAttribute('data-payout'));
+        if (!(await enforcePermission('payCommission','commissions'))) return;
+        const target = commissions.find(c => c.id === btn.dataset.payout);
         if (!target || target.remainingAmount <= 0) return;
-
-        const amtToPay = target.remainingAmount;
-        target.paidAmount = target.commissionAmount;
-        target.remainingAmount = 0;
-        target.status = 'paid';
-        await doctorsRepository.saveCommission(target);
-
-        const doc = docMap.get(target.doctorId);
-        await accountingService.recordCommissionPayoutJournal(
-          target,
-          amtToPay,
-          doc?.nameAr || target.doctorId,
-          doc?.nameEn || target.doctorId,
-          user?.username || 'accountant'
-        );
-
-        await authService.logAudit(
-          `صرف عمولة طبيب (${doc?.nameAr}) بقيمة ${amtToPay} EGP`,
-          'commissions',
-          target.id
-        );
-        showToast(
-          i18n.bi(`تم صرف العمولة (${amtToPay} ج.م) وإنشاء قيد اليومية التلقائي`, `Commission paid (${amtToPay} EGP) & journal entry created`),
-          'success'
-        );
-        commissions = await doctorsRepository.getAllCommissions();
-        renderView();
+        const doctor = docMap.get(target.doctorId);
+        openCustomModal(i18n.bi('صرف مستحق الطبيب','Pay Doctor Commission'),
+          `<form id="com-payout-form" class="space-y-4 text-sm">
+          <p class="font-semibold">${escapeText(doctor?.nameAr || target.doctorId)} — ${target.remainingAmount.toFixed(2)} EGP</p>
+          <label class="block">${i18n.bi('تاريخ الصرف','Payout date')}
+          <input name="date" type="date" required value="${new Date().toLocaleDateString('en-CA')}" class="block w-full border rounded p-2 mt-1"/></label>
+          <label class="block">${i18n.bi('ملاحظات الصرف','Payout notes')}
+          <textarea name="notes" rows="3" maxlength="1000" class="block w-full border rounded p-2 mt-1"></textarea></label>
+          <button type="submit" class="rounded bg-emerald-700 text-white px-4 py-2">${i18n.bi('تأكيد الصرف وترحيل القيد','Confirm payout and journal')}</button>
+          </form>`, close => {
+            document.getElementById('com-payout-form')?.addEventListener('submit', async event => {
+              event.preventDefault();
+              if (!(await enforcePermission('payCommission','commissions'))) return;
+              const form = event.currentTarget as HTMLFormElement;
+              const fd = new FormData(form);
+              const button = form.querySelector<HTMLButtonElement>('button[type=submit]');
+              if (button) button.disabled = true;
+              try {
+                await payDoctorCommission(target.id,String(fd.get('date') || ''),String(fd.get('notes') || ''),
+                  doctor?.nameAr || target.doctorId,doctor?.nameEn || target.doctorId,user?.username || 'accountant');
+                await authService.logAudit('صرف عمولة بتاريخ '+String(fd.get('date')),'commissions',target.id);
+                commissions = await doctorsRepository.getAllCommissions();
+                close();renderView();
+                showToast(i18n.bi('تم الصرف وحفظ القيد','Payout and journal saved'),'success');
+              } catch (error) {showToast(String(error instanceof Error ? error.message:error),'error');}
+              finally {if(button)button.disabled=false;}
+            });
+          });
       });
     });
+    document.querySelectorAll<HTMLButtonElement>('.com-reverse-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!(await enforcePermission('payCommission','commissions'))) return;
+        const target = commissions.find(c => c.id === btn.dataset.reverse);
+        if (!target?.payoutJournalId) return;
+        openCustomModal(i18n.bi('إلغاء صرف مستحق الطبيب','Reverse Doctor Payout'),
+          `<form id="com-reverse-form" class="space-y-4 text-sm">
+            <p class="text-rose-800">${i18n.bi('سيتم حفظ القيد الأصلي وإنشاء قيد عكسي لتصحيح رصيد الطبيب.','Original posting is preserved and an opposite journal corrects the doctor balance.')}</p>
+            <label class="block">${i18n.bi('سبب الإلغاء (إجباري)','Cancellation reason (required)')}
+            <textarea name="reason" required maxlength="1000" class="block border rounded p-2 w-full mt-1"></textarea></label>
+            <button type="submit" class="rounded bg-rose-700 text-white px-4 py-2">${i18n.bi('تأكيد إلغاء الصرف','Confirm Reversal')}</button>
+          </form>`, close => {
+            document.getElementById('com-reverse-form')?.addEventListener('submit', async event => {
+              event.preventDefault();
+              if (!(await enforcePermission('payCommission','commissions'))) return;
+              const form = event.currentTarget as HTMLFormElement;
+              const reason = String(new FormData(form).get('reason') || '').trim();
+              if (!reason || !window.confirm(i18n.bi('تأكيد إلغاء الصرف وإنشاء قيد عكسي؟','Confirm reversal and opposite journal?')))return;
+              const button = form.querySelector<HTMLButtonElement>('button[type=submit]');
+              if(button)button.disabled=true;
+              try {
+                await reverseDoctorCommissionPayout(target.id,reason,user?.username || 'accountant');
+                await authService.logAudit('إلغاء صرف مستحق الطبيب','commissions',target.id,reason);
+                commissions=await doctorsRepository.getAllCommissions();
+                close();renderView();
+                showToast(i18n.bi('تم إلغاء الصرف وتحديث حساب الطبيب','Payout reversed and account updated'),'success');
+              } catch(error){showToast(String(error instanceof Error ? error.message:error),'error');}
+              finally{if(button)button.disabled=false;}
+            });
+          });
+      });
+    });
+
   };
 
   renderView();
