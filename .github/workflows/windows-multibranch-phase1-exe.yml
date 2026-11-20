@@ -8,6 +8,9 @@ on:
       - 'server.ts'
       - 'server/branch-access.ts'
       - 'server/branch-service.ts'
+      - 'server/branch-pilot-api.ts'
+      - 'src/pages/staff/branches.page.ts'
+      - 'src/app.ts'
       - 'src/tests/services/branch-service.test.ts'
       - 'src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts'
       - 'sql/tlab_multibranch_additive_v1.sql'
@@ -36,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force installer/package | Out-Null
-          Copy-Item dist,src,node_modules -Destination installer/package -Recurse -Force
+          Copy-Item dist,src,server,node_modules -Destination installer/package -Recurse -Force
           Copy-Item server.ts,package.json -Destination installer/package -Force
           Copy-Item sql,docs -Destination installer/package -Recurse -Force
           Copy-Item installer/launch-multibranch-pilot.cmd -Destination installer/package/launch-multibranch-pilot.cmd -Force
@@ -116,7 +119,7 @@ jobs:
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
           $proc = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Inno installation failed: $($proc.ExitCode)" }
-          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'tlab-new-icon.ico')) {
+          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'tlab-new-icon.ico')) {
             if (!(Test-Path (Join-Path $target $required))) { throw "Missing installed file: $required" }
           }
           $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw
