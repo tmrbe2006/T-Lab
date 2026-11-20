@@ -308,8 +308,32 @@ class MySQLSyncService {
     ok: boolean;
     version?: string;
     existingTablesCount?: number;
+    database?: string;
     error?: string;
   }> {
+    if (window.location.port === '3127' &&
+        ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      try {
+        const response = await fetch('/api/branch-pilot/connection-status', {
+          credentials: 'same-origin', cache: 'no-store',
+        });
+        const status = await response.json() as {
+          ok: boolean; database?: string; version?: string;
+          existingTablesCount?: number; error?: string;
+        };
+        this.isConnected = status.ok === true;
+        this.connectedDb = status.ok ? (status.database || '') : '';
+        this.lastError = status.ok ? '' : (status.error || 'MYSQL_CONNECTION_FAILED');
+        this.updateTopHeaderButtonDOM();
+        return status;
+      } catch {
+        this.isConnected = false;
+        this.connectedDb = '';
+        this.lastError = 'PILOT_API_UNREACHABLE';
+        this.updateTopHeaderButtonDOM();
+        return { ok: false, error: 'PILOT_API_UNREACHABLE' };
+      }
+    }
     const res = await this.fetchMySQLApi<{
       ok: boolean;
       version?: string;
@@ -570,6 +594,32 @@ class MySQLSyncService {
    * Renders the MySQL 5.5 / 8.0.28 Control Panel HTML (used in both Modal & Settings screen)
    */
   public renderControlPanelHTML(prefix = 'mysql-cp'): string {
+    // The multi-branch pilot uses server-only credentials and does not allow
+    // the legacy browser bulk import/export/reset/sync flows.
+    if (window.location.port === '3127' &&
+        ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      return `
+        <div class="space-y-4 rounded-xl border border-slate-200 bg-white p-5 text-sm">
+          <h3 class="text-lg font-bold text-slate-900">${i18n.bi('فحص اتصال MySQL الآمن — نسخة الفروع', 'Secure MySQL connection check — Branch Pilot')}</h3>
+          <p class="text-slate-600">${i18n.bi(
+            'هذه النسخة تفحص قاعدة البيانات المحددة في ملف .env على الخادم فقط. لا تستخدم كلمة المرور الموجودة في المتصفح ولا تنشئ أو تحذف جداول أو تنفذ مزامنة تلقائية.',
+            'This pilot tests the server .env connection only. It does not use browser passwords, create or delete tables, or run automatic synchronization.'
+          )}</p>
+          <div id="${prefix}-status-badge" role="status" class="rounded-lg bg-slate-100 p-3 font-semibold">
+            ${i18n.bi('جاري التحقق من الاتصال...', 'Checking connection...')}
+          </div>
+          <div id="${prefix}-result-box" class="rounded-lg bg-slate-50 border p-3 font-mono text-xs"></div>
+          <button id="${prefix}-pilot-test" type="button" class="rounded-lg bg-sky-700 px-4 py-2 text-white font-bold">
+            ${i18n.bi('إعادة اختبار اتصال MySQL', 'Test MySQL connection again')}
+          </button>
+          <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
+            ${i18n.bi(
+              'لتغيير الاتصال: افتح ملف .env داخل مجلد تثبيت T-Lab Multi-Branch Pilot، واضبط MYSQL_HOST وMYSQL_PORT وMYSQL_USER وMYSQL_PASSWORD وMYSQL_DATABASE، ثم أغلق نافذة البرنامج وشغّله مجددًا. لا تشغّل سكريبت الترقية على القاعدة الرئيسية قبل نسخة احتياطية.',
+              'To change the connection, edit MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD and MYSQL_DATABASE in the installed .env, then restart. Back up the database before migration.'
+            )}
+          </div>
+        </div>`;
+    }
     const cfg = this.getConfig();
 
     return `
@@ -847,6 +897,37 @@ class MySQLSyncService {
   }
 
   public bindControlPanelEvents(container: HTMLElement, prefix = 'mysql-cp'): void {
+    if (window.location.port === '3127' &&
+        ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      const result = container.querySelector<HTMLElement>(`#${prefix}-result-box`);
+      const status = container.querySelector<HTMLElement>(`#${prefix}-status-badge`);
+      const check = async () => {
+        if (status) status.textContent = i18n.bi('جاري فحص MySQL من الخادم...', 'Checking server-side MySQL...');
+        const info = await this.testConnection(this.getConfig());
+        if (status) {
+          status.className = info.ok
+            ? 'rounded-lg bg-emerald-100 text-emerald-900 p-3 font-bold'
+            : 'rounded-lg bg-rose-100 text-rose-900 p-3 font-bold';
+          status.textContent = info.ok
+            ? i18n.bi('MySQL متصل بنجاح', 'MySQL connected')
+            : i18n.bi('تعذر اتصال الخادم بقاعدة MySQL', 'Server-side MySQL unavailable');
+        }
+        if (result) {
+          result.textContent = info.ok
+            ? i18n.bi(
+              `القاعدة الفعلية: ${info.database || ''} | الإصدار: ${info.version || ''} | عدد الجداول: ${info.existingTablesCount ?? 0}`,
+              `Active database: ${info.database || ''} | Version: ${info.version || ''} | Tables: ${info.existingTablesCount ?? 0}`,
+            )
+            : i18n.bi(
+              `سبب التعذر: ${info.error || 'MYSQL_CONNECTION_FAILED'}. راجع ملف .env وخدمة MySQL ثم أعد التشغيل.`,
+              `Reason: ${info.error || 'MYSQL_CONNECTION_FAILED'}. Check .env and MySQL, then restart.`,
+            );
+        }
+      };
+      container.querySelector(`#${prefix}-pilot-test`)?.addEventListener('click', () => { void check(); });
+      void check();
+      return;
+    }
     const readFormConfig = (): MySQLClientConfig => {
       const host =
         (container.querySelector(`#${prefix}-host`) as HTMLInputElement | null)?.value.trim() ||
