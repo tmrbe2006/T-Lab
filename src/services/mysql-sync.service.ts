@@ -610,15 +610,21 @@ class MySQLSyncService {
             'This pilot tests the server .env connection only. It does not use browser passwords, create or delete tables, or run automatic synchronization.'
           )}</p>
           <div class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-3">
-            ${i18n.bi('هذا الفحص يثبت اتصال الخادم فقط. شاشة المرضى تستخدم MySQL المباشر بعد تطبيق سكريبت ربط المرضى بالفروع؛ أما بقية شاشات البرنامج فقد تحتاج نقلًا منفصلًا من تخزين المتصفح.', 'This checks server connectivity only. Patients use live MySQL after the branch mapping migration; other modules may still require migration from browser storage.')}
+            ${i18n.bi('هذا الفحص يثبت اتصال الخادم فقط، ولا يعني أن شاشات البرنامج تستخدم MySQL. توجد شاشات ما زالت تعمل بتخزين المتصفح حتى اكتمال النقل الآمن والتحقق منه.', 'This only checks the MySQL server. Existing screens may still read browser storage until their safe migration is complete.')}
           </div>
           <div id="${prefix}-status-badge" role="status" class="rounded-lg bg-slate-100 p-3 font-semibold">
             ${i18n.bi('جاري التحقق من الاتصال...', 'Checking connection...')}
           </div>
           <div id="${prefix}-result-box" class="rounded-lg bg-slate-50 border p-3 font-mono text-xs"></div>
-          <button id="${prefix}-pilot-test" type="button" class="rounded-lg bg-sky-700 px-4 py-2 text-white font-bold">
-            ${i18n.bi('إعادة اختبار اتصال MySQL', 'Test MySQL connection again')}
-          </button>
+          <div class="flex gap-2 flex-wrap">
+            <button id="${prefix}-pilot-test" type="button" class="rounded-lg bg-sky-700 px-4 py-2 text-white font-bold">
+              ${i18n.bi('إعادة اختبار اتصال MySQL', 'Test MySQL connection again')}
+            </button>
+            <button id="${prefix}-storage-audit" type="button" class="rounded-lg bg-amber-700 px-4 py-2 text-white font-bold">
+              ${i18n.bi('فحص جداول MySQL الـ49 ومصدر البيانات', 'Audit 49 MySQL tables and data source')}
+            </button>
+          </div>
+          <div id="${prefix}-storage-audit-result" role="status" class="text-xs whitespace-pre-wrap rounded-lg bg-slate-50 border p-3" hidden></div>
           <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
             ${i18n.bi(
               'لتغيير الاتصال: افتح ملف .env داخل مجلد تثبيت T-Lab Multi-Branch Pilot، واضبط MYSQL_HOST وMYSQL_PORT وMYSQL_USER وMYSQL_PASSWORD وMYSQL_DATABASE، ثم أغلق نافذة البرنامج وشغّله مجددًا. لا تشغّل سكريبت الترقية على القاعدة الرئيسية قبل نسخة احتياطية.',
@@ -932,6 +938,35 @@ class MySQLSyncService {
         }
       };
       container.querySelector(`#${prefix}-pilot-test`)?.addEventListener('click', () => { void check(); });
+      container.querySelector(`#${prefix}-storage-audit`)?.addEventListener('click', async () => {
+        const output = container.querySelector<HTMLElement>(`#${prefix}-storage-audit-result`);
+        if (!output) return;
+        output.hidden = false;
+        output.textContent = i18n.bi('جاري مراجعة جداول MySQL...', 'Checking MySQL tables...');
+        try {
+          const response = await fetch('/api/branch-pilot/storage-audit', {
+            credentials: 'same-origin', cache: 'no-store',
+          });
+          const info = await response.json() as {
+            ok?: boolean; error?: string; schema?: string; mappedStores?: number;
+            allMappedTablesExist?: boolean; allScreensUseMySQL?: boolean;
+            tables?: Array<{store:string;mysqlTable:string;exists:boolean;mysqlRows:number|null}>;
+            missingTables?: string[];
+          };
+          if (!response.ok || !info.ok) throw new Error(info.error || 'MYSQL_AUDIT_FAILED');
+          const rows = (info.tables || []).map(t =>
+            `${t.mysqlTable}: ${t.exists ? `${t.mysqlRows} ${i18n.bi('سجل', 'rows')}` : i18n.bi('الجدول غير موجود', 'MISSING')}`);
+          output.textContent =
+            i18n.bi('قاعدة البيانات: ', 'Database: ') + (info.schema || '') + '\n' +
+            i18n.bi('المخازن التي لها تعريف MySQL: ', 'Stores with MySQL mappings: ') + (info.mappedStores || 0) + '\n' +
+            i18n.bi('هل كل الجداول موجودة؟ ', 'All tables exist? ') + (info.allMappedTablesExist ? 'YES' : 'NO') + '\n' +
+            i18n.bi('هل جميع الشاشات تستخدم MySQL؟ لا — التحويل لم يكتمل بعد.', 'Do all screens use MySQL? NO — migration is not complete.') + '\n' +
+            rows.join('\n');
+        } catch(error) {
+          output.textContent = i18n.bi('تعذر فحص الجداول: ', 'Table audit failed: ') +
+            String(error instanceof Error ? error.message : error);
+        }
+      });
       void check();
       return;
     }
