@@ -121,6 +121,11 @@ export class CommissionService {
       paidAmount: alreadyPaid,
       remainingAmount: remaining,
       status: remaining === 0 && alreadyPaid > 0 ? 'paid' : alreadyPaid > 0 ? 'partial' : 'accrued',
+      payoutDate: existing?.payoutDate,
+      payoutNotes: existing?.payoutNotes,
+      payoutJournalId: existing?.payoutJournalId,
+      payoutCancelledAt: existing?.payoutCancelledAt,
+      payoutCancellationReason: existing?.payoutCancellationReason,
     };
 
     await doctorsRepository.saveCommission(record);
