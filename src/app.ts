@@ -1633,18 +1633,6 @@ export class MedicalLabApp {
           </div>
 
           <div class="flex flex-wrap items-center gap-2 shrink-0">
-            ${
-              isDeveloper
-                ? `<button
-                    id="top-perf-benchmark-btn"
-                    type="button"
-                    class="rounded-lg border border-emerald-400/50 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/35 whitespace-nowrap cursor-pointer"
-                    title="System Performance Benchmark (Developer Only)"
-                  >
-                    ⚡ ${i18n.bi('اختبار الأداء (Performance)', 'Performance Test')}
-                  </button>`
-                : ''
-            }
             <button
               id="top-menu-settings-btn"
               type="button"
@@ -2051,9 +2039,6 @@ export class MedicalLabApp {
       this.triggerQuickAction('results');
     });
 
-    document.getElementById('top-perf-benchmark-btn')?.addEventListener('click', () => {
-      this.openPerformanceBenchmarkModal();
-    });
     document.getElementById('top-menu-settings-btn')?.addEventListener('click', () => {
       this.openMenuSettingsModal();
     });
