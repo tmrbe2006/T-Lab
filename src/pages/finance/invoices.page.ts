@@ -95,7 +95,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
   };
 
   const openAddPaymentModal = (inv: Invoice) => {
-    if (inv.remainingAmount <= 0) {
+    if (inv.remainingAmount <= 0 || inv.status === 'cancelled') {
       showToast(i18n.bi('هذه الفاتورة مسددة بالكامل', 'Invoice is already paid in full'), 'warning');
       return;
     }
@@ -200,6 +200,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
 
   const markInvoicePaidImmediately = async (inv: Invoice) => {
     if (!(await enforcePermission('addPayment', 'invoices'))) return;
+    if (inv.status === 'cancelled') return;
     const today = new Date().toISOString().slice(0, 10);
 
     if (inv.status === 'paid' && inv.remainingAmount <= 0) {
@@ -263,7 +264,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
   };
 
   const openEditInvoiceModal = async (inv: Invoice) => {
-    if (inv.paidAmount > 0 || inv.status === 'paid' || (await paymentsRepository.getByInvoiceId(inv.id)).length > 0) {
+    if (inv.paidAmount > 0 || inv.status === 'paid' || inv.status === 'cancelled' || (await paymentsRepository.getByInvoiceId(inv.id)).length > 0) {
       showToast(i18n.bi('الفاتورة المحصلة تحتاج تسوية محاسبية وإشعار دائن قبل التعديل.', 'A collected invoice requires accounting reversal and credit note before changes.'), 'warning');
       return;
     }
@@ -408,6 +409,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
             { value: 'paid', label: i18n.dict.statuses.paid },
             { value: 'partial', label: i18n.dict.statuses.partial },
             { value: 'unpaid', label: i18n.dict.statuses.unpaid },
+            { value: 'cancelled', label: i18n.bi('ملغاة','Cancelled') },
           ],
         })}
 
@@ -465,7 +467,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
                             🗑️ ${i18n.dict.actions.delete}
                           </button>
                           ${
-                            inv.status !== 'paid' || inv.remainingAmount > 0
+                            inv.status !== 'paid' && inv.status !== 'cancelled' && inv.remainingAmount > 0
                               ? `<button type="button" data-mark-paid="${inv.id}" class="inv-mark-paid-btn rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 cursor-pointer shadow-2xs">
                                   ✅ ${i18n.bi('تم الدفع', 'Mark Paid')}
                                 </button>`
