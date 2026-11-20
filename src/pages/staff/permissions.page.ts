@@ -1,6 +1,6 @@
 import { authService } from '../../auth/auth.service';
 import { showToast } from '../../components/common';
-import { ALL_RESOURCES } from '../../db/seed';
+import { ALL_ACTIONS, ALL_RESOURCES } from '../../db/seed';
 import { can, enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
@@ -12,18 +12,7 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
   let selectedRole: RoleName = 'Receptionist';
   let rolePerms = await permissionsRepository.getPermissionsByRole(selectedRole);
 
-  const keyActions: PermissionAction[] = [
-    'view',
-    'add',
-    'edit',
-    'delete',
-    'print',
-    'approve',
-    'discount',
-    'addPayment',
-    'payCommission',
-    'closeDay',
-  ];
+  const keyActions: PermissionAction[] = ALL_ACTIONS;
 
   const renderMatrix = () => {
     const canManage = can(user, 'managePermissions', 'permissions') || can(user, 'edit', 'permissions');
@@ -159,7 +148,12 @@ export async function renderPermissionsPage(container: HTMLElement): Promise<voi
         entry.actions[act] = chk.checked;
       });
 
+      if (selectedRole === 'Developer' || selectedRole === 'Owner') {
+        showToast(i18n.bi('لا يمكن تعديل صلاحيات الأدوار الإدارية المحمية', 'Protected administrator roles cannot be edited'), 'warning');
+        return;
+      }
       await permissionsRepository.saveBulkPermissions(Array.from(mapByRes.values()));
+      rolePerms = await permissionsRepository.getPermissionsByRole(selectedRole);
       await authService.reloadPermissionsCache();
       await authService.logAudit(
         `تحديث مصفوفة صلاحيات الدور: ${selectedRole}`,
