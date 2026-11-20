@@ -942,11 +942,11 @@ Return a strict JSON object with these exact keys:
 
   const distPath = path.join(__dirname, 'dist');
   const distIndexHtml = path.join(distPath, 'index.html');
-  const srcMainPath = path.join(__dirname, 'src', 'main.ts');
-  // Always use Vite middleware when src/main.ts exists so .env NODE_ENV=production never serves a stale dist folder
+  // Explicit --static-dist requests the prebuilt UI even when server-side source
+  // modules are bundled in the installer (the server imports modules from src).
+  // Development runs without this flag still use Vite middleware.
   const useStaticDist =
     process.argv.includes('--static-dist') &&
-    !fs.existsSync(srcMainPath) &&
     fs.existsSync(distIndexHtml);
 
   if (!useStaticDist) {
