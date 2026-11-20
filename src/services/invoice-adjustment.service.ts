@@ -36,7 +36,7 @@ export async function adjustUnpaidInvoice(
 ):Promise<Invoice>{
   return db.transaction('rw',[db.invoices,db.invoiceItems,db.requests,db.journalEntries,db.payments,db.corporateContracts],async()=>{
     const original=await db.invoices.get(invoiceId);
-    if (!original) throw new Error('INVOICE_NOT_FOUND');
+    if (!original || original.status === 'cancelled') throw new Error('INVOICE_NOT_FOUND_OR_CANCELLED');
     const payments=await db.payments.where('invoiceId').equals(invoiceId).toArray();
     if (payments.some(p=>p.status==='active') || original.paidAmount>0 || original.status==='paid') {
       throw new Error('PAID_INVOICE_REQUIRES_CREDIT_NOTE_AND_PAYMENT_REVERSAL');
