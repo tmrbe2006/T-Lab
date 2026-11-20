@@ -59,3 +59,21 @@ export async function downloadUnmodifiedBrowserBackup(): Promise<{
   try { a.click(); } finally { a.remove(); setTimeout(() => URL.revokeObjectURL(objectURL), 1000); }
   return { tableCount: tables.length, rowCount, fileName };
 }
+
+/**
+ * Read ONLY primary keys. No patient names, diagnoses, invoices, amounts,
+ * password hashes or other record fields are transmitted to the local server.
+ */
+export async function getBrowserMySQLPreflightManifest(): Promise<Record<string,string[]>> {
+  const mappings = MYSQL_TABLES_CONFIG;
+  if (mappings.length !== 49) throw new Error('INCOMPLETE_MYSQL_TABLE_MAPPING');
+  const idsByStore: Record<string,string[]> = {};
+  for (const mapping of mappings) {
+    const keys = await db.table(mapping.dexieTable).toCollection().primaryKeys();
+    if (keys.some(key => typeof key !== 'string')) {
+      throw new Error('UNSUPPORTED_BROWSER_RECORD_KEY_' + mapping.dexieTable);
+    }
+    idsByStore[mapping.dexieTable] = keys as string[];
+  }
+  return idsByStore;
+}
