@@ -13,41 +13,21 @@ export function can(
   resource: ResourceScreen
 ): boolean {
   if (!user || !user.active) return false;
-  // System Settings & Backup is strictly reserved for the Developer role
-  if (resource === 'settings') {
-    return user.role === 'Developer';
-  }
-  if (user.role === 'Developer') return true;
-  if (user.role === 'Owner') return true;
 
-  // Ensure core operational lab workflows (results entry, result review, requests, samples)
-  // work seamlessly across lab staff roles even if legacy IndexedDB permission rows exist
-  if (resource === 'results') {
-    if (['Doctor', 'Chemist', 'Technician', 'Receptionist'].includes(user.role)) {
-      if (['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(action)) {
-        return true;
-      }
-    }
-  }
-  if (resource === 'resultReview') {
-    if (['Doctor', 'Chemist', 'Technician'].includes(user.role)) {
-      if (['view', 'add', 'edit', 'print', 'approve', 'reopenResult'].includes(action)) {
-        return true;
-      }
-    }
-  }
-  if (resource === 'requests' && action === 'discount') {
-    return true;
+  // These administrative boundaries cannot be weakened by editable role rows.
+  if (resource === 'settings') return user.role === 'Developer';
+  if (resource === 'permissions') {
+    return (user.role === 'Developer' || user.role === 'Owner') &&
+      ['view', 'print', 'edit', 'managePermissions'].includes(action);
   }
 
-  // Microbiology: Allow all authenticated staff to view, add, edit, delete, print, export, and approve
-  if (resource === 'microbiology') {
-    return ['view', 'add', 'edit', 'delete', 'print', 'export', 'approve'].includes(action);
-  }
+  // System administrator and laboratory owner retain operational access.
+  if (user.role === 'Developer' || user.role === 'Owner') return true;
 
-  // Operational, Financial, HR, Catalog, Purchases & QC screens:
-  // Allow all authenticated staff roles to perform CRUD, payment, print, and management actions
-  return true;
+  // The saved role matrix is the sole authority for all ordinary roles.
+  // Missing role/resource/actions fail closed, never default to full access.
+  const actions = authService.getPermissionsFor(user.role, resource);
+  return actions?.[action] === true;
 }
 
 /**
