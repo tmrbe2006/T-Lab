@@ -15,6 +15,7 @@ import { printService } from '../../print/print.service';
 import {
   doctorsRepository,
   invoicesRepository,
+  permissionsRepository,
   patientsRepository,
   requestsRepository,
   testsRepository,
@@ -38,11 +39,12 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
   await ensureEnterpriseSeedData();
   const user = authService.getCurrentUser();
   let requests = await requestsRepository.getAllRequests();
-  const [patients, doctors, tests, contracts] = await Promise.all([
+  const [patients, doctors, tests, contracts, labSettings] = await Promise.all([
     patientsRepository.getAll(),
     doctorsRepository.getAll(),
     testsRepository.getAllTests(),
     db.corporateContracts.toArray(),
+    permissionsRepository.getSettings(),
   ]);
 
   const patientMap = new Map(patients.map((p) => [p.id, p]));
@@ -92,7 +94,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
     const initDisc = existingReq
       ? { type: existingReq.discountType, value: existingReq.discountValue }
       : discountService.getPatientDefaultDiscount(selectedPat);
-    const initTaxRate = existingReq ? existingReq.taxRate : 14;
+    const initTaxRate = existingReq ? existingReq.taxRate : (labSettings?.defaultTaxRate ?? 14);
     const initType: RequestType = existingReq ? existingReq.type : 'referred';
     const initDate = existingReq?.createdAt
       ? existingReq.createdAt.slice(0, 10)
@@ -229,7 +231,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             <div id="req-tests-grid" class="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-1.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 bg-slate-50">
               ${tests
                 .map((t, idx) => {
-                  const isChecked = isEdit ? existingTestIds.has(t.id) : idx < 2;
+                  const isChecked = isEdit ? existingTestIds.has(t.id) : false;
                   const searchBlob = `${t.code} ${t.nameAr} ${t.nameEn} ${t.department} ${t.sampleType}`.toLowerCase().replace(/"/g, '');
                   return `
                   <label
@@ -280,7 +282,7 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
             </div>
             <div class="sm:col-span-3">
               <label class="block font-semibold mb-0.5 text-[11px]">${i18n.bi('الضريبة (تُحسب بعد الخصم %)', 'Tax After Discount (%)')}</label>
-              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="50" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono" />
+              <input id="req-tax-rate" name="taxRate" type="number" min="0" max="100" value="${initTaxRate}" class="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono" />
             </div>
           </div>
 
