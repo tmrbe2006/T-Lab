@@ -74,6 +74,8 @@ jobs:
           test "$code" = 403
           code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
           test "$code" = 401
+          root_result=$(curl -s -X POST -H 'Content-Type: application/json' -d '{"username":"root","password":"database-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
+          echo "$root_result" | grep 'MYSQL_USER_IS_NOT_APP_USER'
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"staff","password":"staff-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
           test "$code" = 401
           code=$(curl -s -c cookies.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"owner","password":"test-only-admin-password"}' http://127.0.0.1:3127/api/branch-pilot/login)
