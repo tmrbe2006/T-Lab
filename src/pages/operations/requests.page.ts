@@ -621,7 +621,8 @@ export async function renderRequestsPage(container: HTMLElement): Promise<void> 
               await invoicesRepository.save(updatedInv, invItems);
               // Reconcile the original issued invoice journal via a reversal and
               // new balanced journal, and keep patient/company claims in sync.
-              await adjustUnpaidInvoice(linkedInv.id,math.discountAmount,math.taxRate,user?.username || 'accountant');
+              await adjustUnpaidInvoice(linkedInv.id,math.discountAmount,math.taxRate,user?.username || 'accountant',
+                {type:math.discountType,value:math.discountValue});
             }
 
             await authService.logAudit(
