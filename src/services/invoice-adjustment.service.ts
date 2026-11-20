@@ -83,3 +83,25 @@ export async function adjustUnpaidInvoice(
     return updated;
   });
 }
+
+/** Auditable cancellation for unpaid invoices: retain original document and reverse the ledger. */
+export async function voidUnpaidInvoice(invoiceId:string, reason:string, actor:string):Promise<void>{
+  if(!reason.trim())throw new Error('CANCELLATION_REASON_REQUIRED');
+  return db.transaction('rw',[db.invoices,db.payments,db.journalEntries],async()=>{
+    const invoice=await db.invoices.get(invoiceId);
+    if(!invoice || invoice.status==='cancelled')throw new Error('INVOICE_NOT_FOUND_OR_CANCELLED');
+    const payments=await db.payments.where('invoiceId').equals(invoiceId).toArray();
+    if(invoice.paidAmount>0 || payments.length>0 || invoice.status==='paid')
+      throw new Error('PAID_INVOICE_REQUIRES_CREDIT_NOTE_AND_PAYMENT_REVERSAL');
+    const existing=await db.journalEntries.where('referenceId').equals(invoiceId).toArray();
+    for(const journal of existing.filter(j=>j.referenceType==='invoice' && !j.reversalEntryId)){
+      const reversed=reversalOf(journal,actor);
+      reversed.descriptionAr='إلغاء فاتورة: '+reason.trim();
+      reversed.descriptionEn='Cancel invoice: '+reason.trim();
+      await db.journalEntries.put({...journal,status:'reversed',reversalEntryId:reversed.id});
+      await db.journalEntries.put(reversed);
+    }
+    await db.invoices.put({...invoice,status:'cancelled',remainingAmount:0,
+      notes:(invoice.notes ? invoice.notes+' | ':'')+'إلغاء: '+reason.trim()});
+  });
+}
