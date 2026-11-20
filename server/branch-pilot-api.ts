@@ -138,6 +138,13 @@ export function installBranchPilotRoutes(app: Express): void {
   app.post('/api/branch-pilot/login', async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
+    // The database driver uses MYSQL_USER from .env, but browser login must
+    // authenticate a T-Lab application Owner/Developer stored in users.
+    // Reject accidental submission of the database root credentials.
+    if (username.toLowerCase() === 'root') {
+      res.status(400).json({ ok: false, error: 'MYSQL_USER_IS_NOT_APP_USER' });
+      return;
+    }
     const ip = req.socket.remoteAddress || 'local';
     const prior = attempts.get(ip);
     if (prior && prior.until > Date.now() && prior.count >= 5) {
@@ -145,7 +152,7 @@ export function installBranchPilotRoutes(app: Express): void {
       return;
     }
     if (!/^[A-Za-z0-9_.-]{1,64}$/.test(username) || password.length < 1 || password.length > 256) {
-      res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
       return;
     }
     try {
@@ -166,7 +173,7 @@ export function installBranchPilotRoutes(app: Express): void {
       if (!identity) {
         const failures = prior?.until && prior.until > Date.now() ? prior.count : 0;
         attempts.set(ip, { count: failures + 1, until: Date.now() + 15 * 60 * 1000 });
-        res.status(401).json({ ok: false, error: 'Invalid credentials' });
+        res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
         return;
       }
       attempts.delete(ip);
