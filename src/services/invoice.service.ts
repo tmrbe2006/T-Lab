@@ -74,6 +74,17 @@ export class InvoiceService {
       };
     });
 
+    // Distribute any one-cent rounding remainder to the final line so the
+    // combined invoice items always equal the posted total (doctor payouts
+    // and corporate shares must not be calculated from unbalanced items).
+    if (itemShares.length) {
+      const last = itemShares[itemShares.length - 1];
+      const sumNet = itemShares.reduce((sum, item) => sum + item.netAfterDiscountAndTax, 0);
+      const sumAfterDiscount = itemShares.reduce((sum, item) => sum + item.netAfterDiscount, 0);
+      last.netAfterDiscountAndTax = Math.round((last.netAfterDiscountAndTax + Math.round((netTotal - sumNet) * 100) / 100) * 100) / 100;
+      last.netAfterDiscount = Math.round((last.netAfterDiscount + Math.round((disc.afterDiscount - sumAfterDiscount) * 100) / 100) * 100) / 100;
+    }
+
     return {
       subtotal,
       discountType: disc.discountType,
