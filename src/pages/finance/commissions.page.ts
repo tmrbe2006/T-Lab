@@ -152,6 +152,10 @@ export async function renderCommissionsPage(container: HTMLElement): Promise<voi
                             : ''
                         }
                         ${canPay && c.payoutJournalId && !c.payoutCancelledAt ? `<button data-reverse="${c.id}" type="button" class="com-reverse-btn ms-1 rounded border border-rose-400 text-rose-700 px-2 py-1 text-xs">${i18n.bi('إلغاء الصرف','Reverse payout')}</button>` : ''}
+                        ${c.paidAmount > 0 && !c.payoutJournalId && !c.payoutCancelledAt
+                          ? `<span class="text-[10px] text-amber-800 block mt-1" title="${i18n.bi('لا يوجد قيد صرف أصلي موثق يسمح بإلغائه تلقائيًا. يلزم مراجعة محاسبية.', 'No original documented payout journal exists; manual accounting reconciliation required.')}">${i18n.bi('صرف قديم يحتاج مراجعة القيد','Legacy payout: journal review needed')}</span>` : ''}
+                        ${!canPay && c.payoutJournalId && !c.payoutCancelledAt
+                          ? `<span class="text-[10px] text-slate-500 block mt-1">${i18n.bi('يتطلب صلاحية صرف عمولة', 'Requires payout permission')}</span>` : ''}
                       </td>
                     </tr>
                   `;
