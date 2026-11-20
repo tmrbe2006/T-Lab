@@ -52,6 +52,18 @@ describe('RBAC saved role matrix', () => {
     expect(can(user('Owner'), 'delete', 'permissions')).toBe(false);
   });
 
+  it('allows only developer and owner to access branch administration', () => {
+    for (const role of ['Developer', 'Owner'] as const) {
+      expect(can(user(role), 'view', 'branches')).toBe(true);
+      expect(can(user(role), 'add', 'branches')).toBe(true);
+      expect(can(user(role), 'delete', 'branches')).toBe(false);
+    }
+    for (const role of ['Doctor', 'Chemist', 'Technician', 'Receptionist', 'Accountant'] as const) {
+      expect(can(user(role), 'view', 'branches')).toBe(false);
+      expect(can(user(role), 'add', 'branches')).toBe(false);
+    }
+  });
+
   it('reserves settings for developer, and allows owner regular operations', () => {
     expect(can(user('Developer'), 'edit', 'settings')).toBe(true);
     expect(can(user('Owner'), 'edit', 'settings')).toBe(false);
