@@ -7,7 +7,9 @@ on:
       - 'installer/launch-multibranch-pilot.cmd'
       - 'server.ts'
       - 'server/branch-access.ts'
-      - 'src/tests/services/branch-access.test.ts'
+      - 'server/branch-service.ts'
+      - 'src/tests/services/branch-service.test.ts'
+      - 'src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts'
       - 'sql/tlab_multibranch_additive_v1.sql'
       - 'docs/MULTIBRANCH_MIGRATION_PHASE1.md'
       - 'installer/tlab-new-icon.png'
@@ -27,7 +29,7 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts
+        run: npx vitest run src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts
       - name: Build frontend
         run: npm run build
       - name: Prepare offline installer payload
