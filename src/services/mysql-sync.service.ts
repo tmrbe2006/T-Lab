@@ -361,12 +361,12 @@ class MySQLSyncService {
   }
 
   public async initSchemaOnServer(cfg: MySQLClientConfig): Promise<{
-    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     ok: boolean;
     version?: string;
     tablesCreated?: number;
     error?: string;
   }> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     return this.fetchMySQLApi('/api/mysql/init-schema', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -375,13 +375,13 @@ class MySQLSyncService {
   }
 
   public async pushAllToMySQL(cfg: MySQLClientConfig): Promise<{
-    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     ok: boolean;
     totalRowsSynced?: number;
     tablesCount?: number;
     version?: string;
     error?: string;
   }> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     try {
       const data = await this.collectAllTablesData();
       const res = await this.fetchMySQLApi<{
@@ -410,11 +410,11 @@ class MySQLSyncService {
   }
 
   public async pullAllFromMySQL(cfg: MySQLClientConfig): Promise<{
-    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     ok: boolean;
     totalRowsPulled?: number;
     error?: string;
   }> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     try {
       const json = await this.fetchMySQLApi<{
         ok: boolean;
