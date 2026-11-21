@@ -37,7 +37,7 @@ describe('MySQL finance transactional client routing',()=>{
       date:'2026-11-21',descriptionAr:'اختبار',debitCode:'1201',
       creditCode:'4101',amount:100,
     },'untrusted-client')).id).toBe('mysql-j1');
-    expect(fetcher.mock.calls[0][0]).toBe('/api/branch-pilot/finance/manual-journal');
+    expect((fetcher.mock.calls as unknown as Array<[string]>)[0][0]).toBe('/api/branch-pilot/finance/manual-journal');
   });
   it('creates manual invoices through server-side MySQL transactional API',async()=>{
     vi.stubGlobal('window',{location:{port:'3127'}});
