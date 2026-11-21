@@ -1,0 +1,46 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { recordInvoiceReceipt } from '../../services/payment-processing.service';
+import { createManualJournal } from '../../services/manual-journal.service';
+
+afterEach(()=>vi.unstubAllGlobals());
+describe('MySQL finance transactional client routing',()=>{
+  it('posts a receipt to the server instead of Dexie',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'}});
+    const invoice={id:'i1'};
+    const payment={id:'p1'};
+    const fetcher=vi.fn(async()=>({ok:true,json:async()=>({
+      ok:true,source:'mysql',invoice,payment
+    })}));
+    vi.stubGlobal('fetch',fetcher);
+    const result=await recordInvoiceReceipt({
+      invoiceId:'i1',payerType:'patient',amount:15,method:'cash',actor:'forged',
+      notes:'integration',
+    });
+    expect(result.invoice).toEqual(invoice);
+    expect(result.payment).toEqual(payment);
+    const [url,options]=fetcher.mock.calls[0] as unknown as [string,RequestInit];
+    expect(url).toBe('/api/branch-pilot/finance/receipt');
+    expect(options.method).toBe('POST');
+    expect(JSON.stringify(options.body)).not.toContain('forged');
+  });
+  it('returns server-created balanced journal instead of browser generated IDs',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'}});
+    const entry={id:'mysql-j1',totalDebit:100,totalCredit:100};
+    const fetcher=vi.fn(async()=>({ok:true,json:async()=>({
+      ok:true,source:'mysql',entry
+    })}));
+    vi.stubGlobal('fetch',fetcher);
+    expect((await createManualJournal({
+      date:'2026-11-21',descriptionAr:'اختبار',debitCode:'1201',
+      creditCode:'4101',amount:100,
+    },'untrusted-client')).id).toBe('mysql-j1');
+    expect(fetcher.mock.calls[0][0]).toBe('/api/branch-pilot/finance/manual-journal');
+  });
+  it('refuses payment completion on a server error',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'}});
+    vi.stubGlobal('fetch',vi.fn(async()=>({ok:false,json:async()=>({ok:false,error:'FORBIDDEN'})})));
+    await expect(recordInvoiceReceipt({
+      invoiceId:'i1',payerType:'patient',amount:15,method:'cash',actor:'x',notes:'',
+    })).rejects.toThrow('FORBIDDEN');
+  });
+});
