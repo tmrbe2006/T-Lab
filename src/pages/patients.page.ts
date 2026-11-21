@@ -28,8 +28,7 @@ function calculateAgeFromBirthDate(birthDateStr: string): number | null {
 
 export async function renderPatientsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  const liveMySQL = window.location.port === '3127' &&
-    window.localStorage.getItem('tlab_patients_data_source') === 'mysql';
+  const liveMySQL = window.location.port === '3127';
   let allPatients: Patient[];
   try {
     allPatients = await patientsRepository.getAll();
