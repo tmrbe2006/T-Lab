@@ -132,7 +132,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
           </div>
 
           <div class="mt-6 pt-4 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>IndexedDB Local Persistence · Offline PWA</span>
+            <span>${branchPilot ? 'MySQL Server · Centralized Branch Data' : 'Legacy recovery mode — browser database'}</span>
             <span class="tabular-nums">v1.0.0</span>
           </div>
         </section>
