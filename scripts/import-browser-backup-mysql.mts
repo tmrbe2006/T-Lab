@@ -125,6 +125,14 @@ try{
           const [old]=await db.execute<mysql.RowDataPacket[]>(
             'SELECT id FROM `'+m.mysqlTable+'` WHERE id=? LIMIT 1',[row.id]);
           if(old.length)continue; // MySQL is canonical. Never overwrite real records.
+          if(m.dexieTable==='users'){
+            const username=String(row.username||'').trim();
+            if(!/^[A-Za-z0-9_.-]{1,64}$/.test(username))
+              throw new Error('INVALID_IMPORTED_USERNAME');
+            const [duplicates]=await db.execute<mysql.RowDataPacket[]>(
+              'SELECT id FROM users WHERE username=? LIMIT 1',[username]);
+            if(duplicates.length)throw new Error('DUPLICATE_USERNAME_IMPORTED');
+          }
           const values=[...m.columns.map(c=>c.extract(row)),JSON.stringify(row)];
           // Optional historical FKs use SQL NULL, not an invalid empty-string reference.
           const optionalFKs=new Set([
