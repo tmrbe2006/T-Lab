@@ -20,7 +20,12 @@ export async function renderTestParametersPage(container: HTMLElement): Promise<
   const user = authService.getCurrentUser();
   if (window.location.port !== '3127') await syncGlobalMedicalCatalog();
   let tests = await testsRepository.getAllTests();
-  let params = await testsRepository.getParametersByTestId(getSelectedTestForParams());
+  if (tests.length && !tests.some(test => test.id === getSelectedTestForParams())) {
+    setSelectedTestForParams(tests[0].id);
+  }
+  let params = tests.length
+    ? await testsRepository.getParametersByTestId(getSelectedTestForParams())
+    : [];
 
   const openParamForm = (existing?: TestParameter) => {
     const isEdit = Boolean(existing);
