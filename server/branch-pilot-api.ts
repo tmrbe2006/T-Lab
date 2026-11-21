@@ -872,7 +872,8 @@ export function installBranchPilotRoutes(app: Express): void {
             patientId:String(row.patient_id||''),patientName:String(row.patient_name||''),
             patientPhone:String(row.patient_phone||''),address:String(row.address||''),
             scheduledDate:String(row.scheduled_date||''),phlebotomistName:String(row.phlebotomist_name||''),
-            visitFee:Number(row.visit_fee||0),status:String(row.status||'scheduled')};
+            visitFee:Number(row.visit_fee||0),status:String(row.status||'scheduled'),
+            createdAt:String(raw.createdAt||row.scheduled_date||'')};
         });
       });
       res.json({ok:true,source:'mysql',visits});
