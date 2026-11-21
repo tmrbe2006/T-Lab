@@ -779,6 +779,150 @@ export function installBranchPilotRoutes(app: Express): void {
     }catch(error){patientError(res,error);}
   });
 
+
+  // Branch-scoped, MySQL-only HOME VISITS pilot. No browser fallback.
+  // Migration: sql/tlab_home_visits_branch_access_v5.sql, after verified backups.
+  async function withHomeVisitDb<T>(
+    req: Request, action: 'view'|'add'|'edit'|'delete',
+    fn: (db:mysql.Connection, session:AdminSession)=>Promise<T>,
+  ):Promise<T> {
+    const session=getSession(req);
+    if(!session?.branchId) throw new Error('BRANCH_SELECTION_REQUIRED');
+    return useDatabase(async db=>{
+      const branches=await staffAssignedBranches(db,session.userId,session.role);
+      if(!branches.some(b=>b.branchId===session.branchId)) throw new Error('BRANCH_NOT_ASSIGNED');
+      const rows=await ownBranchPermissions({execute:(sql,params)=>db.execute(sql,params as string[])},session.userId,session.branchId!);
+      const explicit=rows.find(row=>row.resource==='homeVisits');
+      if(!(session.role==='Developer' || (session.role==='Owner'
+        ? (!explicit || explicit.actions[action]===true)
+        : explicit?.actions[action]===true))) throw new Error('FORBIDDEN');
+      return fn(db,session);
+    });
+  }
+  function homeVisitError(res:Response,error:unknown):void {
+    const msg=error instanceof Error?error.message:'MYSQL_HOME_VISITS_UNAVAILABLE';
+    if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
+    if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(msg)){res.status(403).json({ok:false,error:msg});return;}
+    if(['VISIT_NOT_IN_BRANCH','DUPLICATE_VISIT','PATIENT_NOT_IN_BRANCH'].includes(msg)){
+      res.status(409).json({ok:false,error:msg});return;
+    }
+    if(error instanceof TypeError){res.status(400).json({ok:false,error:'INVALID_HOME_VISIT'});return;}
+    if((error as {code?:string})?.code==='ER_NO_SUCH_TABLE'){
+      res.status(409).json({ok:false,error:'HOME_VISITS_SCHEMA_MIGRATION_REQUIRED'});return;
+    }
+    console.error('MySQL home visit failure:',msg);
+    res.status(503).json({ok:false,error:'MYSQL_HOME_VISITS_UNAVAILABLE'});
+  }
+  function homeVisitValue(input:unknown):Record<string,unknown> {
+    if(!input || typeof input!=='object' || Array.isArray(input)) throw new TypeError('INVALID_HOME_VISIT');
+    const obj=input as Record<string,unknown>;
+    const str=(key:string,max:number)=>{
+      const value=String(obj[key]??'').trim();
+      if(value.length>max)throw new TypeError('INVALID_HOME_VISIT_FIELD');
+      return value;
+    };
+    const id=str('id',64),visitNumber=str('visitNumber',64),patientId=str('patientId',64);
+    if(!validBranchId(id)||!visitNumber||!validBranchId(patientId))throw new TypeError('INVALID_HOME_VISIT');
+    const allowed=['scheduled','dispatched','sample_collected','delivered_to_lab','completed','cancelled'];
+    const status=str('status',32);
+    if(!allowed.includes(status))throw new TypeError('INVALID_HOME_VISIT_STATUS');
+    const fee=Number(obj.visitFee);
+    if(!Number.isFinite(fee)||fee<0||fee>100000000)throw new TypeError('INVALID_HOME_VISIT_FEE');
+    const rec={...obj,id,visitNumber,patientId,status,visitFee:fee,
+      patientName:str('patientName',191),patientPhone:str('patientPhone',64),
+      address:str('address',255),scheduledDate:str('scheduledDate',32),
+      phlebotomistName:str('phlebotomistName',191)};
+    if(JSON.stringify(rec).length>48000)throw new TypeError('HOME_VISIT_TOO_LARGE');
+    return rec;
+  }
+  async function requireHomeVisitPatient(db:mysql.Connection,patientId:string,branchId:string){
+    const [rows]=await db.execute<mysql.RowDataPacket[]>(
+      'SELECT 1 AS allowed FROM patient_branch_access a JOIN patients p ON p.id=a.patient_id WHERE a.patient_id=? AND a.branch_id=? AND p.active=1 LIMIT 1',
+      [patientId,branchId]);
+    if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
+  }
+  app.get('/api/branch-pilot/home-visits',async(req,res)=>{
+    try{
+      const visits=await withHomeVisitDb(req,'view',async(db,session)=>{
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT v.* FROM home_visits v JOIN home_visit_branch_access a ON a.visit_id=v.id WHERE a.branch_id=? ORDER BY v.scheduled_date DESC',
+          [session.branchId!]);
+        return rows.map(row=>{
+          let raw:Record<string,unknown>={};
+          try {const parsed=JSON.parse(String(row.raw_json||'{}'));if(parsed && typeof parsed==='object' && !Array.isArray(parsed))raw=parsed;}
+          catch{/* legacy relational data */}
+          return {...raw,id:String(row.id),visitNumber:String(row.visit_number),
+            patientId:String(row.patient_id||''),patientName:String(row.patient_name||''),
+            patientPhone:String(row.patient_phone||''),address:String(row.address||''),
+            scheduledDate:String(row.scheduled_date||''),phlebotomistName:String(row.phlebotomist_name||''),
+            visitFee:Number(row.visit_fee||0),status:String(row.status||'scheduled')};
+        });
+      });
+      res.json({ok:true,source:'mysql',visits});
+    }catch(e){homeVisitError(res,e);}
+  });
+  app.post('/api/branch-pilot/home-visits',async(req,res)=>{
+    try{
+      const rec=homeVisitValue(req.body?.visit);
+      await withHomeVisitDb(req,'add',async(db,session)=>{
+        await db.beginTransaction();
+        try{
+          await requireHomeVisitPatient(db,String(rec.patientId),session.branchId!);
+          const [existing]=await db.execute<mysql.RowDataPacket[]>('SELECT id FROM home_visits WHERE id=? LIMIT 1',[rec.id]);
+          if(existing.length)throw new Error('DUPLICATE_VISIT');
+          await db.execute(
+            'INSERT INTO home_visits (id,visit_number,patient_id,patient_name,patient_phone,address,scheduled_date,phlebotomist_name,visit_fee,status,raw_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [rec.id,rec.visitNumber,rec.patientId,rec.patientName,rec.patientPhone,rec.address,rec.scheduledDate,rec.phlebotomistName,rec.visitFee,rec.status,JSON.stringify(rec)]);
+          await db.execute(
+            'INSERT INTO home_visit_branch_access(visit_id,branch_id,created_at,created_by) VALUES(?,?,NOW(),?)',
+            [rec.id,session.branchId!,session.userId]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.status(201).json({ok:true,source:'mysql'});
+    }catch(e){homeVisitError(res,e);}
+  });
+  app.put('/api/branch-pilot/home-visits/:id',async(req,res)=>{
+    try{
+      const rec=homeVisitValue(req.body?.visit);
+      if(rec.id!==req.params.id)throw new TypeError('INVALID_VISIT_ID');
+      await withHomeVisitDb(req,'edit',async(db,session)=>{
+        await db.beginTransaction();
+        try{
+          const [rows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT v.id FROM home_visits v JOIN home_visit_branch_access a ON a.visit_id=v.id WHERE v.id=? AND a.branch_id=? FOR UPDATE',
+            [rec.id,session.branchId!]);
+          if(!rows.length)throw new Error('VISIT_NOT_IN_BRANCH');
+          await requireHomeVisitPatient(db,String(rec.patientId),session.branchId!);
+          await db.execute('UPDATE home_visits SET visit_number=?,patient_id=?,patient_name=?,patient_phone=?,address=?,scheduled_date=?,phlebotomist_name=?,visit_fee=?,status=?,raw_json=? WHERE id=?',
+            [rec.visitNumber,rec.patientId,rec.patientName,rec.patientPhone,rec.address,rec.scheduledDate,rec.phlebotomistName,rec.visitFee,rec.status,JSON.stringify(rec),rec.id]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql'});
+    }catch(e){homeVisitError(res,e);}
+  });
+  // Clinical history must be retained: hide cancelled records instead of physically deleting them.
+  app.delete('/api/branch-pilot/home-visits/:id',async(req,res)=>{
+    try{
+      await withHomeVisitDb(req,'delete',async(db,session)=>{
+        await db.beginTransaction();
+        try{
+          const [rows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT v.* FROM home_visits v JOIN home_visit_branch_access a ON a.visit_id=v.id WHERE v.id=? AND a.branch_id=? FOR UPDATE',
+            [req.params.id,session.branchId!]);
+          if(!rows.length)throw new Error('VISIT_NOT_IN_BRANCH');
+          const row=rows[0];let raw:Record<string,unknown>={};
+          try{raw=JSON.parse(String(row.raw_json||'{}'));}catch{/* legacy */}
+          await db.execute('UPDATE home_visits SET status=?,raw_json=? WHERE id=?',
+            ['cancelled',JSON.stringify({...raw,id:String(row.id),status:'cancelled'}),req.params.id]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,softDeleted:true,source:'mysql'});
+    }catch(e){homeVisitError(res,e);}
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
