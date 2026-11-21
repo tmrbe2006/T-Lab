@@ -1,0 +1,64 @@
+name: Validate T-Lab MySQL all 49 stores (test DB only)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'scripts/**'
+      - 'sql/**'
+      - '.github/workflows/mysql-all-49-integration.yml'
+
+jobs:
+  mysql-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: integration-test-only
+          MYSQL_DATABASE: tlab_multibranch_pilot
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pintegration-test-only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: '3306'
+      MYSQL_USER: root
+      MYSQL_PASSWORD: integration-test-only
+      MYSQL_DATABASE: tlab_multibranch_pilot
+      MYSQL_PWD: integration-test-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and application bundle
+        run: |
+          npm run lint
+          npm run build
+      - name: Create all 49 MySQL tables in a clean isolated test database
+        run: |
+          mysql -h 127.0.0.1 -uroot tlab_multibranch_pilot < sql/tlab_mysql_only_all_49_tables_create_safe.sql
+          mysql -h 127.0.0.1 -uroot tlab_multibranch_pilot < sql/tlab_all_49_store_branch_access_v8.sql
+      - name: Verify real MySQL schema and empty row counts
+        run: node scripts/verify-mysql-import.mjs
+      - name: Check static IndexedDB migration blockers
+        run: node scripts/mysql-cutover-readiness.mjs
+      - name: Verify no browser fallback transport and finance controls
+        run: |
+          npx vitest run src/tests/services/mysql-all-49-stores.test.ts src/tests/services/mysql-finance.read.test.ts src/tests/services/mysql-home-visits.repository.test.ts
+      - name: Upload safety audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-49-mysql-migration-readiness
+          path: reports/mysql-cutover-readiness.json
+          if-no-files-found: error
+          retention-days: 14
