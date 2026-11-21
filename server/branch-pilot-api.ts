@@ -1114,6 +1114,85 @@ export function installBranchPilotRoutes(app: Express): void {
     }catch(e){financeReadError(res,e);}
   });
 
+
+  // Centralized MySQL-only read API for ALL 49 registered stores.
+  // Access to each record is explicitly scoped to the authenticated branch.
+  // This is a read-side cutover foundation; never exposes unsafely migrated writes.
+  const storePermissions: Record<string,string> = {
+    invoiceItems:'invoices', requestItems:'requests',testBOMs:'inventory',
+    inventoryLots:'inventory',stockMovements:'inventory',stockTakingSessions:'inventory',
+    purchaseInvoices:'purchases',returnNotes:'purchases',chartOfAccounts:'accounts',
+    costCenters:'erpAccounting',periodLocks:'erpAccounting',journalEntries:'journalEntries',
+    cashboxSessions:'cashbox',dailyClosings:'cashbox',commissions:'commissions',
+    auditLogs:'settings',roles:'permissions',permissions:'permissions',
+    aiImageAnalyses:'aiHub',aiRecognitionFindings:'aiHub',aiCorrections:'aiHub',
+    microscopyScans:'aiHub',criticalValueLogs:'resultReview',
+    cultureResults:'microbiology',antibioticsCatalog:'microbiology',
+    qcControlLots:'qualityControl',qcRuns:'qualityControl',
+    referenceLabPartners:'homeVisits',labToLabDispatches:'homeVisits',
+    settings:'settings',users:'users',employees:'employees',
+    doctorSpecialties:'doctorSpecialties',scientificDepartments:'scientificDepartments',
+    sampleTubes:'sampleTubes',testParameters:'testParameters',
+    corporateContracts:'corporateContracts',
+  };
+  const restrictedStores=new Set(['users','roles','permissions','auditLogs','settings']);
+  const mysqlStoreMapping=new Map(MYSQL_TABLES_CONFIG.map(m=>[m.dexieTable,m]));
+  function sanitizeMySQLStoreRow(store:string,row:mysql.RowDataPacket):Record<string,unknown> {
+    let raw:Record<string,unknown>={};
+    try{
+      const parsed:unknown=JSON.parse(String(row.raw_json||'{}'));
+      if(parsed && typeof parsed==='object'&&!Array.isArray(parsed))raw=parsed as Record<string,unknown>;
+    }catch{/* retained SQL columns are still available */}
+    // Application-user password material and integration secrets must NEVER leave this endpoint.
+    for(const key of Object.keys(raw)){
+      if(/password|secret|api.?key|token|private.?key|credential/i.test(key))delete raw[key];
+    }
+    const result:Record<string,unknown>={...raw};
+    for(const [key,value] of Object.entries(row)){
+      if(key==='raw_json')continue;
+      const prop=key.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase());
+      result[prop]=value;
+    }
+    return result;
+  }
+  app.get('/api/branch-pilot/mysql-store/:store',async(req,res)=>{
+    try{
+      const store=String(req.params.store||'');
+      const mapped=mysqlStoreMapping.get(store);
+      if(!mapped){res.status(404).json({ok:false,error:'UNKNOWN_STORE'});return;}
+      const rawLimit=Number(req.query.limit??200),rawOffset=Number(req.query.offset??0);
+      if(!Number.isInteger(rawLimit)||rawLimit<1||rawLimit>500||
+          !Number.isInteger(rawOffset)||rawOffset<0||rawOffset>10000000){
+        res.status(400).json({ok:false,error:'INVALID_PAGINATION'});return;
+      }
+      const session=getSession(req);
+      if(!session?.branchId){res.status(401).json({ok:false,error:'BRANCH_SELECTION_REQUIRED'});return;}
+      const data=await useDatabase(async db=>{
+        const branches=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branches.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const permission=storePermissions[store]||store;
+        const rights=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId!);
+        const rule=rights.find(r=>r.resource===permission);
+        if(restrictedStores.has(store) && session.role!=='Developer' && session.role!=='Owner')throw new Error('FORBIDDEN');
+        if(!(session.role==='Developer'||(session.role==='Owner'
+          ? (!rule||rule.actions.view===true):rule?.actions.view===true)))throw new Error('FORBIDDEN');
+        // SQL identifiers are server-controlled from MYSQL_TABLES_CONFIG, never request input.
+        const sqlTable='`'+mapped.mysqlTable+'`';
+        const [countRows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS total FROM '+sqlTable+' t INNER JOIN mysql_store_branch_access a ON a.record_id=t.id WHERE a.store_name=? AND a.branch_id=?',
+          [store,session.branchId!]);
+        const [rows]=await db.query<mysql.RowDataPacket[]>(
+          'SELECT t.* FROM '+sqlTable+' t INNER JOIN mysql_store_branch_access a ON a.record_id=t.id WHERE a.store_name=? AND a.branch_id=? ORDER BY t.id LIMIT ? OFFSET ?',
+          [store,session.branchId!,rawLimit,rawOffset]);
+        return {total:Number(countRows[0]?.total||0),records:rows.map(row=>sanitizeMySQLStoreRow(store,row))};
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({ok:true,source:'mysql',store,...data,limit:rawLimit,offset:rawOffset});
+    }catch(error){financeReadError(res,error);}
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
