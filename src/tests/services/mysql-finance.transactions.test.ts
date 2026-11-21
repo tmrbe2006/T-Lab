@@ -1,3 +1,5 @@
+import { payDoctorCommission } from '../../services/doctor-payout.service';
+import { accountingRepository } from '../../repositories/accounting.repository';
 import { createManualInvoice } from '../../services/manual-invoice.service';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { recordInvoiceReceipt } from '../../services/payment-processing.service';
@@ -50,6 +52,31 @@ describe('MySQL finance transactional client routing',()=>{
     expect(url).toBe('/api/branch-pilot/finance/manual-invoice');
     expect(options.method).toBe('POST');
     expect(JSON.stringify(options.body)).not.toContain('spoofed');
+  });
+  it('posts doctor payout with its journal on MySQL only',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'}});
+    const commission={id:'com_1',status:'paid'};
+    const fetcher=vi.fn(async()=>({ok:true,json:async()=>({ok:true,source:'mysql',commission})}));
+    vi.stubGlobal('fetch',fetcher);
+    expect((await payDoctorCommission('com_1','2026-11-21','note','طبيب','Doctor','spoofed')).id)
+      .toBe('com_1');
+    const [url,options]=fetcher.mock.calls[0] as unknown as [string,RequestInit];
+    expect(url).toBe('/api/branch-pilot/finance/doctor-payout');
+    expect(JSON.stringify(options.body)).not.toContain('spoofed');
+  });
+  it('requests a server calculated daily closing, ignoring UI totals',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'}});
+    const fetcher=vi.fn(async()=>({ok:true,json:async()=>({
+      ok:true,source:'mysql',closing:{id:'dc_branch_main_20261121'},
+    })}));
+    vi.stubGlobal('fetch',fetcher);
+    const id=await accountingRepository.saveDailyClosing({
+      id:'local_wrong',netCashInBox:999999,
+    } as never);
+    expect(id).toBe('dc_branch_main_20261121');
+    const [url,options]=fetcher.mock.calls[0] as unknown as [string,RequestInit];
+    expect(url).toBe('/api/branch-pilot/finance/daily-close');
+    expect(JSON.stringify(options.body)).not.toContain('999999');
   });
   it('refuses payment completion on a server error',async()=>{
     vi.stubGlobal('window',{location:{port:'3127'}});
