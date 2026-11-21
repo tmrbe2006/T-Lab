@@ -14,6 +14,7 @@ on:
       - 'src/services/mysql-sync.service.ts'
       - 'src/db/global-medical-tests.ts'
       - 'src/pages/purchases/purchases.page.ts'
+      - 'src/pages/dashboard.page.ts'
       - 'scripts/import-browser-backup-mysql.mts'
       - 'src/services/inventory.service.ts'
       - 'sql/TLab_Unified_MySQL_49_Tables_v11.sql'
