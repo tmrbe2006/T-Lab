@@ -132,7 +132,7 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
           </div>
 
           <div class="mt-6 pt-4 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>IndexedDB Local Persistence · Offline PWA</span>
+            <span>${branchPilot ? 'MySQL Server · Multi-Branch' : 'IndexedDB Local Persistence · Offline PWA'}</span>
             <span class="tabular-nums">v1.0.0</span>
           </div>
         </section>
@@ -312,17 +312,24 @@ export async function renderLoginPage(container: HTMLElement): Promise<void> {
         return;
       }
     }
-    const res = await authService.login(userEl?.value || '', passEl?.value || '', branchContext, verified);
-    if (!res.ok) {
-      if (errBox) {
-        errBox.textContent = d.login.invalidCredentials;
-        errBox.classList.remove('hidden');
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submit?.disabled) return;
+    if (submit) submit.disabled = true;
+    try {
+      const res = await authService.login(
+        userEl?.value || '', passEl?.value || '', branchContext, verified,
+      );
+      if (!res.ok) {
+        loginError(d.login.invalidCredentials);
+        return;
       }
-      showToast(d.login.invalidCredentials, 'error');
-      return;
+      showToast(d.login.welcome, 'success');
+      router.navigate('dashboard');
+    } catch (error) {
+      loginError(i18n.bi('تعذر إكمال تسجيل الدخول: ', 'Unable to complete sign in: ') +
+        String(error instanceof Error ? error.message : error));
+    } finally {
+      if (submit?.isConnected) submit.disabled = false;
     }
-
-    showToast(d.login.welcome, 'success');
-    router.navigate('dashboard');
   });
 }
