@@ -4,7 +4,7 @@
 **Not ready for production. Not a complete MySQL-only conversion.**
 This change gives the Windows pilot on port **3127** a server-verified MySQL read path for:
 invoices, invoice items, payments, chart of accounts, journal entries, expenses,
-cashbox sessions, daily closings and doctor commissions. Additional read-only
+cashbox sessions, daily closings and doctor commissions and doctors. Additional read-only
 resources: cost centers and period locks. It does **not** migrate financial
 transactions or replace all direct Dexie access in reports, ERP accounting,
 commission payout and other services.
@@ -16,13 +16,15 @@ commission payout and other services.
 4. Execute `sql/tlab_finance_branch_access_v6.sql` **only on that test copy**.
    It adds a branch association table and associates legacy records exclusively
    with `branch_main`. It does not import browser records.
-5. Compare row counts and IDs of finance tables in MySQL Workbench. The
+5. Execute `sql/tlab_doctor_branch_access_v7.sql` on the same restored test DB;
+   this maps legacy doctor master records only to `branch_main`.
+6. Compare row counts and IDs of finance tables in MySQL Workbench. The
    empty MySQL table is **not** equivalent to the existing browser data.
-6. Run the pilot, log in with an authorized app user, and select the correct branch.
-7. Verify the authenticated `/api/branch-pilot/finance/invoices`,
+7. Run the pilot, log in with an authorized app user, and select the correct branch.
+8. Verify the authenticated `/api/branch-pilot/finance/invoices`,
    `payments`, `journalEntries`, `accounts`, `cashbox`,
    `dailyClosings`, `expenses` and `commissions` endpoints.
-8. Run `/api/branch-pilot/finance-reconciliation` with a user authorized
+9. Run `/api/branch-pilot/finance-reconciliation` with a user authorized
    for invoices, payments and journal entries. This is a partial, read-only
    discrepancy report, not a full accounting audit.
 
