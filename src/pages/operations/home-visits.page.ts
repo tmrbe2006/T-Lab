@@ -30,7 +30,7 @@ import {
   ensureEnterpriseSeedData,
   openWhatsAppDispatchModal,
 } from '../../services/enterprise-lab.service';
-import type { HomeVisitRecord, HomeVisitStatus } from '../../types';
+import type { Employee, HomeVisitRecord, HomeVisitStatus } from '../../types';
 import { formatCurrency, generateId } from '../../utils/format';
 
 const STATUS_LABELS: Record<
@@ -82,7 +82,7 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
     const [visits, patients, employees] = await Promise.all([
       isMysqlBranchPilot()?mysqlHomeVisitsRepository.getAll():db.homeVisits.toArray(),
       isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Awaited<ReturnType<typeof patientsRepository.getAll>>[number]>('/api/branch-pilot/patients','patients'):patientsRepository.getAll(),
-      isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Awaited<ReturnType<typeof db.employees.toArray>>[number]>('/api/branch-pilot/home-visits/staff','staff'):db.employees.toArray(),
+      isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Employee>('/api/branch-pilot/home-visits/staff','staff'):db.employees.toArray(),
     ]);
 
     const sorted = visits.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
