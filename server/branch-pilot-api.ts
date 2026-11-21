@@ -1,3 +1,4 @@
+import { installUnifiedMySQLRoutes } from './mysql-unified-store';
 import { scryptSync } from 'node:crypto';
 import { installMysqlCrudRoutes } from './mysql-crud-routes';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -319,6 +320,7 @@ export function installBranchPilotRoutes(app: Express): void {
   });
 
   installMysqlCrudRoutes(app,dbConnection);
+  installUnifiedMySQLRoutes(app,dbConnection);
 
   // On refresh, ensure the selected branch is still assigned and active.
   app.get('/api/branch-pilot/staff-session', async (_req, res) => {
