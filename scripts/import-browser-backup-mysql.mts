@@ -146,15 +146,15 @@ try{
           await db.execute(query,values);
           await db.execute(
             'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
-            [m.dexieTable,row.id,branchId,actor]);
+            [m.dexieTable,String(row.id),branchId,actor]);
           if(m.dexieTable==='users'&&row.id!==actor){
             await db.execute(
               'INSERT IGNORE INTO user_branches(user_id,branch_id,is_default) VALUES(?,?,1)',
-              [row.id,branchId]);
+              [String(row.id),branchId]);
           }
           await db.execute(
             'INSERT INTO tlab_mutation_audit_v10(event_id,resource,record_id,branch_id,actor_id,operation,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?,NOW())',
-            [randomBytes(16).toString('hex'),m.dexieTable,row.id,branchId,actor,
+            [randomBytes(16).toString('hex'),m.dexieTable,String(row.id),branchId,actor,
               'add',null,null]);
           count++;
         }
