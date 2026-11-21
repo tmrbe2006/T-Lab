@@ -62,7 +62,7 @@ for(const config of MYSQL_TABLES_CONFIG){
   for(const row of rows){
     if(!row||typeof row!=='object'||Array.isArray(row))throw new Error('INVALID_RECORD: '+config.dexieTable);
     const obj=row as Row;
-    if(typeof obj.id!=='string'||!/^[-_a-zA-Z0-9]{1,64}$/.test(obj.id))throw new Error('INVALID_ID: '+config.dexieTable);
+    if(typeof obj.id!=='string'||obj.id.length<1||obj.id.length>64||/[\\x00-\\x1f]/.test(obj.id))throw new Error('INVALID_ID: '+config.dexieTable);
     if(ids.has(obj.id))throw new Error('DUPLICATE_ID: '+config.dexieTable+':'+obj.id);
     ids.add(obj.id);
     checked.push(obj);
