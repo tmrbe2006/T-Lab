@@ -193,13 +193,19 @@ jobs:
           curl -fsS -b developer-main.txt http://127.0.0.1:3127/api/branch-pilot/unified/journalEntries | grep "JE-CI1"
           count=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM purchase_invoices WHERE id='pi_ci_1'")
           test "$count" = 1
+          # Optimistic versioning: a stale request cannot overwrite a newer edit.
+          revision=$(curl -fsS -b developer-main.txt http://127.0.0.1:3127/api/branch-pilot/unified/suppliers | node -e "let s='';process.stdin.on('data',x=>s+=x);process.stdin.on('end',()=>process.stdout.write(JSON.parse(s).revisions.supplier_ci_1))")
+          update="{\"commands\":[{\"store\":\"suppliers\",\"operation\":\"edit\",\"id\":\"supplier_ci_1\",\"expectedRevision\":\"$revision\",\"record\":{\"id\":\"supplier_ci_1\",\"code\":\"SUPCI\",\"nameAr\":\"Supplier Updated\",\"active\":true}}]}"
+          curl -fsS -b developer-main.txt -X POST -H 'Content-Type: application/json' -d "$update" http://127.0.0.1:3127/api/branch-pilot/unified/transaction | grep '"count":1'
+          code=$(curl -s -b developer-main.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$update" http://127.0.0.1:3127/api/branch-pilot/unified/transaction)
+          test "$code" = 409
           cat > unified-rollback.json <<'JSON'
           {"commands":[{"store":"suppliers","operation":"add","id":"supplier_rollback_1","record":{"id":"supplier_rollback_1","code":"SUP-NOT-COMMITTED","nameAr":"DO_NOT_SAVE","active":true}},{"store":"journalEntries","operation":"add","id":"je_ci_bad","record":{"id":"je_ci_bad","entryNumber":"JE-BAD","lines":[{"accountCode":"1201","debit":100,"credit":0},{"accountCode":"2101","debit":0,"credit":20}],"totalDebit":100,"totalCredit":20}}]}
           JSON
           code=$(curl -s -b developer-main.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @unified-rollback.json http://127.0.0.1:3127/api/branch-pilot/unified/transaction)
           test "$code" = 409
           test "$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM suppliers WHERE id='supplier_rollback_1'")" = '0'
-          test "$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT name_ar FROM suppliers WHERE id='supplier_ci_1'")" = 'Supplier Integration'
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT name_ar FROM suppliers WHERE id='supplier_ci_1'")" = 'Supplier Updated'
           count=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM journal_entries WHERE id='je_ci_bad'")
           test "$count" = 0
 
