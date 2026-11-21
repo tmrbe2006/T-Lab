@@ -125,6 +125,38 @@ function validateDomain(c:Command,previous:Record<string,unknown>|null):void{
     JSON.stringify(previous)!==JSON.stringify(r))
     throw new Error('POSTED_INVOICE_REQUIRES_CREDIT_NOTE');
 }
+const references:Record<string,Array<[string,string]>>={
+  requestItems:[['requestId','requests'],['testId','tests']],
+  samples:[['requestId','requests'],['patientId','patients']],
+  results:[['requestId','requests'],['patientId','patients'],['testId','tests']],
+  invoiceItems:[['invoiceId','invoices'],['testId','tests']],
+  payments:[['invoiceId','invoices'],['patientId','patients']],
+  commissions:[['invoiceId','invoices'],['doctorId','doctors']],
+  inventoryLots:[['itemId','inventoryItems']],
+  stockMovements:[['itemId','inventoryItems'],['lotId','inventoryLots']],
+  testBOMs:[['testId','tests']],
+  purchaseInvoices:[['supplierId','suppliers']],
+  labToLabDispatches:[['requestId','requests'],['patientId','patients']],
+  criticalValueLogs:[['resultId','results'],['patientId','patients']],
+  qcRuns:[['lotId','qcControlLots']],
+  aiRecognitionFindings:[['analysisId','aiImageAnalyses']],
+  aiCorrections:[['analysisId','aiImageAnalyses']],
+};
+async function checkReferences(db:mysql.Connection,branchId:string,c:Command):Promise<void>{
+  const r=c.record;
+  if(!r)return;
+  for(const [field,targetStore] of references[c.store]||[]){
+    const ref=r[field];
+    if(ref===null||ref===undefined||ref==='')continue;
+    if(!safeId(ref))throw new TypeError('INVALID_REFERENCE_'+field);
+    const mapped=models.get(targetStore)!;
+    const [rows]=await db.execute<mysql.RowDataPacket[]>(
+      'SELECT t.id FROM `'+mapped.mysqlTable+'` t JOIN mysql_store_branch_access m '+
+      'ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? WHERE t.id=? LIMIT 1',
+      [targetStore,branchId,ref]);
+    if(!rows.length)throw new Error('RELATED_RECORD_NOT_IN_BRANCH');
+  }
+}
 function failure(res:Response,error:unknown):void{
   const message=error instanceof Error?error.message:'MYSQL_OPERATION_FAILED';
   if(message==='FORBIDDEN'||message==='BRANCH_NOT_ASSIGNED')
@@ -134,7 +166,7 @@ function failure(res:Response,error:unknown):void{
   else if(message.endsWith('_NOT_IN_BRANCH')||message.startsWith('HISTORY_')||
     message.startsWith('POSTED_')||message.startsWith('APPROVED_')||
     message.startsWith('UNBALANCED_')||message.startsWith('JOURNAL_')||
-    message.startsWith('LOT_')||message==='CONFLICT')
+    message.startsWith('LOT_')||message==='CONFLICT'||message==='RELATED_RECORD_NOT_IN_BRANCH'||message==='SHARED_RECORD_REQUIRES_DEDICATED_API')
     res.status(409);
   else res.status(503);
   res.json({ok:false,error:message});
@@ -228,6 +260,7 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
           }
           const prior=old?obj(old.raw_json):null;
           validateDomain(m,prior);
+          await checkReferences(db,session.branchId!,m);
           let next:Record<string,unknown>|undefined=m.record;
           if(m.operation==='delete'){
             next={...prior,id:m.id,active:false,archived:true};
