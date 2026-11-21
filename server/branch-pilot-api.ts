@@ -71,7 +71,7 @@ async function dbConnection() {
   const password = process.env.MYSQL_PASSWORD || '';
   const database = process.env.MYSQL_DATABASE || 'tlab_db';
   // Never auto-create a database or import SQL on requests.
-  if (!/^[A-Za-z0-9_]+$/.test(database)) throw new Error('Invalid MySQL database name');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(database)) throw new Error('INVALID_MYSQL_DATABASE_NAME');
   return mysql.createConnection({ host, port, user, password, database, connectTimeout: 7000 });
 }
 
@@ -179,7 +179,8 @@ export function installBranchPilotRoutes(app: Express): void {
         code === 'ER_ACCESS_DENIED_ERROR' ? 'MYSQL_AUTH_FAILED' :
         code === 'ER_BAD_DB_ERROR' ? 'DATABASE_NOT_FOUND' :
         code === 'ECONNREFUSED' ? 'MYSQL_SERVER_UNREACHABLE' :
-        code === 'ENOTFOUND' ? 'MYSQL_HOST_NOT_FOUND' : 'MYSQL_CONNECTION_FAILED';
+        code === 'ENOTFOUND' ? 'MYSQL_HOST_NOT_FOUND' :
+        (error instanceof Error && error.message === 'INVALID_MYSQL_DATABASE_NAME') ? 'INVALID_MYSQL_DATABASE_NAME' : 'MYSQL_CONNECTION_FAILED';
       res.status(503).json({ ok: false, error: safeReason });
     } finally {
       if (db) await db.end().catch(() => undefined);
