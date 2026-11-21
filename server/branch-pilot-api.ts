@@ -9,7 +9,7 @@ import {
   type BranchDatabase,
 } from './branch-service';
 import { validBranchId, type BranchPrincipal, type BranchRole } from './branch-access';
-import { BRANCH_RESOURCES, readBranchPermissions, saveBranchPermissions, ownBranchPermissions } from './branch-user-permissions';
+import { BRANCH_RESOURCES, readBranchPermissions, saveBranchPermissions, ownBranchPermissions, ownEffectiveBranchPermissions } from './branch-user-permissions';
 
 type AdminRole = 'Developer' | 'Owner';
 type AdminSession = { userId: string; role: BranchRole; username: string; branchId?: string; expires: number };
@@ -276,9 +276,9 @@ export function installBranchPilotRoutes(app: Express): void {
         if (!user) return null;
         const permitted = await staffAssignedBranches(db, user.userId, user.role);
         if (!permitted.some((b) => b.branchId === branchId)) return { forbidden: true } as const;
-        const permissions = await ownBranchPermissions({
+        const permissions = await ownEffectiveBranchPermissions({
           execute: (sql, params) => db.execute(sql, params as string[]),
-        }, user.userId, branchId);
+        }, user.userId, branchId,user.role);
         const branch = permitted.find((b) => b.branchId === branchId)!;
         return { user, branch, permissions };
       });
@@ -329,9 +329,9 @@ export function installBranchPilotRoutes(app: Express): void {
         const permitted = await staffAssignedBranches(db, s.userId, s.role);
         const branch = permitted.find((b) => b.branchId === s.branchId);
         if (!branch) return null;
-        const permissions = await ownBranchPermissions({
+        const permissions = await ownEffectiveBranchPermissions({
           execute: (sql, params) => db.execute(sql, params as string[]),
-        }, s.userId, s.branchId!);
+        }, s.userId, s.branchId!,s.role);
         return { branch, permissions };
       });
       if (!data) { res.status(403).json({ ok: false, error: 'BRANCH_NOT_ASSIGNED' }); return; }
