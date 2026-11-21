@@ -41,14 +41,15 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
   const patMap = new Map(patients.map((p) => [p.id, p]));
   const docMap = new Map(doctors.map((d) => [d.id, d]));
   let searchQuery = '';
-  let statusFilter = 'all';
+  let statusFilter = 'active';
   let currentPage = 1;
   const itemsPerPage = 15;
 
   const getFiltered = (): Invoice[] => {
     const q = searchQuery.trim().toLowerCase();
     return invoices.filter((inv) => {
-      if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
+      if (statusFilter === 'active' && inv.status === 'cancelled') return false;
+      if (statusFilter !== 'all' && statusFilter !== 'active' && inv.status !== statusFilter) return false;
       if (!q) return true;
       const pName = patMap.get(inv.patientId)?.name.toLowerCase() || '';
       return inv.invoiceNumber.toLowerCase().includes(q) || pName.includes(q);
@@ -417,6 +418,7 @@ export async function renderInvoicesPage(container: HTMLElement): Promise<void> 
           selectId: 'inv-status-filter',
           selectedValue: statusFilter,
           selectOptions: [
+            { value: 'active', label: i18n.bi('الفواتير السارية', 'Active invoices') },
             { value: 'all', label: i18n.dict.actions.filterAll },
             { value: 'paid', label: i18n.dict.statuses.paid },
             { value: 'partial', label: i18n.dict.statuses.partial },
