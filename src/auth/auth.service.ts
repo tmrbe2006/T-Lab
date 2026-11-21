@@ -18,7 +18,7 @@ class AuthService {
   private permissionsCache: Map<string, Record<PermissionAction, boolean>> = new Map();
 
   async init(): Promise<void> {
-    await this.reloadPermissionsCache();
+    if (window.location.port !== '3127') await this.reloadPermissionsCache();
     if (window.location.port === '3127') {
       try {
         const response = await fetch('/api/branch-pilot/staff-session', { credentials: 'same-origin', cache: 'no-store' });
