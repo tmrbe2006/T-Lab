@@ -175,6 +175,21 @@ export class AccountingRepository {
   }
 
   async saveDailyClosing(closing: DailyClosing): Promise<string> {
+    if(inMySQLFinancePilot()){
+      // Browser-calculated figures are NOT posted. The server derives totals
+      // directly from the current branch's MySQL invoices, receipts and expenses.
+      const response=await fetch('/api/branch-pilot/finance/daily-close',{
+        method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{'Content-Type':'application/json'},body:'{}',
+      });
+      const body=await response.json() as {
+        ok?:boolean;source?:string;closing?:DailyClosing;error?:string
+      };
+      if(!response.ok||body.ok!==true)throw new Error(body.error||'MYSQL_DAILY_CLOSE_FAILED');
+      if(body.source!=='mysql'||!body.closing?.id)
+        throw new Error('MYSQL_DAILY_CLOSE_INVALID_RESPONSE');
+      return body.closing.id;
+    }
     requireMySQLFinancialWrite();
     return db.dailyClosings.put(closing);
   }
