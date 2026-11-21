@@ -1,3 +1,4 @@
+import { createMysqlRemoteDatabase } from './mysql-remote-db';
 import Dexie, { type Table } from 'dexie';
 import type {
   Account,
@@ -203,5 +204,9 @@ export class MedicalLabDatabase extends Dexie {
   }
 }
 
-export const db = new MedicalLabDatabase();
+// The installed Windows edition uses ONLY MySQL, without constructing a Dexie instance.
+// The legacy development storage is retained for non-Windows import/recovery tools.
+export const db:MedicalLabDatabase = typeof window!=='undefined' && window.location.port==='3127'
+  ? createMysqlRemoteDatabase()
+  : new MedicalLabDatabase();
 
