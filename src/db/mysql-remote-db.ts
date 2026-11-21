@@ -8,7 +8,7 @@ import { MYSQL_TABLES_CONFIG } from './mysql-schema';
 import type { MedicalLabDatabase } from './database';
 
 type Item=Record<string,unknown>&{id:string};
-type Command={store:string;operation:'add'|'edit'|'delete';id:string;record?:Item};
+type Command={store:string;operation:'add'|'edit'|'delete';id:string;record?:Item;expectedRevision?:string};
 const names=new Set(MYSQL_TABLES_CONFIG.map(x=>x.dexieTable));
 type Transaction={commands:Command[];snapshots:Map<string,Item[]>};
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
@@ -32,10 +32,13 @@ function compareValue(a:unknown,b:unknown):number{
 export function createMysqlRemoteDatabase():MedicalLabDatabase {
   let active:Transaction|null=null;
   const cache=new Map<string,unknown>();
+  const revisions=new Map<string,Record<string,string>>();
   const load=async(name:string):Promise<Item[]>=>{
     if(active?.snapshots.has(name))return clone(active.snapshots.get(name)!);
-    const response=await http<{records:Item[]}>('unified/'+encodeURIComponent(name),'GET');
-    if(!Array.isArray(response.records))throw new Error('MYSQL_BAD_RECORDS');
+    const response=await http<{records:Item[];revisions:Record<string,string>}>('unified/'+encodeURIComponent(name),'GET');
+    if(!Array.isArray(response.records)||!response.revisions || typeof response.revisions!=='object')
+      throw new Error('MYSQL_BAD_RECORDS');
+    revisions.set(name,response.revisions);
     const rows=clone(response.records);
     active?.snapshots.set(name,clone(rows));
     return rows;
@@ -49,11 +52,19 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
     const idx=current.findIndex(row=>row.id===command.id);
     if(command.operation==='add'&&idx>=0)throw new Error('DUPLICATE_RECORD_ID');
     if(command.operation!=='add'&&idx<0)throw new Error('RECORD_NOT_FOUND');
+    if(command.operation!=='add'){
+      command.expectedRevision=revisions.get(command.store)?.[command.id];
+      if(!command.expectedRevision)throw new Error('MYSQL_REVISION_REQUIRED');
+    }
     if(active){
       const previous=active.commands.findIndex(x=>x.store===command.store&&x.id===command.id);
       if(previous>=0){
         const old=active.commands[previous];
-        if(old.operation==='add'&&command.operation==='edit')command.operation='add';
+        if(old.expectedRevision)command.expectedRevision=old.expectedRevision;
+        if(old.operation==='add'&&command.operation==='edit'){
+          command.operation='add';
+          command.expectedRevision=undefined;
+        }
         if(old.operation==='add'&&command.operation==='delete'){
           active.commands.splice(previous,1);
           current.splice(idx,1);
@@ -159,7 +170,10 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
         const prior=await load(name);
         for(const record of records){
           if(!record||typeof record.id!=='string')throw new Error('MYSQL_ID_REQUIRED');
-          created.push({store:name,id:record.id,operation:prior.some(x=>x.id===record.id)?'edit':'add',record});
+          const present=prior.some(x=>x.id===record.id);
+          const expectedRevision=present?revisions.get(name)?.[record.id]:undefined;
+          if(present&&!expectedRevision)throw new Error('MYSQL_REVISION_REQUIRED');
+          created.push({store:name,id:record.id,operation:present?'edit':'add',record,expectedRevision});
         }
         if(active){
           for(const cmd of created)await mutate(cmd);
@@ -174,7 +188,11 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
       },
       bulkDelete:async(ids:string[])=>{
         if(active){for(const id of ids)await mutate({store:name,id,operation:'delete'});}
-        else await write(ids.map(id=>({store:name,id,operation:'delete'})));
+        else{
+          await load(name);
+          await write(ids.map(id=>({store:name,id,operation:'delete',
+            expectedRevision:revisions.get(name)?.[id]})));
+        }
       },
       clear:async()=>{throw new Error('MYSQL_MASS_DELETE_FORBIDDEN');},
       where,filter:(fn:Predicate)=>collection(name,fn),
