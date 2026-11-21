@@ -713,7 +713,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try {
       const patients=await withPatientDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          "SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.store_name='patients' AND pa.record_id=p.id WHERE pa.branch_id=? ORDER BY p.code",
+          "SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.store_name='patients' AND pa.record_id=p.id WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code",
           [session.branchId!]);
         return rows.map(patientFromRow);
       });
@@ -795,7 +795,11 @@ export function installBranchPilotRoutes(app: Express): void {
           const [shared]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name='patients' AND record_id=?",[id]);
           if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
-          await db.execute('UPDATE patients SET active=0 WHERE id=?',[id]);
+          const [priorRows]=await db.execute<mysql.RowDataPacket[]>('SELECT raw_json FROM patients WHERE id=?',[id]);
+          let snapshot:Record<string,unknown>={};
+          try{snapshot=JSON.parse(String(priorRows[0]?.raw_json||'{}'));}catch{/* old row */}
+          await db.execute('UPDATE patients SET active=0,raw_json=? WHERE id=?',
+            [JSON.stringify({...snapshot,id,active:false,archived:true}),id]);
           await db.commit();
         }catch(e){await db.rollback();throw e;}
       });
@@ -959,7 +963,7 @@ export function installBranchPilotRoutes(app: Express): void {
           const row=rows[0];let raw:Record<string,unknown>={};
           try{raw=JSON.parse(String(row.raw_json||'{}'));}catch{/* legacy */}
           await db.execute('UPDATE home_visits SET status=?,raw_json=? WHERE id=?',
-            ['cancelled',JSON.stringify({...raw,id:String(row.id),status:'cancelled'}),req.params.id]);
+            ['cancelled',JSON.stringify({...raw,id:String(row.id),status:'cancelled',archived:true}),req.params.id]);
           await db.commit();
         }catch(e){await db.rollback();throw e;}
       });
