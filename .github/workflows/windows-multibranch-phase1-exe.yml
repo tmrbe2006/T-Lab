@@ -11,6 +11,8 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'server/mysql-crud-routes.ts'
       - 'server/mysql-unified-store.ts'
+      - 'src/services/mysql-sync.service.ts'
+      - 'scripts/import-browser-backup-mysql.mts'
       - 'src/services/inventory.service.ts'
       - 'sql/TLab_Unified_MySQL_49_Tables_v11.sql'
       - 'sql/TLab_Relationships_33_FK_v11.sql'
