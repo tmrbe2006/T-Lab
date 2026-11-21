@@ -18,7 +18,7 @@ import {
 
 export async function renderTestParametersPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  await syncGlobalMedicalCatalog();
+  if (window.location.port !== '3127') await syncGlobalMedicalCatalog();
   let tests = await testsRepository.getAllTests();
   let params = await testsRepository.getParametersByTestId(getSelectedTestForParams());
 
