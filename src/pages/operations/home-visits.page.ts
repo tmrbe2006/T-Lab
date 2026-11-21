@@ -11,6 +11,16 @@ import { db } from '../../db/database';
 import { mysqlHomeVisitsRepository } from '../../repositories/home-visits.mysql.repository';
 
 const isMysqlBranchPilot=()=>typeof window!=='undefined' && window.location.port==='3127';
+async function scopedMysqlHomeVisitSource<T>(endpoint:string,key:string):Promise<T[]>{
+  const response=await fetch(endpoint,{credentials:'same-origin',cache:'no-store'});
+  let payload:Record<string,unknown>;
+  try{payload=await response.json() as Record<string,unknown>;}catch{throw new Error('MYSQL_RESPONSE_INVALID');}
+  if(!response.ok || payload.ok!==true || payload.source!=='mysql' || !Array.isArray(payload[key])){
+    throw new Error(String(payload.error||'MYSQL_DATA_UNAVAILABLE'));
+  }
+  return payload[key] as T[];
+}
+
 
 import { enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
@@ -71,8 +81,8 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
   const render = async () => {
     const [visits, patients, employees] = await Promise.all([
       isMysqlBranchPilot()?mysqlHomeVisitsRepository.getAll():db.homeVisits.toArray(),
-      patientsRepository.getAll(),
-      db.employees.toArray(),
+      isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Awaited<ReturnType<typeof patientsRepository.getAll>>[number]>('/api/branch-pilot/patients','patients'):patientsRepository.getAll(),
+      isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Awaited<ReturnType<typeof db.employees.toArray>>[number]>('/api/branch-pilot/home-visits/staff','staff'):db.employees.toArray(),
     ]);
 
     const sorted = visits.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -396,8 +406,10 @@ function openHomeVisitFormModal(
 ): void {
   const today = new Date().toISOString().slice(0, 10);
   const phlebOptions = [
-    { id: 'EMP-PHLEB-1', nameAr: 'فني سحب/ مصطفى عبد الحميد', phone: '01099887766' },
-    { id: 'EMP-PHLEB-2', nameAr: 'أخصائية سحب/ آية الرحمن طارق', phone: '01288776655' },
+    ...(!isMysqlBranchPilot()?[
+      { id: 'EMP-PHLEB-1', nameAr: 'فني سحب/ مصطفى عبد الحميد', phone: '01099887766' },
+      { id: 'EMP-PHLEB-2', nameAr: 'أخصائية سحب/ آية الرحمن طارق', phone: '01288776655' },
+    ]:[]),
     ...employees.map((e) => ({ id: e.id, nameAr: e.nameAr, phone: e.phone })),
   ];
   const hasExistingPhleb =
@@ -561,7 +573,7 @@ function openHomeVisitFormModal(
     const rec: HomeVisitRecord = {
       id: existing?.id || generateId('HV'),
       visitNumber: existing?.visitNumber || `HV-2025-${Math.floor(100 + Math.random() * 899)}`,
-      patientId: patientId || pat?.id || 'PAT-1',
+      patientId: patientId || pat?.id || (isMysqlBranchPilot()?'':'PAT-1'),
       patientName,
       patientPhone,
       address: (document.getElementById('nhv-address') as HTMLInputElement).value.trim(),
