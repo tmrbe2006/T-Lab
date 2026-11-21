@@ -151,14 +151,16 @@ export async function renderBranchPermissionPanel(container: HTMLElement): Promi
     if (!userEl.value || !branchEl.value) return;
     save.disabled=true;
     try {
+      // Preserve protected checkbox values instead of silently revoking them.
       const rows = ALL_RESOURCES.map((resource:ResourceScreen) => {
-        const actions = {} as Record<PermissionAction,boolean>;
-        ALL_ACTIONS.forEach((action) => { actions[action] = false; });
-        return { resource, actions };
+        const old = currentRows.find(r=>r.resource===resource);
+        const actions={} as Record<PermissionAction,boolean>;
+        ALL_ACTIONS.forEach(action=>{actions[action]=old?.actions[action]===true;});
+        return {resource,actions};
       });
-      grid.querySelectorAll<HTMLInputElement>('.bp-allow').forEach((cb) => {
-        const row = rows.find((r) => r.resource === cb.dataset.resource);
-        if (row && cb.dataset.action) row.actions[cb.dataset.action as PermissionAction] = !cb.disabled && cb.checked;
+      grid.querySelectorAll<HTMLInputElement>('.bp-allow:not(:disabled)').forEach(cb=>{
+        const row=rows.find(r=>r.resource===cb.dataset.resource);
+        if(row&&cb.dataset.action)row.actions[cb.dataset.action as PermissionAction]=cb.checked;
       });
       await callApi('/user-permissions', {userId:userEl.value,branchId:branchEl.value,rows});
       message('تم حفظ صلاحيات المستخدم لهذا الفرع فقط. يجب إعادة الدخول لتفعيل الصلاحيات الجديدة.');
