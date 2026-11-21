@@ -9,6 +9,16 @@ on:
       - 'server/branch-access.ts'
       - 'server/branch-service.ts'
       - 'server/branch-pilot-api.ts'
+      - 'server/mysql-crud-routes.ts'
+      - 'src/repositories/mysql-crud.adapter.ts'
+      - 'src/repositories/users.repository.ts'
+      - 'src/pages/staff/users.page.ts'
+      - 'src/pages/staff/role-templates.panel.ts'
+      - 'src/pages/finance/corporate-contracts.page.ts'
+      - 'src/pages/operations/quality-control.page.ts'
+      - 'src/pages/operations/microbiology.page.ts'
+      - 'src/tests/services/mysql-main-crud.test.ts'
+      - 'sql/tlab_main_mysql_repair_v10.sql'
       - 'src/db/mysql-schema.ts'
       - 'src/tests/services/mysql-only-mapping-audit.test.ts'
       - 'sql/tlab_mysql_only_missing_tables_v4.sql'
@@ -84,7 +94,7 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts
+        run: npx vitest run src/tests/services/mysql-main-crud.test.ts src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts
       - name: Audit remaining browser database dependencies (pilot warning)
         run: node scripts/mysql-cutover-readiness.mjs
       - name: Build frontend
@@ -143,6 +153,7 @@ jobs:
           if (!(Test-Path 'installer/package/sql/tlab_branch_user_permissions_v2.sql')) { throw 'User-specific branch permissions migration missing' }
           if (!(Test-Path 'installer/package/sql/tlab_patient_branch_access_v3.sql')) { throw 'Patient-branch mapping migration missing' }
           if (!(Test-Path 'installer/package/sql/tlab_home_visits_branch_access_v5.sql')) { throw 'Home-visit branch mapping migration missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_main_mysql_repair_v10.sql')) { throw 'MySQL main CRUD migration v10 missing' }
           if (!(Test-Path 'installer/package/sql/tlab_mysql_only_missing_tables_v4.sql')) { throw 'All-store mapping upgrade missing' }
           $sql = Get-Content $file -Raw
           foreach ($table in @('branches', 'user_branches', 'branch_settings', 'branch_test_prices', 'branch_inventory', 'branch_transfers', 'branch_transfer_items', 'branch_sequences', 'branch_migration_audit')) {
