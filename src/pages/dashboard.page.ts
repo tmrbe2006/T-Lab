@@ -1,3 +1,4 @@
+import 'd3-transition';
 import * as d3 from 'd3';
 import { authService } from '../auth/auth.service';
 import { db } from '../db/database';
