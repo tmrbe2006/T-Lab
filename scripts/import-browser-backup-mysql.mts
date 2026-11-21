@@ -123,7 +123,7 @@ try{
         let count=0;
         for(const row of rows){
           const [old]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT id FROM `'+m.mysqlTable+'` WHERE id=? LIMIT 1',[row.id]);
+            'SELECT id FROM `'+m.mysqlTable+'` WHERE id=? LIMIT 1',[String(row.id)]);
           if(old.length)continue; // MySQL is canonical. Never overwrite real records.
           if(m.dexieTable==='users'){
             const username=String(row.username||'').trim();
@@ -133,7 +133,7 @@ try{
               'SELECT id FROM users WHERE username=? LIMIT 1',[username]);
             if(duplicates.length)throw new Error('DUPLICATE_USERNAME_IMPORTED');
           }
-          const values=[...m.columns.map(c=>c.extract(row)),JSON.stringify(row)];
+          const values:Array<string|number|null>=[...m.columns.map(c=>c.extract(row)),JSON.stringify(row)];
           // Optional historical FKs use SQL NULL, not an invalid empty-string reference.
           const optionalFKs=new Set([
             'doctor_id','request_id','lot_id','ref_lab_id','supplier_id',
