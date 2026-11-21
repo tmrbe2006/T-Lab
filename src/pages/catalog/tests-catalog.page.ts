@@ -462,7 +462,8 @@ export async function renderTestsCatalogPage(container: HTMLElement): Promise<vo
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'tests'))) return;
             await testsRepository.deleteTest(target.id);
-            await authService.logAudit(`حذف تحليل: ${target.code}`, 'tests', target.id, reason || '');
+            try { await authService.logAudit(`حذف تحليل: ${target.code}`, 'tests', target.id, reason || ''); }
+            catch (auditError) { console.error('Catalog archive audit:', auditError); }
             showToast(i18n.bi('تم حذف التحليل وبارامتراته', 'Test deleted'), 'success');
             tests = await testsRepository.getAllTests();
             allParams = await testsRepository.getAllParameters();
