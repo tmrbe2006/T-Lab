@@ -205,7 +205,12 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
     const callback=args.at(-1);
     if(typeof callback!=='function')throw new Error('MYSQL_TRANSACTION_CALLBACK_REQUIRED');
     const mode=args[0];
-    if(active)throw new Error('MYSQL_NESTED_TRANSACTION_UNSUPPORTED');
+    if(active){
+      // Nested domain operations participate in the outer server-side atomic batch.
+      if(args[0]==='r'||args[0]==='rw')
+        return await (callback as ()=>Promise<unknown>)();
+      throw new Error('MYSQL_TRANSACTION_MODE_UNSUPPORTED');
+    }
     if(mode!=='rw'&&mode!=='r')throw new Error('MYSQL_TRANSACTION_MODE_UNSUPPORTED');
     active={commands:[],snapshots:new Map()};
     try{
