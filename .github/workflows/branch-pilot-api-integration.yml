@@ -3,6 +3,9 @@ on:
   push:
     paths:
       - 'server/branch-pilot-api.ts'
+      - 'server/mysql-crud-routes.ts'
+      - 'sql/tlab_main_mysql_repair_v10.sql'
+      - 'src/repositories/mysql-crud.adapter.ts'
       - 'server/branch-service.ts'
       - 'server/branch-access.ts'
       - 'server/branch-user-permissions.ts'
@@ -51,6 +54,10 @@ jobs:
           SQL
           mysql -h 127.0.0.1 -uroot -pintegration-only-password < sql/tlab_multibranch_additive_v1.sql
           sed 's/USE `tlab_multibranch_pilot`;/USE `tlab_db`;/' sql/tlab_branch_user_permissions_v2.sql | mysql -h 127.0.0.1 -uroot -pintegration-only-password
+          sed 's/USE `tlab_multibranch_pilot`;/USE `tlab_db`;/' sql/tlab_mysql_only_all_49_tables_create_safe.sql | mysql -h 127.0.0.1 -uroot -pintegration-only-password
+          sed 's/USE `tlab_multibranch_pilot`;/USE `tlab_db`;/' sql/tlab_all_49_store_branch_access_v8.sql | mysql -h 127.0.0.1 -uroot -pintegration-only-password
+          mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db < sql/tlab_main_mysql_repair_v10.sql
+          mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "ALTER TABLE users ADD COLUMN full_name_ar VARCHAR(191) NULL;"
       - name: Start local-only branch administration and verify actual HTTP/MySQL operations
         env:
           PORT: '3127'
@@ -149,6 +156,20 @@ jobs:
           curl -fsS -b staff-three.txt http://127.0.0.1:3127/api/branch-pilot/staff-session | grep '"resource":"requests"'
           code=$(curl -s -b staff-cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/users)
           test "$code" = 403
+
+          # New MySQL CRUD: Developer staff session, contract insert and archive.
+          code=$(curl -s -c developer-main.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"username":"developer","password":"dev-test-password","branchId":"branch_main"}' http://127.0.0.1:3127/api/branch-pilot/staff-login)
+          test "$code" = 200
+          contract='{"record":{"id":"ct_ci_1","code":"CI-INS","nameAr":"Test Insurance","nameEn":"Test Insurance","category":"insurance","discountPercent":5,"patientCoPayPercent":20,"companyCoveragePercent":80,"creditLimit":1000,"active":true}}'
+          curl -fsS -b developer-main.txt -X PUT -H 'Content-Type: application/json' -d "$contract" http://127.0.0.1:3127/api/branch-pilot/stores/corporateContracts/ct_ci_1 | grep '"ok":true'
+          curl -fsS -b developer-main.txt http://127.0.0.1:3127/api/branch-pilot/stores/corporateContracts | grep "CI-INS"
+          count=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM corporate_contracts WHERE id='ct_ci_1'")
+          test "$count" = 1
+          curl -fsS -b developer-main.txt -X DELETE http://127.0.0.1:3127/api/branch-pilot/stores/corporateContracts/ct_ci_1 | grep '"ok":true'
+          hidden=$(curl -fsS -b developer-main.txt http://127.0.0.1:3127/api/branch-pilot/stores/corporateContracts)
+          ! echo "$hidden" | grep -q "CI-INS"
+          audit=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM tlab_mutation_audit_v10 WHERE record_id='ct_ci_1'")
+          test "$audit" = 2
 
           curl -fsS -b cookies.txt -X POST http://127.0.0.1:3127/api/branch-pilot/logout
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
