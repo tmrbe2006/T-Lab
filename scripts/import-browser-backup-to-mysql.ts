@@ -125,7 +125,7 @@ try {
         await connection.execute(sql,values);
         await connection.execute(
           'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
-          [config.dexieTable,row.id,'branch_main','verified_test_backup_import']);
+          [config.dexieTable,String(row.id),'branch_main','verified_test_backup_import']);
       }
     }
     await connection.commit();
