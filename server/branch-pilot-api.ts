@@ -941,6 +941,90 @@ export function installBranchPilotRoutes(app: Express): void {
     }catch(e){homeVisitError(res,e);}
   });
 
+
+  /**
+   * Financial read-side migration: all results are server-authorized MySQL rows
+   * in the selected branch. No browser source, fake records or client table names.
+   * Writes are deliberately NOT enabled until the complete invoice/payment/ledger
+   * transaction and reconciliation contracts have been migrated.
+   */
+  const financeTables = {
+    invoices: {table:'invoices',permission:'invoices'},
+    invoiceItems: {table:'invoice_items',permission:'invoices'},
+    payments: {table:'payments',permission:'payments'},
+    journalEntries: {table:'journal_entries',permission:'journalEntries'},
+    accounts: {table:'chart_of_accounts',permission:'accounts'},
+    cashbox: {table:'cashbox_sessions',permission:'cashbox'},
+    dailyClosings: {table:'daily_closings',permission:'cashbox'},
+    expenses: {table:'expenses',permission:'expenses'},
+    commissions: {table:'doctor_commissions',permission:'commissions'},
+    costCenters: {table:'cost_centers',permission:'erpAccounting'},
+    periodLocks: {table:'period_locks',permission:'erpAccounting'},
+  } as const;
+  type FinanceResource=keyof typeof financeTables;
+  const financeResource=(value:unknown): FinanceResource|null =>
+    typeof value==='string' && Object.prototype.hasOwnProperty.call(financeTables,value)
+      ? value as FinanceResource : null;
+
+  async function financeRead<T>(
+    req:Request,resource:FinanceResource,
+    fn:(db:mysql.Connection,branchId:string,table:string)=>Promise<T>,
+  ):Promise<T>{
+    const session=getSession(req);
+    if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+    return useDatabase(async db=>{
+      const assigned=await staffAssignedBranches(db,session.userId,session.role);
+      if(!assigned.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+      const rights=await ownBranchPermissions({execute:(sql,params)=>db.execute(sql,params as string[])},session.userId,session.branchId!);
+      const rule=rights.find(x=>x.resource===financeTables[resource].permission);
+      if(!(session.role==='Developer' || (session.role==='Owner'
+        ? (!rule||rule.actions.view===true) : rule?.actions.view===true)))throw new Error('FORBIDDEN');
+      return fn(db,session.branchId!,financeTables[resource].table);
+    });
+  }
+  const snakeToCamel=(key:string)=>key.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase());
+  function financialRow(row:mysql.RowDataPacket):Record<string,unknown>{
+    let raw:Record<string,unknown>={};
+    try {
+      const parsed:unknown=JSON.parse(String(row.raw_json||'{}'));
+      if(parsed && typeof parsed==='object'&&!Array.isArray(parsed))raw=parsed as Record<string,unknown>;
+    }catch{/* Use explicit database columns when legacy raw_json is absent. */}
+    const normalized:Record<string,unknown>={...raw};
+    for(const [key,value] of Object.entries(row)){
+      if(key==='raw_json')continue;
+      const field=snakeToCamel(key);
+      normalized[field]=value===null?null:typeof value==='number'?value:
+        /^(?:subtotal|discount_amount|tax_amount|net_total|paid_amount|remaining_amount|amount|price|total_debit|total_credit|opening_balance|total_collected|total_expenses|net_cash|balance|commission_amount)$/.test(key)
+          ? Number(value):value;
+    }
+    return normalized;
+  }
+  function financeReadError(res:Response,error:unknown):void{
+    const message=error instanceof Error?error.message:'MYSQL_FINANCE_UNAVAILABLE';
+    if(message==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:message});return;}
+    if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(message)){res.status(403).json({ok:false,error:message});return;}
+    if((error as {code?:string})?.code==='ER_NO_SUCH_TABLE'){
+      res.status(409).json({ok:false,error:'MYSQL_FINANCE_BRANCH_MIGRATION_REQUIRED'});return;
+    }
+    console.error('Financial MySQL read failure:',message);
+    res.status(503).json({ok:false,error:'MYSQL_FINANCE_UNAVAILABLE'});
+  }
+  app.get('/api/branch-pilot/finance/:resource',async(req,res)=>{
+    const resource=financeResource(req.params.resource);
+    if(!resource){res.status(404).json({ok:false,error:'INVALID_FINANCE_RESOURCE'});return;}
+    try{
+      const records=await financeRead(req,resource,async(db,branchId,table)=>{
+        // table comes ONLY from immutable server whitelist above.
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT t.* FROM `'+table+'` t INNER JOIN finance_record_branch_access b ON b.record_id=t.id AND b.resource=? AND b.branch_id=? ORDER BY t.id',
+          [table,branchId]);
+        return rows.map(financialRow);
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({ok:true,source:'mysql',resource,records});
+    }catch(error){financeReadError(res,error);}
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
