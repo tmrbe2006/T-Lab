@@ -1369,6 +1369,140 @@ export function installBranchPilotRoutes(app: Express): void {
     }
   });
 
+
+  /** Post a receipt + update invoice + balanced journal in ONE MySQL transaction. */
+  app.post('/api/branch-pilot/finance/receipt',async(req,res)=>{
+    try{
+      const body=req.body||{};
+      const invoiceId=String(body.invoiceId||'');
+      const payerType=String(body.payerType||'');
+      const method=String(body.method||'');
+      const amount=Number(body.amount);
+      const notes=String(body.notes||'');
+      if(!validBranchId(invoiceId)|| !['patient','contract'].includes(payerType)||
+        !['cash','card','bank_transfer'].includes(method)||
+        !Number.isFinite(amount)||amount<=0||amount>9999999999||
+        Math.round(amount*100)<=0||notes.length>1000)
+        throw new TypeError('INVALID_RECEIPT');
+      const cash=Math.round(amount*100)/100;
+      const session=getSession(req);
+      if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+      const receipt=await useDatabase(async db=>{
+        const assigned=await staffAssignedBranches(db,session.userId,session.role);
+        if(!assigned.some(x=>x.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const rights=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId!);
+        for(const [resource,operation] of [['payments','addPayment'],['invoices','view'],['journalEntries','addJournalEntry']] as const){
+          const rule=rights.find(x=>x.resource===resource);
+          if(!(session.role==='Developer' || (session.role==='Owner'
+            ? (!rule||rule.actions[operation]===true) : rule?.actions[operation]===true)))
+            throw new Error('FORBIDDEN');
+        }
+        await db.beginTransaction();
+        try{
+          const [invoices]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT i.* FROM invoices i JOIN mysql_store_branch_access a ON a.record_id=i.id AND a.store_name='invoices' AND a.branch_id=? WHERE i.id=? FOR UPDATE",
+            [session.branchId!,invoiceId]);
+          if(!invoices.length)throw new Error('INVOICE_NOT_IN_BRANCH');
+          const invoiceRow=invoices[0];
+          const invoice=JSON.parse(String(invoiceRow.raw_json||'{}')) as Record<string,unknown>;
+          if(!invoice || typeof invoice!=='object' || !invoice.id)throw new Error('INVOICE_RAW_JSON_REQUIRED');
+          if(invoice.status==='cancelled')throw new Error('CANCELLED_INVOICE');
+          const invoiceTotal=Math.round(Number(invoiceRow.net_total)*100)/100;
+          const recordedPaid=Math.round(Number(invoiceRow.paid_amount)*100)/100;
+          if(!Number.isFinite(invoiceTotal)||!Number.isFinite(recordedPaid)||invoiceTotal<0||
+            recordedPaid<0)throw new Error('INVALID_LEGACY_INVOICE_TOTAL');
+          const [oldPayments]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.* FROM payments p JOIN mysql_store_branch_access a ON a.record_id=p.id AND a.store_name='payments' AND a.branch_id=? WHERE p.invoice_id=? FOR UPDATE",
+            [session.branchId!,invoiceId]);
+          let patientPaid=0,contractPaid=0;
+          for(const row of oldPayments){
+            let record:Record<string,unknown>={};
+            try{record=JSON.parse(String(row.raw_json||'{}')) as Record<string,unknown>;}catch{}
+            if(record.status==='cancelled')continue;
+            const oldAmount=Number(row.amount);
+            if(!Number.isFinite(oldAmount)||oldAmount<0)throw new Error('INVALID_EXISTING_PAYMENT');
+            if(record.payerType==='contract')contractPaid+=oldAmount;
+            else patientPaid+=oldAmount;
+          }
+          patientPaid=Math.round(patientPaid*100)/100;
+          contractPaid=Math.round(contractPaid*100)/100;
+          const collected=Math.round((patientPaid+contractPaid)*100)/100;
+          // The imported invoice and receipt ledger MUST reconcile before posting more.
+          if(Math.abs(collected-recordedPaid)>0.009)throw new Error('LEGACY_PAYMENT_RECONCILIATION_REQUIRED');
+          const company=invoice.contractId
+            ?Math.max(0,Math.min(invoiceTotal,Math.round(Number(invoice.companyShareAmount||0)*100)/100))
+            :0;
+          if(payerType==='contract' && !invoice.contractId)throw new Error('NO_CONTRACT_ON_INVOICE');
+          const available=Math.round(((payerType==='contract' ? company-contractPaid :
+            invoiceTotal-company-patientPaid))*100)/100;
+          if(cash>available+0.009)throw new Error('PAYMENT_EXCEEDS_PAYER_SHARE');
+          const nextPaid=Math.round((recordedPaid+cash)*100)/100;
+          const remaining=Math.round((invoiceTotal-nextPaid)*100)/100;
+          if(remaining<-0.009)throw new Error('PAYMENT_EXCEEDS_INVOICE');
+          const now=new Date().toISOString().slice(0,10);
+          const paymentId='pay_'+randomBytes(16).toString('hex');
+          const paymentNumber='PAY-'+randomBytes(10).toString('hex').toUpperCase();
+          const payment={
+            id:paymentId,paymentNumber,invoiceId,invoiceNumber:String(invoiceRow.invoice_number),
+            patientId:String(invoiceRow.patient_id),date:now,amount:cash,method,payerType,
+            createdBy:session.userId,status:'active',notes
+          };
+          const updated={
+            ...invoice,paidAmount:nextPaid,remainingAmount:Math.max(0,remaining),
+            paymentMethod:method,status:remaining<=0.009?'paid':'partial'
+          };
+          await db.execute(
+            'INSERT INTO payments(id,payment_number,invoice_id,patient_id,amount,method,date,raw_json) VALUES(?,?,?,?,?,?,?,?)',
+            [paymentId,paymentNumber,invoiceId,payment.patientId,cash,method,now,JSON.stringify(payment)]
+          );
+          await db.execute('UPDATE invoices SET paid_amount=?,remaining_amount=?,status=?,raw_json=? WHERE id=?',
+            [updated.paidAmount,updated.remainingAmount,updated.status,JSON.stringify(updated),invoiceId]);
+          const journalId='je_pay_'+randomBytes(16).toString('hex');
+          const journalNumber='JE-P-'+randomBytes(10).toString('hex').toUpperCase();
+          const debitCode=method==='cash'?'1201':'1202';
+          const creditCode=payerType==='contract'?'1205':'1204';
+          const entry={
+            id:journalId,entryNumber:journalNumber,date:now,referenceType:'payment',
+            referenceId:paymentId,descriptionAr:'تحصيل دفعة عن فاتورة '+payment.invoiceNumber,
+            descriptionEn:'Invoice payment '+payment.invoiceNumber,
+            lines:[
+              {accountCode:debitCode,accountNameAr:debitCode==='1201'?'الصندوق':'البنك',
+                accountNameEn:'Cash / Bank',debit:cash,credit:0},
+              {accountCode:creditCode,accountNameAr:'ذمم العملاء',
+                accountNameEn:'Receivables',debit:0,credit:cash}
+            ],totalDebit:cash,totalCredit:cash,status:'posted',createdBy:session.userId
+          };
+          await db.execute(
+            'INSERT INTO journal_entries(id,entry_number,date,description,reference_type,reference_id,total_debit,total_credit,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [journalId,journalNumber,now,entry.descriptionAr,'payment',paymentId,cash,cash,JSON.stringify(entry)]
+          );
+          for(const [store,id] of [['payments',paymentId],['journalEntries',journalId]]){
+            await db.execute(
+              'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+              [store,id,session.branchId!,session.userId]);
+          }
+          await db.commit();
+          return {invoice:updated,payment,journal:entry};
+        }catch(error){await db.rollback();throw error;}
+      });
+      res.status(201).json({ok:true,source:'mysql',...receipt});
+    }catch(error){
+      const message=error instanceof Error?error.message:'MYSQL_RECEIPT_FAILED';
+      if(error instanceof TypeError){res.status(400).json({ok:false,error:message});return;}
+      if(message==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:message});return;}
+      if(message==='FORBIDDEN'||message==='BRANCH_NOT_ASSIGNED'){res.status(403).json({ok:false,error:message});return;}
+      if(['INVOICE_NOT_IN_BRANCH','INVOICE_RAW_JSON_REQUIRED','CANCELLED_INVOICE',
+          'INVALID_LEGACY_INVOICE_TOTAL','INVALID_EXISTING_PAYMENT',
+          'LEGACY_PAYMENT_RECONCILIATION_REQUIRED','NO_CONTRACT_ON_INVOICE',
+          'PAYMENT_EXCEEDS_PAYER_SHARE','PAYMENT_EXCEEDS_INVOICE'].includes(message)){
+        res.status(409).json({ok:false,error:message});return;
+      }
+      financeReadError(res,error);
+    }
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
