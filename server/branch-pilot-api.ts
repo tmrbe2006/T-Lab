@@ -612,9 +612,9 @@ export function installBranchPilotRoutes(app: Express): void {
     return useDatabase(async (db) => {
       const accessible = await staffAssignedBranches(db, session.userId, session.role);
       if (!accessible.some(b => b.branchId === selectedBranchId)) throw new Error('BRANCH_NOT_ASSIGNED');
-      const rights = await ownBranchPermissions({
+      const rights = await ownEffectiveBranchPermissions({
         execute: (sql, params) => db.execute(sql, params as string[]),
-      }, session.userId, selectedBranchId);
+      }, session.userId, selectedBranchId, session.role);
       const explicit = rights.find(row => row.resource === 'patients');
       const permitted = session.role === 'Developer' ||
         (session.role === 'Owner' ? (!explicit || explicit.actions[action] === true) : explicit?.actions[action] === true);
@@ -812,7 +812,7 @@ export function installBranchPilotRoutes(app: Express): void {
     return useDatabase(async db=>{
       const branches=await staffAssignedBranches(db,session.userId,session.role);
       if(!branches.some(b=>b.branchId===session.branchId)) throw new Error('BRANCH_NOT_ASSIGNED');
-      const rows=await ownBranchPermissions({execute:(sql,params)=>db.execute(sql,params as string[])},session.userId,session.branchId!);
+      const rows=await ownEffectiveBranchPermissions({execute:(sql,params)=>db.execute(sql,params as string[])},session.userId,session.branchId!,session.role);
       const explicit=rows.find(row=>row.resource==='homeVisits');
       if(!(session.role==='Developer' || (session.role==='Owner'
         ? (!explicit || explicit.actions[action]===true)
