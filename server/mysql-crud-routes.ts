@@ -357,7 +357,7 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
       const users=await scoped(res,'users','view',async(db)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
           'SELECT id,username,full_name_ar,role,active,raw_json FROM users ORDER BY username');
-        return rows.map(row=>{
+        return rows.filter(row=>parse(row.raw_json).archived!==true).map(row=>{
           const raw=parse(row.raw_json);
           return {id:String(row.id),username:String(row.username),
             fullNameAr:String(row.full_name_ar||raw.fullNameAr||''),
@@ -457,7 +457,7 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
           if(rows[0].role==='Developer')throw new Error('PROTECTED_DEVELOPER');
           const original=parse(rows[0].raw_json);
           await db.execute('UPDATE users SET active=0,raw_json=? WHERE id=?',
-            [JSON.stringify({...original,id,active:false}),id]);
+            [JSON.stringify({...original,id,active:false,archived:true}),id]);
           await audit(db,s,'users',id,'archive',
             {...original,passwordHash:'[REDACTED]'},undefined);
           await db.commit();
