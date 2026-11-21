@@ -218,7 +218,7 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
         global?[]:[store,session.branchId!]);
       res.json({ok:true,source:'mysql',store,records:rows.map(row=>({
         ...obj(row.raw_json),id:String(row.id),
-      })).filter(row=>row.archived!==true)});
+      } as Record<string,unknown>)).filter(row=>row.archived!==true)});
     }catch(e){failure(res,e);}
     finally{await db?.end();}
   });
