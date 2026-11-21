@@ -8,6 +8,10 @@ import {
   showToast,
 } from '../../components/common';
 import { db } from '../../db/database';
+import { mysqlHomeVisitsRepository } from '../../repositories/home-visits.mysql.repository';
+
+const isMysqlBranchPilot=()=>typeof window!=='undefined' && window.location.port==='3127';
+
 import { enforcePermission } from '../../guards/permission.guard';
 import { i18n } from '../../i18n';
 import { printService } from '../../print/print.service';
@@ -60,13 +64,13 @@ const STATUS_LABELS: Record<
 };
 
 export async function renderHomeVisitsPage(container: HTMLElement): Promise<void> {
-  await ensureEnterpriseSeedData();
+  if (!isMysqlBranchPilot()) await ensureEnterpriseSeedData();
 
   let statusFilter = 'all';
 
   const render = async () => {
     const [visits, patients, employees] = await Promise.all([
-      db.homeVisits.toArray(),
+      isMysqlBranchPilot()?mysqlHomeVisitsRepository.getAll():db.homeVisits.toArray(),
       patientsRepository.getAll(),
       db.employees.toArray(),
     ]);
@@ -242,7 +246,8 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
         rec.status = nextSt;
         if (nextSt === 'sample_collected') rec.collectedAt = new Date().toISOString();
         if (nextSt === 'delivered_to_lab') rec.deliveredAt = new Date().toISOString();
-        await db.homeVisits.put(rec);
+        if(isMysqlBranchPilot()) await mysqlHomeVisitsRepository.save(rec,true);
+        else await db.homeVisits.put(rec);
         showToast(
           i18n.bi(
             `تم تحديث حالة الزيارة المنزلية إلى: ${STATUS_LABELS[nextSt].ar}`,
@@ -277,7 +282,8 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
           ),
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'homeVisits'))) return;
-            await db.homeVisits.delete(rec.id);
+            if(isMysqlBranchPilot()) await mysqlHomeVisitsRepository.archive(rec.id);
+            else await db.homeVisits.delete(rec.id);
             await authService.logAudit(
               `حذف زيارة سحب منزلي: ${rec.visitNumber} (${rec.patientName})`,
               'homeVisits',
@@ -577,7 +583,8 @@ function openHomeVisitFormModal(
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
 
-    await db.homeVisits.put(rec);
+    if(isMysqlBranchPilot()) await mysqlHomeVisitsRepository.save(rec,Boolean(existing));
+    else await db.homeVisits.put(rec);
     closeModal();
     showToast(
       existing
