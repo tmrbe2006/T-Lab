@@ -11,6 +11,7 @@ const PARAM_BY_TEST_PREFIX = 'catalog:params:test:';
 export class TestsRepository {
   async getAllTests(): Promise<LabTest[]> {
     if (!useMySQLCrud()) await syncGlobalMedicalCatalog(false);
+    if (useMySQLCrud()) return db.tests.toArray();
     return CacheService.get(TESTS_CACHE_KEY, () => db.tests.toArray());
   }
 
@@ -35,11 +36,16 @@ export class TestsRepository {
 
   async getAllParameters(): Promise<TestParameter[]> {
     if (!useMySQLCrud()) await syncGlobalMedicalCatalog(false);
+    if (useMySQLCrud()) return db.testParameters.toArray();
     return CacheService.get(PARAMS_ALL_CACHE_KEY, () => db.testParameters.toArray());
   }
 
   async getParametersByTestId(testId: string): Promise<TestParameter[]> {
     if (!useMySQLCrud()) await syncGlobalMedicalCatalog(false);
+    if (useMySQLCrud()) {
+      const rows = await db.testParameters.where('testId').equals(testId).toArray();
+      return rows.sort((a, b) => a.sortOrder - b.sortOrder);
+    }
     return CacheService.get(`${PARAM_BY_TEST_PREFIX}${testId}`, async () => {
       const list = await db.testParameters.where('testId').equals(testId).toArray();
       return list.sort((a, b) => a.sortOrder - b.sortOrder);
