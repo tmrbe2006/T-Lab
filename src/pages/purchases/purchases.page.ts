@@ -1067,8 +1067,14 @@ export async function renderPurchasesPage(container: HTMLElement): Promise<void>
         const amount = Number(fd.get('amount')) || 0;
         const method = String(fd.get('method'));
 
+        if(!Number.isFinite(amount)||amount<=0){
+          showToast('يجب إدخال مبلغ سداد أكبر من صفر', 'error');
+          return;
+        }
+        await db.transaction('rw',[db.purchaseInvoices,db.suppliers,db.journalEntries],async()=>{
         const pinv = await db.purchaseInvoices.get(pinvId);
-        if (!pinv) return;
+        if (!pinv) throw new Error('PURCHASE_INVOICE_NOT_FOUND');
+        if(Number(pinv.remainingAmount)<=0)throw new Error('PURCHASE_INVOICE_ALREADY_PAID');
         const payAmt = Math.min(pinv.remainingAmount, amount);
         const newPaid = Math.round((pinv.paidAmount + payAmt) * 100) / 100;
         const newRem = Math.round((pinv.netTotal - newPaid) * 100) / 100;
@@ -1092,7 +1098,7 @@ export async function renderPurchasesPage(container: HTMLElement): Promise<void>
         await db.journalEntries.put({
           id: `je_sup_pay_${Date.now()}`,
           entryNumber: `JE-SPAY-${Date.now().toString().slice(-5)}`,
-          date: '2026-11-10',
+          date: new Date().toISOString().slice(0,10),
           entryType: 'auto',
           referenceType: 'supplier_payment',
           referenceId: pinv.id,
@@ -1113,8 +1119,8 @@ export async function renderPurchasesPage(container: HTMLElement): Promise<void>
           totalCredit: egpAmt,
           createdBy: user.username,
         });
-
-        showToast(`تم تسجيل دفعة المورد بمبلغ ${formatCurrency(egpAmt)} وتوليد القيد المحاسبي`, 'success');
+        });
+        showToast(`تم تسجيل دفعة المورد بمبلغ ${formatCurrency(amount)} وتوليد القيد المحاسبي`, 'success');
         await draw();
       });
 
