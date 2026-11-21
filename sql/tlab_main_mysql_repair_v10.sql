@@ -27,6 +27,17 @@ CREATE TABLE IF NOT EXISTS tlab_mutation_audit_v10 (
   REFERENCES users(id) ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
+-- QC analyzer names are branch-scoped MySQL data, not localStorage.
+CREATE TABLE IF NOT EXISTS tlab_qc_analyzers (
+ branch_id VARCHAR(64) NOT NULL,
+ name VARCHAR(191) NOT NULL,
+ active TINYINT(1) NOT NULL DEFAULT 1,
+ updated_at DATETIME NOT NULL,
+ PRIMARY KEY(branch_id,name),
+ CONSTRAINT fk_qc_analyzers_branch FOREIGN KEY(branch_id)
+  REFERENCES branches(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+
 -- Optional account password upgrades are performed by the application.
 -- Do not rewrite legacy raw_json credentials in SQL or set shared defaults.
 -- Referential-integrity audit before adding further FKs:
