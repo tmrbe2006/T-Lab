@@ -1282,6 +1282,93 @@ export function installBranchPilotRoutes(app: Express): void {
   app.put('/api/branch-pilot/mysql-master/:store',async(req,res)=>writeMasterStore(req,res,'save'));
   app.delete('/api/branch-pilot/mysql-master/:store/:id',async(req,res)=>writeMasterStore(req,res,'archive'));
 
+
+  /** Transactional manual journal creation in MySQL; no browser write or caller-provided actor. */
+  app.post('/api/branch-pilot/finance/manual-journal',async(req,res)=>{
+    try{
+      const input=req.body?.input;
+      if(!input || typeof input!=='object' || Array.isArray(input))throw new TypeError('INVALID_JOURNAL');
+      const date=String(input.date||'');
+      const description=String(input.descriptionAr||'').trim();
+      const debitCode=String(input.debitCode||'');
+      const creditCode=String(input.creditCode||'');
+      const amount=Number(input.amount);
+      if(!/^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date) ||
+        Number.isNaN(Date.parse(date+'T12:00:00Z')) ||
+        new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date ||
+        !description||description.length>250 ||
+        !/^\d{2,12}$/.test(debitCode)||!/^\d{2,12}$/.test(creditCode)||
+        debitCode===creditCode||!Number.isFinite(amount)||amount<=0||
+        Math.round(amount*100)<=0||amount>9999999999)
+        throw new TypeError('INVALID_JOURNAL');
+      const money=Math.round(amount*100)/100;
+      const session=getSession(req);
+      if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+      const entry=await useDatabase(async db=>{
+        const branches=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branches.some(x=>x.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const matrix=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId!);
+        const rule=matrix.find(x=>x.resource==='journalEntries');
+        if(!(session.role==='Developer'||(session.role==='Owner'
+          ? (!rule||rule.actions.addJournalEntry===true)
+          : rule?.actions.addJournalEntry===true)))throw new Error('FORBIDDEN');
+        await db.beginTransaction();
+        try{
+          const [lockedPeriods]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access m ON m.store_name='periodLocks' AND m.record_id=p.id AND m.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
+            [session.branchId!,date.slice(0,7)]);
+          if(lockedPeriods.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          const [accounts]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT a.id,a.code,a.name_ar,a.name_en,a.raw_json FROM chart_of_accounts a JOIN mysql_store_branch_access m ON m.store_name='chartOfAccounts' AND m.record_id=a.id AND m.branch_id=? WHERE a.code IN (?,?) FOR UPDATE",
+            [session.branchId!,debitCode,creditCode]);
+          if(accounts.length!==2)throw new Error('ACCOUNT_NOT_FOUND');
+          const lookup=new Map(accounts.map(a=>[String(a.code),a]));
+          const debit=lookup.get(debitCode),credit=lookup.get(creditCode);
+          if(!debit||!credit)throw new Error('ACCOUNT_NOT_FOUND');
+          for(const a of [debit,credit]){
+            let raw:{isGroup?:boolean}={};
+            try{raw=JSON.parse(String(a.raw_json||'{}'));}catch{}
+            if(raw.isGroup===true)throw new Error('GROUP_ACCOUNT_NOT_POSTABLE');
+          }
+          const id='je_man_'+randomBytes(16).toString('hex');
+          const entryNumber='JE-M-'+randomBytes(10).toString('hex').toUpperCase();
+          const line=(a:mysql.RowDataPacket,dr:number,cr:number)=>({
+            accountCode:String(a.code),accountNameAr:String(a.name_ar||''),
+            accountNameEn:String(a.name_en||''),debit:dr,credit:cr
+          });
+          const record={
+            id,entryNumber,date,entryType:'manual',referenceType:'manual',
+            referenceId:'manual',descriptionAr:description,descriptionEn:description,
+            lines:[line(debit,money,0),line(credit,0,money)],totalDebit:money,
+            totalCredit:money,status:'posted',createdBy:session.userId
+          };
+          await db.execute(
+            'INSERT INTO journal_entries(id,entry_number,date,description,reference_type,reference_id,total_debit,total_credit,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [id,entryNumber,date,description,'manual','manual',money,money,JSON.stringify(record)]
+          );
+          await db.execute(
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['journalEntries',id,session.branchId!,session.userId]
+          );
+          await db.commit();
+          return record;
+        }catch(error){await db.rollback();throw error;}
+      });
+      res.status(201).json({ok:true,source:'mysql',entry});
+    }catch(error){
+      const msg=error instanceof Error?error.message:'JOURNAL_WRITE_FAILED';
+      if(error instanceof TypeError){res.status(400).json({ok:false,error:msg});return;}
+      if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
+      if(msg==='FORBIDDEN'||msg==='BRANCH_NOT_ASSIGNED'){res.status(403).json({ok:false,error:msg});return;}
+      if(['ACCOUNTING_PERIOD_LOCKED','ACCOUNT_NOT_FOUND','GROUP_ACCOUNT_NOT_POSTABLE'].includes(msg)){
+        res.status(409).json({ok:false,error:msg});return;
+      }
+      financeReadError(res,error);
+    }
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
