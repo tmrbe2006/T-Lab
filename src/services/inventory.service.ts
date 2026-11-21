@@ -232,6 +232,7 @@ export class InventoryService {
     movementsCreated: StockMovement[];
     journalEntry: JournalEntry;
   }> {
+    return db.transaction('rw',db.purchaseInvoices,db.inventoryItems,db.inventoryLots,db.stockMovements,db.journalEntries,db.suppliers,async()=>{
     const pinv = await db.purchaseInvoices.get(purchaseInvoiceId);
     if (!pinv) throw new Error('فاتورة الشراء غير موجودة');
     if (pinv.stockReceived) {
@@ -386,6 +387,7 @@ export class InventoryService {
     }
 
     return { lotsCreated, movementsCreated, journalEntry };
+    });
   }
 
   /**
@@ -403,6 +405,7 @@ export class InventoryService {
     totalCOGS: number;
     journalEntry: JournalEntry;
   }> {
+    return db.transaction('rw',db.testBOMs,db.inventoryItems,db.inventoryLots,db.stockMovements,db.journalEntries,async()=>{
     const bom = await db.testBOMs.where('testId').equals(testId).first();
     if (!bom) {
       throw new Error('لا توجد قائمة مواد (BOM) مسجلة لهذا التحليل');
@@ -517,6 +520,7 @@ export class InventoryService {
 
     await db.journalEntries.put(journalEntry);
     return { movements, totalCOGS, journalEntry };
+    });
   }
 
   /**
@@ -529,6 +533,7 @@ export class InventoryService {
     performedBy = 'owner',
     referenceDate = '2026-11-10'
   ): Promise<{ movement: StockMovement; journalEntry: JournalEntry }> {
+    return db.transaction('rw',db.inventoryLots,db.inventoryItems,db.stockMovements,db.journalEntries,async()=>{
     const lot = await db.inventoryLots.get(lotId);
     if (!lot) throw new Error('الدفعة غير موجودة');
     if (quantity <= 0 || quantity > lot.remainingQty) {
@@ -616,6 +621,7 @@ export class InventoryService {
     await db.journalEntries.put(journalEntry);
 
     return { movement, journalEntry };
+    });
   }
 
   /**
@@ -626,6 +632,7 @@ export class InventoryService {
     approvedBy = 'owner',
     referenceDate = '2026-11-10'
   ): Promise<void> {
+    return db.transaction('rw',db.stockTakingSessions,db.inventoryItems,db.stockMovements,db.journalEntries,async()=>{
     const session = await db.stockTakingSessions.get(sessionId);
     if (!session) throw new Error('جلسة الجرد غير موجودة');
     if (session.status === 'approved') throw new Error('تم اعتماد جلسة الجرد مسبقًا');
@@ -698,6 +705,7 @@ export class InventoryService {
       ...session,
       status: 'approved',
       approvedBy,
+    });
     });
   }
 
