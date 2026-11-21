@@ -113,7 +113,7 @@ function validateDomain(c:Command,previous:Record<string,unknown>|null):void{
       throw new Error('JOURNAL_TOTAL_MISMATCH');
   }
   if(c.store==='inventoryLots'){
-    if(Number(r.remainingQty||0)>Number(r.receivedQty||r.quantity||0))
+    if(Number(r.remainingQty||0)>Number(r.initialQty??r.initialQuantity??r.receivedQty??r.quantity??0))
       throw new Error('LOT_REMAINING_EXCEEDS_RECEIVED');
   }
   if(c.store==='results'){
