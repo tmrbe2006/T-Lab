@@ -21,12 +21,16 @@ const page=await browser.newPage({viewport:{width:1440,height:900}});
 const issues=[];
 let route='login';
 page.on('pageerror',err=>{
-  issues.push({route,kind:'pageerror',message:err.message.slice(0,320)});
+  issues.push({route,kind:'pageerror',message:err.message.slice(0,320),stack:String(err.stack||'').slice(0,1300)});
 });
 page.on('response',response=>{
   const u=response.url();
-  if(u.includes('/api/branch-pilot/')&&response.status()>=500)
-    issues.push({route,kind:'http',status:response.status(),url:u.slice(0,250)});
+  if(u.includes('/api/branch-pilot/')&&response.status()>=400){
+    response.text().then(body=>{
+      issues.push({route,kind:'http',status:response.status(),
+        url:u.slice(0,250),response:body.slice(0,600)});
+    }).catch(()=>{});
+  }
 });
 try{
   await page.goto(base+'/#/login',{waitUntil:'domcontentloaded'});
