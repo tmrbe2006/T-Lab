@@ -533,6 +533,8 @@ class MySQLSyncService {
    * in the app automatically syncs to the MySQL 5.5 / 8.0.28 server when autoSync is active.
    */
   public registerRealtimeHooks(): void {
+    // Windows MySQL-only mode never installs Dexie hooks or asynchronous browser sync.
+    if(typeof window!=='undefined' && window.location.port==='3127')return;
     if (this.hooksRegistered) return;
     this.hooksRegistered = true;
 
