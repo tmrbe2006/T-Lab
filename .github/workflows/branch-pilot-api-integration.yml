@@ -42,7 +42,7 @@ jobs:
       - name: Set up disposable representative legacy database and additive branch migration
         run: |
           mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db <<'SQL'
-          CREATE TABLE users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64), role VARCHAR(64), active TINYINT(1), raw_json LONGTEXT);
+          CREATE TABLE users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64), role VARCHAR(64), active TINYINT(1), raw_json LONGTEXT) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
           INSERT INTO users VALUES ('usr_owner', 'owner', 'Owner', 1, '{"passwordHash":"test-only-admin-password"}');
           INSERT INTO users VALUES ('usr_dev', 'developer', 'Developer', 1, '{"passwordHash":"dev-test-password"}');
           INSERT INTO users VALUES ('usr_staff', 'staff', 'Receptionist', 1, '{"passwordHash":"staff-password"}');
