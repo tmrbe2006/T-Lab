@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMysqlRemoteDatabase } from '../../db/mysql-remote-db';
 
@@ -13,7 +14,9 @@ function fake(records:Record<string,unknown[]>){
     requests.push({url,method,body});
     if(method==='GET'){
       const name=url.split('/').at(-1)!;
-      return reply({ok:true,source:'mysql',store:name,records:records[name]||[]});
+      const rows=records[name]||[];
+      const revisions=Object.fromEntries(rows.map(row=>[String(row.id),createHash('sha256').update(JSON.stringify(row)).digest('hex')]));
+      return reply({ok:true,source:'mysql',store:name,records:rows,revisions});
     }
     return reply({ok:true,source:'mysql',count:((body?.commands as unknown[])||[]).length});
   }));
