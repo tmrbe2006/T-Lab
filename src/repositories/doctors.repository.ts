@@ -1,4 +1,5 @@
 import { db } from '../db/database';
+import { financeMySQLRows, inMySQLFinancePilot, requireMySQLFinancialWrite } from './mysql-finance.read';
 import { CacheService } from '../services/cache.service';
 import type { Doctor, DoctorCommission } from '../types';
 
@@ -28,15 +29,17 @@ export class DoctorsRepository {
   }
 
   async getAllCommissions(): Promise<DoctorCommission[]> {
-    const list = await db.commissions.toArray();
+    const list = inMySQLFinancePilot() ? await financeMySQLRows<DoctorCommission>('commissions') : await db.commissions.toArray();
     return list.sort((a, b) => b.date.localeCompare(a.date));
   }
 
   async saveCommission(commission: DoctorCommission): Promise<string> {
+    requireMySQLFinancialWrite();
     return db.commissions.put(commission);
   }
 
   async deleteCommissionByInvoiceId(invoiceId: string): Promise<void> {
+    requireMySQLFinancialWrite();
     await db.commissions.where('invoiceId').equals(invoiceId).delete();
   }
 }
