@@ -1080,6 +1080,40 @@ export function installBranchPilotRoutes(app: Express): void {
     }catch(e){financeReadError(res,e);}
   });
 
+
+  app.get('/api/branch-pilot/doctors',async(req,res)=>{
+    try {
+      const doctors=await useDatabase(async db=>{
+        const session=getSession(req);
+        if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+        const branches=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branches.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const rights=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId);
+        const rule=rights.find(row=>row.resource==='doctors');
+        if(!(session.role==='Developer' || (session.role==='Owner'
+          ? (!rule||rule.actions.view===true) : rule?.actions.view===true)))throw new Error('FORBIDDEN');
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT d.* FROM doctors d INNER JOIN doctor_branch_access a ON a.doctor_id=d.id WHERE a.branch_id=? AND d.active=1 ORDER BY d.code',
+          [session.branchId]);
+        return rows.map(row=>{
+          let raw:Record<string,unknown>={};
+          try{const parsed:unknown=JSON.parse(String(row.raw_json||'{}'));
+            if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))raw=parsed as Record<string,unknown>;}
+          catch{/* relational fallback */}
+          return {...raw,id:String(row.id),code:String(row.code||''),nameAr:String(row.name_ar||''),
+            nameEn:String(row.name_en||''),specialty:String(row.specialty||''),
+            phone:String(row.phone||''),type:String(row.type||''),
+            commissionRate:Number(row.commission_rate||0),commissionEnabled:Number(row.commission_enabled)===1,
+            active:Number(row.active)===1};
+        });
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({ok:true,source:'mysql',doctors});
+    }catch(e){financeReadError(res,e);}
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
