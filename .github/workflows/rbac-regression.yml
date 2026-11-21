@@ -25,6 +25,6 @@ jobs:
       - name: Report remaining IndexedDB migration blockers (non-destructive)
         run: node scripts/audit-indexeddb-sources.mjs
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/accounting-chart-mapping.test.ts src/tests/services/accounting.service.test.ts src/tests/services/contract-payment-allocation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/branch-user-permissions.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-only-mapping-audit.test.ts
+        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/accounting-chart-mapping.test.ts src/tests/services/accounting.service.test.ts src/tests/services/contract-payment-allocation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/branch-user-permissions.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-remote-db.test.ts
       - name: Production build
         run: npm run build
