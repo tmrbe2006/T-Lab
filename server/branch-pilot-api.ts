@@ -679,7 +679,7 @@ export function installBranchPilotRoutes(app: Express): void {
     }
     if ((error as {code?:string})?.code==='ER_NO_SUCH_TABLE') {
       res.status(409).json({ok:false,error:'PATIENT_BRANCH_MIGRATION_REQUIRED',
-        hint:'Apply sql/tlab_patient_branch_access_v3.sql to a verified backup TEST copy of tlab_multibranch_pilot first'});return;
+        hint:'Apply sql/tlab_all_49_store_branch_access_v8.sql to a verified backup TEST copy first'});return;
     }
     console.error('Scoped MySQL patients API:',message);
     res.status(503).json({ok:false,error:'MYSQL_PATIENTS_UNAVAILABLE'});
@@ -689,7 +689,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try {
       const patients=await withPatientDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT p.* FROM patients p INNER JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code',
+          'SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name='patients' WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code',
           [session.branchId!]);
         return rows.map(patientFromRow);
       });
@@ -715,8 +715,8 @@ export function installBranchPilotRoutes(app: Express): void {
               patient.createdAt,patient.active?1:0,JSON.stringify(patient)],
           );
           await db.execute(
-            'INSERT INTO patient_branch_access(patient_id,branch_id,created_at,created_by) VALUES (?,?,NOW(),?)',
-            [patient.id,session.branchId!,session.userId]);
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES (?,?,?,NOW(),?)',
+            ['patients',patient.id,session.branchId!,session.userId]);
           await db.commit();
           return patient;
         } catch(e){await db.rollback();throw e;}
@@ -733,11 +733,11 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try {
           const [existing]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT p.id, p.code FROM patients p JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
+            'SELECT p.id, p.code FROM patients p JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name='patients' WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
             [patient.id,session.branchId!]);
           if(!existing.length)throw new Error('PATIENT_NOT_IN_BRANCH');
           const [shared]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT COUNT(*) AS n FROM patient_branch_access WHERE patient_id=?',[patient.id]);
+            'SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name='patients' AND record_id=?',[patient.id]);
           if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
           await db.execute(
             `UPDATE patients SET code=?,name=?,name_en=?,gender=?,age=?,birth_date=?,phone=?,national_id=?,address=?,
@@ -762,14 +762,14 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try{
           const [rows]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT p.id FROM patients p JOIN patient_branch_access pa ON pa.patient_id=p.id WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
+            'SELECT p.id FROM patients p JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name='patients' WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
             [id,session.branchId!]);
           if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
           const [usage]=await db.execute<mysql.RowDataPacket[]>(
             'SELECT COUNT(*) AS n FROM lab_requests WHERE patient_id=?',[id]);
           if(Number(usage[0]?.n)>0)throw new Error('PATIENT_HAS_HISTORY');
           const [shared]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT COUNT(*) AS n FROM patient_branch_access WHERE patient_id=?',[id]);
+            'SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name='patients' AND record_id=?',[id]);
           if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
           await db.execute('UPDATE patients SET active=0 WHERE id=?',[id]);
           await db.commit();
@@ -837,7 +837,7 @@ export function installBranchPilotRoutes(app: Express): void {
   }
   async function requireHomeVisitPatient(db:mysql.Connection,patientId:string,branchId:string){
     const [rows]=await db.execute<mysql.RowDataPacket[]>(
-      'SELECT 1 AS allowed FROM patient_branch_access a JOIN patients p ON p.id=a.patient_id WHERE a.patient_id=? AND a.branch_id=? AND p.active=1 LIMIT 1',
+      'SELECT 1 AS allowed FROM mysql_store_branch_access a JOIN patients p ON p.id=a.record_id WHERE a.store_name='patients' AND a.record_id=? AND a.branch_id=? AND p.active=1 LIMIT 1',
       [patientId,branchId]);
     if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
   }
