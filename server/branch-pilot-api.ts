@@ -863,16 +863,18 @@ export function installBranchPilotRoutes(app: Express): void {
     if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
   }
   app.get('/api/branch-pilot/home-visits/staff',async(req,res)=>{
-    try {
+    try{
       const staff=await withHomeVisitDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT u.id,u.full_name_ar,u.raw_json FROM users u INNER JOIN user_branches ub ON ub.user_id=u.id WHERE ub.branch_id=? AND u.active=1 AND u.role IN (\'Technician\',\'Chemist\') ORDER BY u.full_name_ar',
+          "SELECT e.id,e.name_ar,e.raw_json FROM employees e JOIN mysql_store_branch_access a ON a.store_name='employees' AND a.record_id=e.id AND a.branch_id=? WHERE e.active=1 ORDER BY e.name_ar",
           [session.branchId!]);
         return rows.map(row=>{
           let raw:Record<string,unknown>={};
-          try{const parsed=JSON.parse(String(row.raw_json||'{}'));if(parsed && typeof parsed==='object' && !Array.isArray(parsed))raw=parsed;}
-          catch{/* no local fallback */}
-          return {id:String(row.id),nameAr:String(row.full_name_ar||raw.fullNameAr||''),
+          try{
+            const obj:unknown=JSON.parse(String(row.raw_json||'{}'));
+            if(obj&&typeof obj==='object'&&!Array.isArray(obj))raw=obj as Record<string,unknown>;
+          }catch{}
+          return {id:String(row.id),nameAr:String(row.name_ar||raw.nameAr||''),
             phone:String(raw.phone||'')};
         });
       });
