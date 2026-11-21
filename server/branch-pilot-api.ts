@@ -841,6 +841,23 @@ export function installBranchPilotRoutes(app: Express): void {
       [patientId,branchId]);
     if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
   }
+  app.get('/api/branch-pilot/home-visits/staff',async(req,res)=>{
+    try {
+      const staff=await withHomeVisitDb(req,'view',async(db,session)=>{
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT u.id,u.full_name_ar,u.raw_json FROM users u INNER JOIN user_branches ub ON ub.user_id=u.id WHERE ub.branch_id=? AND u.active=1 AND u.role IN (\'Technician\',\'Chemist\') ORDER BY u.full_name_ar',
+          [session.branchId!]);
+        return rows.map(row=>{
+          let raw:Record<string,unknown>={};
+          try{const parsed=JSON.parse(String(row.raw_json||'{}'));if(parsed && typeof parsed==='object' && !Array.isArray(parsed))raw=parsed;}
+          catch{/* no local fallback */}
+          return {id:String(row.id),nameAr:String(row.full_name_ar||raw.fullNameAr||''),
+            phone:String(raw.phone||'')};
+        });
+      });
+      res.json({ok:true,source:'mysql',staff});
+    }catch(e){homeVisitError(res,e);}
+  });
   app.get('/api/branch-pilot/home-visits',async(req,res)=>{
     try{
       const visits=await withHomeVisitDb(req,'view',async(db,session)=>{
