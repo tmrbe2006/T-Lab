@@ -79,8 +79,19 @@ export function openDeleteConfirmModal(options: DeleteConfirmOptions): void {
   document.getElementById('del-modal-confirm')?.addEventListener('click', async () => {
     const reasonEl = document.getElementById('del-reason-input') as HTMLInputElement | null;
     const reason = reasonEl?.value.trim() || undefined;
-    closeModal();
-    await options.onConfirm(reason);
+    const confirm = document.getElementById('del-modal-confirm') as HTMLButtonElement | null;
+    if(confirm){confirm.disabled=true;confirm.textContent=i18n.bi('جارٍ التنفيذ...', 'Processing...');}
+    try {
+      await options.onConfirm(reason);
+      closeModal();
+    } catch (error) {
+      if(confirm){confirm.disabled=false;confirm.textContent=d.confirmBtn;}
+      const message=error instanceof Error?error.message:String(error);
+      const feedback=document.createElement('p');
+      feedback.className='mt-3 text-sm font-semibold text-rose-700';
+      feedback.textContent=message;
+      confirm?.parentElement?.parentElement?.appendChild(feedback);
+    }
   });
 }
 
