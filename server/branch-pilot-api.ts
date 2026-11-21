@@ -721,6 +721,142 @@ export function installBranchPilotRoutes(app: Express): void {
     } catch (error) { respondError(res, error); }
   });
 
+
+  // Account administration: server-owned authentication, parameterized SQL,
+  // no password hashes in GET, no browser-side credential persistence.
+  function requireUserAdmin(req:Request):AdminSession{
+    const session=getSession(req);
+    if(!session?.branchId || !['Developer','Owner'].includes(session.role))throw new Error('FORBIDDEN');
+    return session;
+  }
+  app.get('/api/branch-pilot/user-records',async(req,res)=>{
+    try{
+      const session=requireUserAdmin(req);
+      const users=await useDatabase(async db=>{
+        const branches=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branches.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT id,username,full_name_ar,role,active,raw_json FROM users ORDER BY username');
+        return rows.map(row=>{
+          let old:Record<string,unknown>={};
+          try{old=JSON.parse(String(row.raw_json||'{}')) as Record<string,unknown>;}catch{}
+          return {id:String(row.id),username:String(row.username),
+            fullNameAr:String(row.full_name_ar||old.fullNameAr||''),
+            fullNameEn:String(old.fullNameEn||''),
+            role:String(row.role),employeeId:old.employeeId||undefined,
+            active:Number(row.active)===1,createdAt:String(old.createdAt||''),
+            passwordHash:''};
+        });
+      });
+      res.json({ok:true,source:'mysql',users});
+    }catch(e){respondError(res,e);}
+  });
+  app.get('/api/branch-pilot/employee-records',async(req,res)=>{
+    try{
+      const session=requireUserAdmin(req);
+      const employees=await useDatabase(async db=>{
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          "SELECT e.id,e.code,e.name_ar,e.raw_json FROM employees e INNER JOIN mysql_store_branch_access m ON m.store_name='employees' AND m.record_id=e.id AND m.branch_id=? ORDER BY e.name_ar",
+          [session.branchId!]);
+        return rows.map(row=>{
+          let raw:Record<string,unknown>={};
+          try{raw=JSON.parse(String(row.raw_json||'{}')) as Record<string,unknown>;}catch{}
+          return {...raw,id:String(row.id),code:String(row.code),nameAr:String(row.name_ar)};
+        });
+      });
+      res.json({ok:true,source:'mysql',employees});
+    }catch(e){respondError(res,e);}
+  });
+  app.put('/api/branch-pilot/user-records/:id',async(req,res)=>{
+    try{
+      const session=requireUserAdmin(req);
+      const id=String(req.params.id||'');
+      const input=req.body?.record;
+      if(!validBranchId(id)||!input||typeof input!=='object'||Array.isArray(input)||
+         String(input.id)!==id)throw new TypeError('INVALID_USER');
+      const username=String(input.username||'').trim();
+      const fullNameAr=String(input.fullNameAr||'').trim();
+      const fullNameEn=String(input.fullNameEn||'').trim();
+      const role=String(input.role||'');
+      const newPassword=String(input.passwordHash||'');
+      const active=input.active===true;
+      if(!/^[A-Za-z0-9_.-]{1,64}$/.test(username)||!fullNameAr||fullNameAr.length>191||
+        fullNameEn.length>191||!['Developer','Owner','Doctor','Chemist','Technician','Receptionist','Accountant'].includes(role)||
+        newPassword.length>256)throw new TypeError('INVALID_USER');
+      await useDatabase(async db=>{
+        const branch=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branch.some(x=>x.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        await db.beginTransaction();
+        try{
+          const [priorRows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT * FROM users WHERE id=? FOR UPDATE',[id]);
+          const old=priorRows[0];
+          if(!old && newPassword.length<8)throw new TypeError('PASSWORD_MIN_8');
+          if(newPassword && newPassword.length<8)throw new TypeError('PASSWORD_MIN_8');
+          if(session.role!=='Developer' && (role==='Developer'||old?.role==='Developer'))
+            throw new Error('FORBIDDEN');
+          if(old && id===session.userId && (!active || role!==String(old.role)))
+            throw new Error('CANNOT_CHANGE_ACTIVE_SESSION_ROLE');
+          if(old && String(old.role)==='Developer' && (role!=='Developer'||!active)){
+            const [admins]=await db.execute<mysql.RowDataPacket[]>(
+              "SELECT COUNT(*) AS n FROM users WHERE role='Developer' AND active=1 FOR UPDATE");
+            if(Number(admins[0]?.n||0)<=1)throw new Error('LAST_DEVELOPER_PROTECTED');
+          }
+          const [duplicates]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT id FROM users WHERE username=? AND id<>? LIMIT 1',[username,id]);
+          if(duplicates.length)throw new Error('DUPLICATE_USERNAME');
+          let oldJson:Record<string,unknown>={};
+          try{oldJson=JSON.parse(String(old?.raw_json||'{}')) as Record<string,unknown>;}catch{}
+          const stored= newPassword ? hashScryptPassword(newPassword):
+            String(oldJson.passwordHash||'');
+          if(!stored)throw new TypeError('PASSWORD_REQUIRED');
+          const user={...oldJson,id,username,passwordHash:stored,fullNameAr,fullNameEn,
+            role,employeeId:input.employeeId||undefined,active,
+            createdAt:String(oldJson.createdAt||new Date().toISOString())};
+          if(old){
+            await db.execute('UPDATE users SET username=?,full_name_ar=?,role=?,active=?,raw_json=? WHERE id=?',
+              [username,fullNameAr,role,active?1:0,JSON.stringify(user),id]);
+          }else{
+            await db.execute('INSERT INTO users(id,username,full_name_ar,role,active,raw_json) VALUES(?,?,?,?,?,?)',
+              [id,username,fullNameAr,role,active?1:0,JSON.stringify(user)]);
+            await db.execute('INSERT INTO user_branches(user_id,branch_id,is_default) VALUES(?,?,1)',
+              [id,session.branchId!]);
+          }
+          await db.execute('INSERT INTO tlab_mutation_audit_v10(event_id,resource,record_id,branch_id,actor_id,operation,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?,NOW())',
+            [randomBytes(16).toString('hex'),'users',id,session.branchId!,session.userId,old?'edit':'add',old?.raw_json||null,
+              JSON.stringify({...user,passwordHash:'[REDACTED]'})]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql',id});
+    }catch(e){respondError(res,e);}
+  });
+  app.delete('/api/branch-pilot/user-records/:id',async(req,res)=>{
+    try{
+      const session=requireUserAdmin(req);
+      const id=String(req.params.id||'');
+      if(!validBranchId(id)||id===session.userId)throw new TypeError('CANNOT_DELETE_CURRENT_USER');
+      await useDatabase(async db=>{
+        await db.beginTransaction();
+        try{
+          const [rows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT role,raw_json FROM users WHERE id=? FOR UPDATE',[id]);
+          if(!rows.length)throw new Error('USER_NOT_FOUND');
+          if(rows[0].role==='Developer')throw new Error('PROTECTED_DEVELOPER');
+          let old:Record<string,unknown>={};
+          try{old=JSON.parse(String(rows[0].raw_json||'{}')) as Record<string,unknown>;}catch{}
+          await db.execute('UPDATE users SET active=0,raw_json=? WHERE id=?',
+            [JSON.stringify({...old,id,active:false}),id]);
+          await db.execute('INSERT INTO tlab_mutation_audit_v10(event_id,resource,record_id,branch_id,actor_id,operation,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?,NOW())',
+            [randomBytes(16).toString('hex'),'users',id,session.branchId!,session.userId,'archive',
+              JSON.stringify({...old,passwordHash:'[REDACTED]'}),null]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql',id});
+    }catch(e){respondError(res,e);}
+  });
+
   app.post('/api/branch-pilot/assign', async (req, res) => {
     try {
       await useDatabase(async (db) => setUserBranchAssignment({
