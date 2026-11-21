@@ -1653,6 +1653,103 @@ export function installBranchPilotRoutes(app: Express): void {
     }
   });
 
+
+  /** Server-calculated MySQL daily closing: never trust totals posted by a browser. */
+  app.post('/api/branch-pilot/finance/daily-close',async(req,res)=>{
+    try{
+      const session=getSession(req);
+      if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+      const tz=String(process.env.CENTER_TIMEZONE||'Africa/Cairo');
+      let businessDate:string;
+      try{businessDate=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',
+        month:'2-digit',day:'2-digit'}).format(new Date());}
+      catch{throw new Error('INVALID_CENTER_TIMEZONE');}
+      if(!/^20\d{2}-\d{2}-\d{2}$/.test(businessDate))
+        throw new Error('INVALID_BUSINESS_DATE');
+      const record=await useDatabase(async db=>{
+        const assigned=await staffAssignedBranches(db,session.userId,session.role);
+        if(!assigned.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const rights=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId!);
+        const permission=rights.find(row=>row.resource==='cashbox');
+        if(!(session.role==='Developer'||(session.role==='Owner'
+          ? (!permission||permission.actions.closeDay===true)
+          : permission?.actions.closeDay===true)))throw new Error('FORBIDDEN');
+        await db.beginTransaction();
+        try{
+          const [period]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=p.id AND a.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
+            [session.branchId!,businessDate.slice(0,7)]);
+          if(period.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          const [prior]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT d.id FROM daily_closings d JOIN mysql_store_branch_access a ON a.store_name='dailyClosings' AND a.record_id=d.id AND a.branch_id=? WHERE d.date=? LIMIT 1 FOR UPDATE",
+            [session.branchId!,businessDate]);
+          if(prior.length)throw new Error('DAY_ALREADY_CLOSED');
+          const [invoiceRows]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT i.net_total FROM invoices i JOIN mysql_store_branch_access a ON a.store_name='invoices' AND a.record_id=i.id AND a.branch_id=? WHERE i.date=? AND i.status<>'cancelled' FOR UPDATE",
+            [session.branchId!,businessDate]);
+          const [receiptRows]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.amount,p.method,p.raw_json FROM payments p JOIN mysql_store_branch_access a ON a.store_name='payments' AND a.record_id=p.id AND a.branch_id=? WHERE p.date=? FOR UPDATE",
+            [session.branchId!,businessDate]);
+          const [expenseRows]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT e.amount,e.raw_json FROM expenses e JOIN mysql_store_branch_access a ON a.store_name='expenses' AND a.record_id=e.id AND a.branch_id=? WHERE e.date=? FOR UPDATE",
+            [session.branchId!,businessDate]);
+          const round=(n:number)=>Math.round(n*100)/100;
+          const totalInvoices=round(invoiceRows.reduce((sum,r)=>sum+Number(r.net_total||0),0));
+          let cash=0,card=0,bank=0;
+          for(const row of receiptRows){
+            let raw:Record<string,unknown>={};
+            try{raw=JSON.parse(String(row.raw_json||'{}'));}catch{}
+            if(raw.status==='cancelled')continue;
+            const v=Number(row.amount);
+            if(!Number.isFinite(v)||v<0)throw new Error('INVALID_EXISTING_RECEIPT');
+            if(row.method==='cash')cash+=v;
+            else if(row.method==='card')card+=v;
+            else if(row.method==='bank_transfer')bank+=v;
+            else throw new Error('INVALID_EXISTING_PAYMENT_METHOD');
+          }
+          let allExpenses=0,cashExpenses=0;
+          for(const row of expenseRows){
+            let raw:Record<string,unknown>={};
+            try{raw=JSON.parse(String(row.raw_json||'{}'));}catch{}
+            const amount=Number(row.amount);
+            if(!Number.isFinite(amount)||amount<0)throw new Error('INVALID_EXISTING_EXPENSE');
+            allExpenses+=amount;
+            if(raw.paymentMethod==='cash')cashExpenses+=amount;
+          }
+          const id='dc_'+session.branchId+'_'+businessDate.replace(/-/g,'');
+          const now=new Date().toISOString();
+          const closing={
+            id,date:businessDate,totalInvoices,totalCollectedCash:round(cash),
+            totalCollectedCard:round(card),totalCollectedBank:round(bank),
+            totalExpenses:round(allExpenses),netCashInBox:round(cash-cashExpenses),
+            closedBy:session.userId,closedAt:now,notes:'Server calculated: net cash = cash receipts - cash expenses'
+          };
+          await db.execute(
+            'INSERT INTO daily_closings(id,date,total_collected,total_expenses,net_cash,raw_json) VALUES(?,?,?,?,?,?)',
+            [id,businessDate,round(cash+card+bank),round(allExpenses),
+              closing.netCashInBox,JSON.stringify(closing)]);
+          await db.execute(
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['dailyClosings',id,session.branchId!,session.userId]);
+          await db.commit();
+          return closing;
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.status(201).json({ok:true,source:'mysql',closing:record});
+    }catch(e){
+      const msg=e instanceof Error?e.message:'DAILY_CLOSE_FAILED';
+      if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
+      if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(msg)){res.status(403).json({ok:false,error:msg});return;}
+      if(['ACCOUNTING_PERIOD_LOCKED','DAY_ALREADY_CLOSED','INVALID_EXISTING_RECEIPT',
+          'INVALID_EXISTING_PAYMENT_METHOD','INVALID_EXISTING_EXPENSE'].includes(msg)){
+        res.status(409).json({ok:false,error:msg});return;
+      }
+      financeReadError(res,e);
+    }
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
