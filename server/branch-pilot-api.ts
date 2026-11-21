@@ -789,9 +789,7 @@ export function installBranchPilotRoutes(app: Express): void {
             "SELECT p.id FROM patients p JOIN mysql_store_branch_access pa ON pa.store_name='patients' AND pa.record_id=p.id WHERE p.id=? AND pa.branch_id=? FOR UPDATE",
             [id,session.branchId!]);
           if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
-          const [usage]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT COUNT(*) AS n FROM lab_requests WHERE patient_id=?',[id]);
-          if(Number(usage[0]?.n)>0)throw new Error('PATIENT_HAS_HISTORY');
+          // Archive even when historical requests exist; retain foreign-key relationships.
           const [shared]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name='patients' AND record_id=?",[id]);
           if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
