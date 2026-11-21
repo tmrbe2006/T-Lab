@@ -1,3 +1,4 @@
+import { createManualInvoice } from '../../services/manual-invoice.service';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { recordInvoiceReceipt } from '../../services/payment-processing.service';
 import { createManualJournal } from '../../services/manual-journal.service';
@@ -35,6 +36,20 @@ describe('MySQL finance transactional client routing',()=>{
       creditCode:'4101',amount:100,
     },'untrusted-client')).id).toBe('mysql-j1');
     expect(fetcher.mock.calls[0][0]).toBe('/api/branch-pilot/finance/manual-journal');
+  });
+  it('creates manual invoices through server-side MySQL transactional API',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'}});
+    const invoice={id:'inv_man_1',invoiceNumber:'INV-M-X'};
+    const fetcher=vi.fn(async()=>({ok:true,json:async()=>({ok:true,source:'mysql',invoice})}));
+    vi.stubGlobal('fetch',fetcher);
+    expect((await createManualInvoice({
+      patientId:'pat_1',date:'2026-11-21',serviceName:'CBC',
+      price:200,discountAmount:15,taxRate:0,
+    },'spoofed')).id).toBe('inv_man_1');
+    const [url,options]=fetcher.mock.calls[0] as unknown as [string,RequestInit];
+    expect(url).toBe('/api/branch-pilot/finance/manual-invoice');
+    expect(options.method).toBe('POST');
+    expect(JSON.stringify(options.body)).not.toContain('spoofed');
   });
   it('refuses payment completion on a server error',async()=>{
     vi.stubGlobal('window',{location:{port:'3127'}});
