@@ -108,7 +108,7 @@ function resolveConfig(bodyConfig?: Partial<MySQLConnectionConfig>): MySQLConnec
     user: bodyUser || envUser || 'root',
     // Prefer non-empty .env password or non-empty body password
     password: bodyPassword !== '' ? bodyPassword : envPassword,
-    database: (bodyDatabase || envDatabase || 'tlab_db').replace(/[^a-zA-Z0-9_]/g, ''),
+    database: (bodyDatabase || envDatabase || 'tlab_db').replace(/[^a-zA-Z0-9_-]/g, ''),
   };
 }
 
@@ -125,10 +125,10 @@ async function getMySQLConnection(
 
   // Build ordered candidate connection configs so stale browser localStorage or localhost/127.0.0.1 differences never block connection
   const hostsToTry = Array.from(
-    new Set([cfg.host, envHost, '127.0.0.1', 'localhost'].filter(Boolean))
+    new Set([cfg.host].filter(Boolean))
   );
   const passwordsToTry = Array.from(
-    new Set([cfg.password ?? '', envPassword, '1234', ''].filter((p) => p !== undefined))
+    new Set([cfg.password ?? ''])
   );
 
   let lastError: unknown = null;
@@ -142,7 +142,7 @@ async function getMySQLConnection(
           user: cfg.user || envUser || 'root',
           password: passwordCandidate,
           database: withDatabase ? cfg.database : undefined,
-          multipleStatements: true,
+          multipleStatements: false,
           connectTimeout: timeoutMs,
         });
         await conn.query('SET NAMES utf8;');
@@ -158,7 +158,7 @@ async function getMySQLConnection(
               port: cfg.port || envPort || 3306,
               user: cfg.user || envUser || 'root',
               password: passwordCandidate,
-              multipleStatements: true,
+              multipleStatements: false,
               connectTimeout: timeoutMs,
             });
             await rootConn.query(
@@ -171,7 +171,7 @@ async function getMySQLConnection(
               user: cfg.user || envUser || 'root',
               password: passwordCandidate,
               database: cfg.database,
-              multipleStatements: true,
+              multipleStatements: false,
               connectTimeout: timeoutMs,
             });
             await conn.query('SET NAMES utf8;');
