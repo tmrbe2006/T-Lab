@@ -84,7 +84,7 @@ function validateDomain(c:Command,previous:Record<string,unknown>|null):void{
     if(['invoices','payments','journalEntries','results','commissions','stockMovements',
       'purchaseInvoices','dailyClosings','cashboxSessions','returnNotes','criticalValueLogs',
       'aiImageAnalyses','aiRecognitionFindings','aiCorrections','inventoryLots',
-      'testParameters','requestItems','samples','requests'].includes(c.store))
+      'requestItems','samples','requests'].includes(c.store))
       throw new Error('HISTORY_REQUIRES_REVERSAL_WORKFLOW');
     if(previous?.status==='posted'||previous?.status==='approved')
       throw new Error('HISTORY_REQUIRES_REVERSAL_WORKFLOW');
@@ -211,7 +211,7 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
       const session=principal(res);
       db=await connect();
       await authorize(db,session,store,'view');
-      const global=['settings','roles','permissions'].includes(store);
+      const global=['settings','roles','permissions','tests','testParameters'].includes(store);
       const [rows]=await db.execute<mysql.RowDataPacket[]>(
         global
           ? 'SELECT t.* FROM `'+mapping.mysqlTable+'` t ORDER BY t.id'
@@ -267,9 +267,10 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
             const [links]=await db.execute<mysql.RowDataPacket[]>(
               'SELECT branch_id FROM mysql_store_branch_access WHERE store_name=? AND record_id=?',
               [m.store,m.id]);
-            if(!links.some(row=>String(row.branch_id)===session.branchId))
+            const globalCatalog=(m.store==='tests'||m.store==='testParameters') && session.role==='Developer';
+            if(!globalCatalog && !links.some(row=>String(row.branch_id)===session.branchId))
               throw new Error('RECORD_NOT_IN_BRANCH');
-            if(links.length>1)throw new Error('SHARED_RECORD_REQUIRES_DEDICATED_API');
+            if(!globalCatalog && links.length>1)throw new Error('SHARED_RECORD_REQUIRES_DEDICATED_API');
           }
           if(m.store==='settings' && m.operation==='delete')
             throw new Error('SETTINGS_DELETE_FORBIDDEN');
