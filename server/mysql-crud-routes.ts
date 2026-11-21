@@ -122,7 +122,7 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
       const m=target(store),id=String(req.params.id||'');
       const r=req.body?.record as Record<string,unknown>|undefined;
       if(!idOK(id)||!r||Array.isArray(r)||r.id!==id||
-          JSON.stringify(r).length>200000 ||
+          JSON.stringify(r).length>2000000 ||
           Object.keys(r).some(x=>/password|secret|token/i.test(x)))
         throw new Error('INVALID_RECORD');
       if(store==='corporateContracts'){
@@ -180,7 +180,7 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
     try{
       const m=target(store),items=req.body?.records as Array<Record<string,unknown>>|undefined;
       if(store!=='qcRuns'||!Array.isArray(items)||!items.length||items.length>500 ||
-         items.some(r=>!r||!idOK(r.id)||JSON.stringify(r).length>200000))
+         JSON.stringify(items).length>2000000 || items.some(r=>!r||!idOK(r.id)||JSON.stringify(r).length>2000000))
         throw new Error('INVALID_BULK_RECORDS');
       await scoped(res,stores[store].resource,'edit',async(db,s)=>{
         await db.beginTransaction();
