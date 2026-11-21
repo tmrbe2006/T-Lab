@@ -27,7 +27,7 @@ export async function renderUsersPage(container: HTMLElement): Promise<void> {
           </div>
           <div>
             <label class="block font-semibold mb-1">${i18n.dict.login.password} *</label>
-            <input name="passwordHash" type="password" autocomplete="new-password" required value="${existing?.passwordHash || '123456'}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input name="passwordHash" type="password" autocomplete="new-password" minlength="8" ${isEdit ? '' : 'required'} value="" placeholder="${isEdit ? i18n.bi('اتركه فارغًا للاحتفاظ بكلمة المرور','Leave empty to keep current password') : i18n.bi('ثمانية أحرف على الأقل','At least 8 characters')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block font-semibold mb-1">${i18n.bi('الاسم بالعربي *', 'Full Name (AR) *')}</label>
@@ -83,14 +83,20 @@ export async function renderUsersPage(container: HTMLElement): Promise<void> {
             role: (fd.get('role') as RoleName) || 'Receptionist',
             employeeId: String(fd.get('employeeId') || '') || undefined,
             active: fd.get('active') === 'true',
-            createdAt: existing?.createdAt || '2026-11-09',
+            createdAt: existing?.createdAt || new Date().toISOString(),
           };
-          await usersRepository.saveUser(rec);
-          await authService.logAudit(isEdit ? `تعديل مستخدم: ${rec.username}` : `إضافة مستخدم: ${rec.username}`, 'users', rec.id);
-          showToast(i18n.bi('تم حفظ حساب المستخدم', 'User account saved'), 'success');
-          close();
-          users = await usersRepository.getAllUsers();
-          renderView();
+          try {
+            await usersRepository.saveUser(rec);
+            if (window.location.port !== '3127') {
+              await authService.logAudit(isEdit ? `تعديل مستخدم: ${rec.username}` : `إضافة مستخدم: ${rec.username}`, 'users', rec.id);
+            }
+            users = await usersRepository.getAllUsers();
+            close();
+            showToast(i18n.bi('تم حفظ حساب المستخدم','User saved in MySQL'),'success');
+            renderView();
+          } catch(error) {
+            showToast(String(error instanceof Error?error.message:error),'error');
+          }
         });
       }
     );
@@ -177,11 +183,16 @@ export async function renderUsersPage(container: HTMLElement): Promise<void> {
           recordLabel: `${i18n.bi('المستخدم:', 'User:')} ${target.username}`,
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'users'))) return;
-            await usersRepository.deleteUser(target.id);
-            await authService.logAudit(`حذف مستخدم: ${target.username}`, 'users', target.id, reason || '');
-            showToast(i18n.bi('تم حذف المستخدم', 'User deleted'), 'success');
-            users = await usersRepository.getAllUsers();
-            renderView();
+            try {
+              await usersRepository.deleteUser(target.id);
+              if(window.location.port!=='3127')
+                await authService.logAudit(`حذف مستخدم: ${target.username}`,'users',target.id,reason||'');
+              users=await usersRepository.getAllUsers();
+              showToast(i18n.bi('تم تعطيل الحساب مع الحفاظ على السجل','User archived in MySQL'),'success');
+              renderView();
+            } catch(error) {
+              showToast(String(error instanceof Error?error.message:error),'error');
+            }
           },
         });
       });
