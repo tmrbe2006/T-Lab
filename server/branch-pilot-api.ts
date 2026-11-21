@@ -1401,6 +1401,11 @@ export function installBranchPilotRoutes(app: Express): void {
         }
         await db.beginTransaction();
         try{
+          const postingDate=new Date().toISOString().slice(0,10);
+          const [locks]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT l.id FROM period_locks l JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=l.id AND a.branch_id=? WHERE l.period_month=? AND l.locked=1 LIMIT 1 FOR UPDATE",
+            [session.branchId!,postingDate.slice(0,7)]);
+          if(locks.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
           const [invoices]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT i.* FROM invoices i JOIN mysql_store_branch_access a ON a.record_id=i.id AND a.store_name='invoices' AND a.branch_id=? WHERE i.id=? FOR UPDATE",
             [session.branchId!,invoiceId]);
@@ -1441,7 +1446,7 @@ export function installBranchPilotRoutes(app: Express): void {
           const nextPaid=Math.round((recordedPaid+cash)*100)/100;
           const remaining=Math.round((invoiceTotal-nextPaid)*100)/100;
           if(remaining<-0.009)throw new Error('PAYMENT_EXCEEDS_INVOICE');
-          const now=new Date().toISOString().slice(0,10);
+          const now=postingDate;
           const paymentId='pay_'+randomBytes(16).toString('hex');
           const paymentNumber='PAY-'+randomBytes(10).toString('hex').toUpperCase();
           const payment={
@@ -1496,7 +1501,7 @@ export function installBranchPilotRoutes(app: Express): void {
       if(['INVOICE_NOT_IN_BRANCH','INVOICE_RAW_JSON_REQUIRED','CANCELLED_INVOICE',
           'INVALID_LEGACY_INVOICE_TOTAL','INVALID_EXISTING_PAYMENT',
           'LEGACY_PAYMENT_RECONCILIATION_REQUIRED','NO_CONTRACT_ON_INVOICE',
-          'PAYMENT_EXCEEDS_PAYER_SHARE','PAYMENT_EXCEEDS_INVOICE'].includes(message)){
+          'ACCOUNTING_PERIOD_LOCKED','PAYMENT_EXCEEDS_PAYER_SHARE','PAYMENT_EXCEEDS_INVOICE'].includes(message)){
         res.status(409).json({ok:false,error:message});return;
       }
       financeReadError(res,error);
