@@ -38,9 +38,16 @@ export function connectedStore<T extends {id:string}>(legacy:Table<T,string>,sto
     toArray:getAll,get:async(id:string)=>(await getAll()).find(x=>x.id===id),
     put,add:put,delete:archive,
     bulkPut:async(rows:T[])=>{
-      const ids:string[]=[];
-      for(const record of rows)ids.push(await put(record));
-      return ids[ids.length-1];
+      if(store!=='qcRuns')throw new Error('MYSQL_BULK_REQUIRES_TRANSACTIONAL_ENDPOINT');
+      if(!rows.length)return undefined;
+      const response=await fetch(base(store)+'/bulk',{
+        method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({records:rows}),
+      });
+      const data=await response.json() as Record<string,unknown>;
+      if(!response.ok||data.ok!==true||data.source!=='mysql'||data.store!==store)
+        throw new Error(String(data.error||'MYSQL_BULK_WRITE_FAILED'));
+      return rows[rows.length-1].id;
     },
     where,update:async(id:string,patch:Partial<T>)=>{
       const existing=(await getAll()).find(x=>x.id===id);
