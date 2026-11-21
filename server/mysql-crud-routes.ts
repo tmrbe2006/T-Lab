@@ -220,6 +220,44 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
     return s;
   }
 
+
+  app.get('/api/branch-pilot/qc-analyzers',async(_req,res)=>{
+    try{
+      const analyzers=await scoped(res,'qualityControl','view',async(db,s)=>{
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT name FROM tlab_qc_analyzers WHERE branch_id=? AND active=1 ORDER BY name',
+          [s.branchId!]);
+        return rows.map(row=>String(row.name));
+      });
+      res.json({ok:true,source:'mysql',analyzers});
+    }catch(e){failure(res,e);}
+  });
+  app.put('/api/branch-pilot/qc-analyzers',async(req,res)=>{
+    try{
+      const values=req.body?.analyzers;
+      if(!Array.isArray(values)||values.length>100 ||
+         values.some(x=>typeof x!=='string'||!x.trim()||x.trim().length>191))
+        throw new Error('INVALID_ANALYZERS');
+      const analyzers=[...new Set((values as string[]).map(x=>x.trim()))];
+      await scoped(res,'qualityControl','edit',async(db,s)=>{
+        await db.beginTransaction();
+        try{
+          await db.execute('UPDATE tlab_qc_analyzers SET active=0,updated_at=NOW() WHERE branch_id=?',
+            [s.branchId!]);
+          for(const name of analyzers){
+            await db.execute(
+              'INSERT INTO tlab_qc_analyzers(branch_id,name,active,updated_at) VALUES(?,?,1,NOW()) '+
+              'ON DUPLICATE KEY UPDATE active=1,updated_at=NOW()',
+              [s.branchId!,name]);
+          }
+          await audit(db,s,'qcAnalyzers',s.branchId!,'edit',undefined,{analyzers});
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql',analyzers});
+    }catch(e){failure(res,e);}
+  });
+
   // Global role templates (Developer only); user-specific branch rows override
   // these defaults without modifying any other branch or role.
   app.get('/api/branch-pilot/role-templates/:role',async(req,res)=>{
