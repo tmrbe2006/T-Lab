@@ -485,7 +485,7 @@ export async function renderPurchasesPage(container: HTMLElement): Promise<void>
                           </td>
                           <td class="px-3 py-2.5">
                             <div class="font-semibold text-slate-900">${p.supplierName}</div>
-                            <div class="text-[11px] text-slate-500">${p.items.length} بنود (${p.items.map((i) => i.lotNumber).join(', ')})</div>
+                            <div class="text-[11px] text-slate-500">${(p.items || []).length} بنود (${(p.items || []).map((i) => i.lotNumber).join(', ')})</div>
                           </td>
                           <td class="px-3 py-2.5 font-mono">
                             <div>${p.date}</div>
