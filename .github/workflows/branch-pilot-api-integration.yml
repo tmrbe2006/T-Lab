@@ -59,7 +59,7 @@ jobs:
           INSERT INTO users VALUES ('usr_owner', 'owner', 'Owner', 1, '{"passwordHash":"test-only-admin-password"}');
           INSERT INTO users VALUES ('usr_dev', 'developer', 'Developer', 1, '{"passwordHash":"dev-test-password"}');
           INSERT INTO users VALUES ('usr_staff', 'staff', 'Receptionist', 1, '{"passwordHash":"staff-password"}');
-          CREATE TABLE patients (id VARCHAR(64) PRIMARY KEY);
+          CREATE TABLE patients (id VARCHAR(64) PRIMARY KEY, code VARCHAR(64), name VARCHAR(191), name_en VARCHAR(191), gender VARCHAR(16), age INT, birth_date VARCHAR(32), phone VARCHAR(64), national_id VARCHAR(64), address VARCHAR(255), default_discount DECIMAL(12,2), created_at VARCHAR(32), active TINYINT(1) DEFAULT 1, raw_json LONGTEXT) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
           CREATE TABLE lab_tests (id VARCHAR(64) PRIMARY KEY);
           CREATE TABLE test_parameters (id VARCHAR(64) PRIMARY KEY);
           CREATE TABLE lab_requests (id VARCHAR(64) PRIMARY KEY);
