@@ -1,6 +1,7 @@
 import { connectedStore } from '../../repositories/mysql-crud.adapter';
 import {
   closeModal,
+  openDeleteConfirmModal,
   escapeHtml,
   openModal,
   renderPageHeader,
@@ -77,6 +78,10 @@ export async function renderCorporateContractsPage(container: HTMLElement): Prom
                   </div>
                   <h4 class="text-sm font-extrabold text-slate-900">${escapeHtml(i18n.bi(c.nameAr, c.nameEn))}</h4>
                   <p class="text-[11px] text-slate-500 mt-1">${escapeHtml(c.notes)}</p>
+                  <div class="flex gap-2 mt-2">
+                    <button type="button" data-contract-edit="${escapeHtml(c.id)}" class="rounded bg-sky-50 px-2 py-1 text-sky-700 text-xs">${i18n.bi('تعديل','Edit')}</button>
+                    <button type="button" data-contract-archive="${escapeHtml(c.id)}" class="rounded bg-rose-50 px-2 py-1 text-rose-700 text-xs">${i18n.bi('حذف','Delete')}</button>
+                  </div>
                 </div>
 
                 <div class="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 border border-slate-200 p-2.5 text-center text-xs">
@@ -203,6 +208,33 @@ export async function renderCorporateContractsPage(container: HTMLElement): Prom
       });
     });
 
+    container.querySelectorAll<HTMLElement>('[data-contract-edit]').forEach(btn=>{
+      btn.addEventListener('click',async()=>{
+        if(!(await enforcePermission('edit','corporateContracts')))return;
+        const record=contracts.find(c=>c.id===btn.dataset.contractEdit);
+        if(record)openNewContractModal(render,record);
+      });
+    });
+    container.querySelectorAll<HTMLElement>('[data-contract-archive]').forEach(btn=>{
+      btn.addEventListener('click',async()=>{
+        if(!(await enforcePermission('delete','corporateContracts')))return;
+        const record=contracts.find(c=>c.id===btn.dataset.contractArchive);
+        if(!record)return;
+        openDeleteConfirmModal({
+          recordLabel:record.nameAr,
+          onConfirm:async()=>{
+            try{
+              await connectedStore(db.corporateContracts,'corporateContracts').delete(record.id);
+              showToast(i18n.bi('تمت أرشفة جهة التعاقد','Contract archived'),'success');
+              await render();
+            }catch(e){
+              showToast(String(e instanceof Error?e.message:e),'error');
+            }
+          },
+        });
+      });
+    });
+
     document.getElementById('cc-new-btn')?.addEventListener('click', async () => {
       if (!(await enforcePermission('add', 'corporateContracts'))) return;
       openNewContractModal(render);
@@ -244,57 +276,57 @@ export async function renderCorporateContractsPage(container: HTMLElement): Prom
   await render();
 }
 
-function openNewContractModal(onSaved: () => void): void {
+function openNewContractModal(onSaved: () => void, existing?: CorporateContract): void {
   openModal({
-    title: i18n.bi('🏢 إضافة جهة تعاقد / نقابة / شركة تأمين جديدة', '🏢 New Corporate / Insurance Contract'),
+    title: existing ? i18n.bi('تعديل جهة تعاقد','Edit Contract') : i18n.bi('🏢 إضافة جهة تعاقد / نقابة / شركة تأمين جديدة', '🏢 New Corporate / Insurance Contract'),
     size: 'md',
     content: `
       <form id="new-cc-form" class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('كود التعاقد *', 'Contract Code *')}</label>
-            <input id="ncc-code" type="text" required value="CORP-${Math.floor(10 + Math.random() * 89)}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="ncc-code" type="text" required value="${escapeHtml(existing?.code || `CORP-${Math.floor(10 + Math.random()*89)}`)}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('التصنيف *', 'Category *')}</label>
             <select id="ncc-cat" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              <option value="syndicate">نقابة مهنية (Syndicate)</option>
-              <option value="insurance">شركة تأمين طبي (Medical Insurance)</option>
-              <option value="corporate">شركة / هيئة متعاقدة (Corporate)</option>
-              <option value="lab_to_lab">معمل متعاقد (Lab-to-Lab)</option>
+              <option value="syndicate" ${existing?.category==='syndicate'?'selected':''}>نقابة مهنية (Syndicate)</option>
+              <option value="insurance" ${existing?.category==='insurance'?'selected':''}>شركة تأمين طبي (Medical Insurance)</option>
+              <option value="corporate" ${existing?.category==='corporate'?'selected':''}>شركة / هيئة متعاقدة (Corporate)</option>
+              <option value="lab_to_lab" ${existing?.category==='lab_to_lab'?'selected':''}>معمل متعاقد (Lab-to-Lab)</option>
             </select>
           </div>
         </div>
         <div>
           <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('اسم الجهة بالعربية *', 'Contract Name (Arabic) *')}</label>
-          <input id="ncc-ar" type="text" required placeholder="مثال: نقابة الصيادلة / شركة ميدنت للتأمين" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input id="ncc-ar" type="text" value="${escapeHtml(existing?.nameAr||'')}" required placeholder="مثال: نقابة الصيادلة / شركة ميدنت للتأمين" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </div>
         <div>
           <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('اسم الجهة بالإنجليزية *', 'Contract Name (English) *')}</label>
-          <input id="ncc-en" type="text" required placeholder="e.g., MedNet Healthcare Insurance" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input id="ncc-en" type="text" value="${escapeHtml(existing?.nameEn||'')}" required placeholder="e.g., MedNet Healthcare Insurance" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </div>
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('خصم التعاقد %', 'Discount %')}</label>
-            <input id="ncc-disc" type="number" min="0" max="90" value="20" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="ncc-disc" type="number" min="0" max="90" value="${existing?.discountPercent??20}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('تحمل المريض %', 'Patient Co-Pay %')}</label>
-            <input id="ncc-copay" type="number" min="0" max="100" value="20" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="ncc-copay" type="number" min="0" max="100" value="${existing?.patientCoPayPercent??20}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('تحمل الجهة %', 'Company Share %')}</label>
-            <input id="ncc-comp" type="number" min="0" max="100" value="80" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="ncc-comp" type="number" min="0" max="100" value="${existing?.companyCoveragePercent??80}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('الحد الائتماني', 'Credit Limit')}</label>
-            <input id="ncc-limit" type="number" value="200000" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="ncc-limit" type="number" value="${existing?.creditLimit??200000}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">${i18n.bi('هاتف مسؤول التعاقد', 'Contact Phone')}</label>
-            <input id="ncc-phone" type="text" value="01000000000" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
+            <input id="ncc-phone" type="text" value="${escapeHtml(existing?.phone||'')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" />
           </div>
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
@@ -319,7 +351,7 @@ function openNewContractModal(onSaved: () => void): void {
     e.preventDefault();
     const copay = parseFloat((document.getElementById('ncc-copay') as HTMLInputElement).value) || 0;
     const rec: CorporateContract = {
-      id: generateId('CNT'),
+      id: existing?.id||generateId('CNT'),
       code: (document.getElementById('ncc-code') as HTMLInputElement).value.trim(),
       nameAr: (document.getElementById('ncc-ar') as HTMLInputElement).value.trim(),
       nameEn: (document.getElementById('ncc-en') as HTMLInputElement).value.trim(),
@@ -328,15 +360,19 @@ function openNewContractModal(onSaved: () => void): void {
       patientCoPayPercent: copay,
       companyCoveragePercent: 100 - copay,
       creditLimit: parseFloat((document.getElementById('ncc-limit') as HTMLInputElement).value) || 100000,
-      currentBalance: 0,
-      contactPerson: 'إدارة التعاقدات',
+      currentBalance: existing?.currentBalance??0,
+      contactPerson: existing?.contactPerson||'إدارة التعاقدات',
       phone: (document.getElementById('ncc-phone') as HTMLInputElement).value.trim(),
-      active: true,
-      notes: 'تعاقد نشط',
+      active: existing?.active??true,
+      notes: existing?.notes||'تعاقد نشط',
     };
-    await connectedStore(db.corporateContracts,'corporateContracts').put(rec);
-    closeModal();
-    showToast(i18n.bi('تم إضافة جهة التعاقد بنجاح', 'Corporate contract added'), 'success');
-    onSaved();
+    try {
+      await connectedStore(db.corporateContracts,'corporateContracts').put(rec);
+      closeModal();
+      showToast(i18n.bi('تم حفظ جهة التعاقد بنجاح','Contract saved'),'success');
+      onSaved();
+    } catch(error){
+      showToast(String(error instanceof Error?error.message:error),'error');
+    }
   });
 }
