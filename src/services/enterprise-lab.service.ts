@@ -1606,6 +1606,7 @@ export async function getLockedQcLotsForTest(testId: string): Promise<QcControlL
 let enterpriseSeedPromise: Promise<void> | null = null;
 
 export async function ensureEnterpriseSeedData(): Promise<void> {
+  if(typeof window!=='undefined'&&window.location.port==='3127')return;
   if (enterpriseSeedPromise) return enterpriseSeedPromise;
   enterpriseSeedPromise = (async () => {
     // 1. Corporate Contracts
