@@ -46,6 +46,10 @@ on:
       - 'src/repositories/payments.repository.ts'
       - 'src/repositories/doctors.repository.ts'
       - 'src/tests/services/mysql-finance.read.test.ts'
+      - 'src/tests/services/mysql-finance.transactions.test.ts'
+      - 'src/services/payment-processing.service.ts'
+      - 'src/services/manual-journal.service.ts'
+      - 'src/services/manual-invoice.service.ts'
       - 'src/repositories/home-visits.mysql.repository.ts'
       - 'src/pages/operations/home-visits.page.ts'
       - 'src/tests/services/mysql-home-visits.repository.test.ts'
@@ -106,7 +110,7 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.read.test.ts src/tests/services/mysql-all-49-stores.test.ts
+        run: npx vitest run src/tests/services/mysql-finance.transactions.test.ts src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.read.test.ts src/tests/services/mysql-all-49-stores.test.ts
       - name: Audit remaining browser database dependencies (pilot warning)
         run: node scripts/mysql-cutover-readiness.mjs
       - name: Build frontend
