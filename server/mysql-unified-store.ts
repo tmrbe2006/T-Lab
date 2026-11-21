@@ -37,6 +37,8 @@ const resources:Record<string,string>={
   qcRuns:'qualityControl',homeVisits:'homeVisits',
   corporateContracts:'corporateContracts',
   referenceLabPartners:'requests',labToLabDispatches:'requests',
+  settings:'settings',roles:'permissions',permissions:'permissions',
+  auditLogs:'settings',
 };
 type Operation='add'|'edit'|'delete';
 type Command={store:string;operation:Operation;id:string;record?:Record<string,unknown>};
@@ -61,7 +63,7 @@ function validateCommand(input:unknown):Command{
   const op=String(m.operation||'');
   if(!models.has(store)||!resources[store]||!safeId(m.id)||
     !['add','edit','delete'].includes(op))throw new TypeError('INVALID_COMMAND');
-  if(['patients','users','roles','permissions','settings','auditLogs'].includes(store))
+  if(['patients','users','roles','permissions','auditLogs'].includes(store))
     throw new TypeError('USE_DEDICATED_AUTHORIZED_API');
   if(op!=='delete'){
     const record=m.record;
@@ -151,6 +153,12 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
        : 'SELECT b.id FROM branches b INNER JOIN user_branches ub ON ub.branch_id=b.id WHERE b.id=? AND b.active=1 AND ub.user_id=?',
       s.role==='Developer'?[s.branchId!]:[s.branchId!,s.userId]);
     if(!branches.length)throw new Error('BRANCH_NOT_ASSIGNED');
+    if(store==='settings'){
+      if(action==='view')return;
+      if(s.role!=='Developer')throw new Error('FORBIDDEN');
+    }
+    if((store==='roles'||store==='permissions'||store==='auditLogs')
+      && s.role!=='Developer')throw new Error('FORBIDDEN');
     const permissions=await ownEffectiveBranchPermissions({
       execute:(sql,params)=>db.execute(sql,params as string[]),
     },s.userId,s.branchId!,s.role);
@@ -164,7 +172,7 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
     let db:mysql.Connection|undefined;
     try{
       const store=String(req.params.store||''),mapping=models.get(store);
-      if(!mapping||!resources[store]||['users','roles','permissions','settings','auditLogs'].includes(store))
+      if(!mapping||!resources[store]||store==='users')
         throw new TypeError('INVALID_STORE');
       const session=principal(res);
       db=await connect();
@@ -175,7 +183,7 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
         [store,session.branchId!]);
       res.json({ok:true,source:'mysql',store,records:rows.map(row=>({
         ...obj(row.raw_json),id:String(row.id),
-      }))});
+      })).filter(row=>row.archived!==true)});
     }catch(e){failure(res,e);}
     finally{await db?.end();}
   });
