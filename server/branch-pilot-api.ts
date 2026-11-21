@@ -1043,7 +1043,7 @@ export function installBranchPilotRoutes(app: Express): void {
         }
         const [invoiceRows]=await db.execute<mysql.RowDataPacket[]>(`
           SELECT i.id,i.invoice_number,i.paid_amount,
-            COALESCE(SUM(p.amount),0) AS paid_from_receipts
+            COALESCE(SUM(CASE WHEN pa.record_id IS NOT NULL THEN p.amount ELSE 0 END),0) AS paid_from_receipts
           FROM invoices i
           JOIN finance_record_branch_access a
             ON a.resource='invoices' AND a.record_id=i.id AND a.branch_id=?
