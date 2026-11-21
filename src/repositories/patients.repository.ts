@@ -10,9 +10,7 @@ import type { Patient } from '../types';
  * An explicitly chosen MySQL mode is supported only after a separate verified
  * migration. Never silently switch modes based on the green server badge.
  */
-const pilot = () => typeof window !== 'undefined' &&
-  window.location.port === '3127' &&
-  window.localStorage?.getItem('tlab_patients_data_source') === 'mysql';
+const pilot = () => typeof window !== 'undefined' && window.location.port === '3127';
 async function mysqlPatients<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const result = await fetch('/api/branch-pilot/patients' + path, {
     method, credentials:'same-origin', cache:'no-store',
