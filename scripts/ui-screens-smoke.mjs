@@ -30,6 +30,18 @@ page.on('response',response=>{
 });
 try{
   await page.goto(base+'/#/login',{waitUntil:'domcontentloaded'});
+  await page.waitForTimeout(1200);
+  if(!(await page.locator('#login-username').count())){
+    console.error('LOGIN_PAGE_NOT_RENDERED',JSON.stringify({
+      url:page.url(),
+      title:await page.title(),
+      body:(await page.locator('body').innerText()).slice(0,1300),
+      html:(await page.content()).slice(0,900),
+      issues,
+    }));
+    process.exitCode=1;
+    throw new Error('LOGIN_PAGE_NOT_RENDERED');
+  }
   await page.locator('#login-username').fill(username);
   await page.locator('#login-password').fill(password);
   await page.locator('#login-load-branches').click();
