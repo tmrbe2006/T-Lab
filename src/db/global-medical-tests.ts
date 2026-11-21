@@ -2225,6 +2225,10 @@ export async function syncGlobalMedicalCatalog(forceOverwrite = false): Promise<
   testsAdded: number;
   parametersSynced: number;
 }> {
+  // MySQL Windows mode must not mutate test catalogs just by opening screens.
+  // Explicit catalog edits go through authenticated MySQL APIs.
+  if(typeof window!=='undefined' && window.location.port==='3127')
+    return {testsAdded:0,parametersSynced:0};
   if (!forceOverwrite && catalogSyncPromise) {
     return catalogSyncPromise;
   }
