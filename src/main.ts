@@ -17,11 +17,15 @@ async function bootstrap(): Promise<void> {
       .catch(() => {});
   }
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // Handled by VitePWA in dev mode
+    if(window.location.port==='3127'){
+      // MySQL edition must never serve stale cached app/data logic offline.
+      const registrations=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(r=>r.unregister()));
+    }else{
+      window.addEventListener('load',()=>{
+        navigator.serviceWorker.register('/sw.js').catch(()=>{});
       });
-    });
+    }
   }
 
   // Initialize Empty Database (Users + Roles + Permissions only by default)
