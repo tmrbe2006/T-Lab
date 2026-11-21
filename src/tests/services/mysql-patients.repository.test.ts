@@ -17,20 +17,16 @@ const respond = (status:number, data:unknown) => ({
 afterEach(()=>vi.unstubAllGlobals());
 
 describe('live MySQL patients are never read from browser fallback in branch pilot',()=>{
-  it('recovers old browser patient records by default when MySQL is empty or migration is absent',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> null}});
+  it('never falls back to IndexedDB when MySQL becomes unavailable',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=>null}});
     const fetchMock=vi.fn().mockRejectedValue(new Error('SERVER_UNAVAILABLE'));
     vi.stubGlobal('fetch',fetchMock);
     await db.patients.put(original);
     try {
-      const list=await patientsRepository.getAll();
-      expect(list).toContainEqual(original);
-      expect(fetchMock).not.toHaveBeenCalled();
-      const updated={...original,name:'Preserved Browser Patient'};
-      await patientsRepository.save(updated);
-      expect((await db.patients.get(original.id))?.name).toBe('Preserved Browser Patient');
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
+      await expect(patientsRepository.getAll()).rejects.toThrow('SERVER_UNAVAILABLE');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(await db.patients.get(original.id)).toEqual(original);
+    }finally{
       await db.patients.delete(original.id);
     }
   });
