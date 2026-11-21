@@ -24,10 +24,12 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  // Initialize Empty Database (Users + Roles + Permissions only by default)
-  await seedDatabase(false);
-  // Automatically connect & pull from MySQL Server if running locally/configured in .env
-  await mysqlSyncService.autoSyncOnStartup();
+  // The Windows 3127 pilot is MySQL-authoritative. Never create Dexie demo
+  // data or pull MySQL into the browser as a second source of truth.
+  if(window.location.port!=='3127'){
+    await seedDatabase(false);
+    await mysqlSyncService.autoSyncOnStartup();
+  }
   await authService.init();
 
   const root = document.getElementById('app');
