@@ -9,8 +9,17 @@ import type { PermissionAction, RoleName } from '../../types';
 
 export async function renderPermissionsPage(container: HTMLElement): Promise<void> {
   if (window.location.port === '3127') {
-    const { renderBranchPermissionPanel } = await import('./branch-permissions.panel');
-    await renderBranchPermissionPanel(container);
+    container.replaceChildren();
+    if(authService.getCurrentUser()?.role==='Developer'){
+      const roles=document.createElement('div');
+      container.append(roles);
+      const {renderRoleTemplatesPanel}=await import('./role-templates.panel');
+      await renderRoleTemplatesPanel(roles);
+    }
+    const branches=document.createElement('div');
+    container.append(branches);
+    const {renderBranchPermissionPanel}=await import('./branch-permissions.panel');
+    await renderBranchPermissionPanel(branches);
     return;
   }
   const user = authService.getCurrentUser();
