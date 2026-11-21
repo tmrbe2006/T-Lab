@@ -111,3 +111,41 @@ export async function ownBranchPermissions(
     return { resource: row.resource, actions: safe };
   });
 }
+
+/**
+ * Effective RBAC = stored role template, overridden completely by explicit
+ * user/branch rows. Missing permissions deny access by default.
+ */
+export async function ownEffectiveBranchPermissions(
+  db:BranchDatabase,userId:string,branchId:string,role:string,
+):Promise<BranchPermissionRow[]>{
+  const overrides=await ownBranchPermissions(db,userId,branchId);
+  if(role==='Developer')return overrides;
+  const [templates]=await db.execute(
+    'SELECT resource,can_view,can_create,can_edit,can_delete,raw_json FROM role_permissions WHERE role=?',
+    [role],
+  );
+  const merged=new Map<string,BranchPermissionRow>();
+  for(const record of templates as Array<Record<string,unknown>>){
+    const resource=String(record.resource||'');
+    if(!BRANCH_RESOURCES.includes(resource as typeof BRANCH_RESOURCES[number]))continue;
+    let parsed:Record<string,unknown>={};
+    try{
+      const obj:unknown=JSON.parse(String(record.raw_json||'{}'));
+      if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
+        const inner=(obj as {actions?:unknown}).actions;
+        if(inner&&typeof inner==='object'&&!Array.isArray(inner))parsed=inner as Record<string,unknown>;
+      }
+    }catch{}
+    const actions:Record<string,boolean>={};
+    for(const a of BRANCH_ACTIONS)actions[a]=parsed[a]===true;
+    // Relational columns preserve legacy 4-action role templates.
+    actions.view=actions.view||Number(record.can_view)===1;
+    actions.add=actions.add||Number(record.can_create)===1;
+    actions.edit=actions.edit||Number(record.can_edit)===1;
+    actions.delete=actions.delete||Number(record.can_delete)===1;
+    merged.set(resource,{resource,actions});
+  }
+  for(const row of overrides)merged.set(row.resource,row);
+  return [...merged.values()];
+}
