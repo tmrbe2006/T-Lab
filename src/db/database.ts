@@ -1,3 +1,4 @@
+import { mysqlOnlyDatabaseProxy } from './mysql-compat';
 import Dexie, { type Table } from 'dexie';
 import type {
   Account,
@@ -203,5 +204,5 @@ export class MedicalLabDatabase extends Dexie {
   }
 }
 
-export const db = new MedicalLabDatabase();
+export const db = mysqlOnlyDatabaseProxy(new MedicalLabDatabase());
 
