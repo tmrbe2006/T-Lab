@@ -1025,6 +1025,61 @@ export function installBranchPilotRoutes(app: Express): void {
     }catch(error){financeReadError(res,error);}
   });
 
+
+  // Diagnostic only: compare invoice paid amounts and journal totals with MySQL.
+  // No automatic correction of financial postings is allowed.
+  app.get('/api/branch-pilot/finance-reconciliation',async(req,res)=>{
+    try {
+      const report=await financeRead(req,'invoices',async(db,branchId)=>{
+        // A full financial audit also requires permissions to inspect payments
+        // and journal postings; do not leak figures to invoice-only users.
+        const session=getSession(req)!;
+        const rights=await ownBranchPermissions({execute:(sql,params)=>db.execute(sql,params as string[])},session.userId,branchId);
+        for(const resource of ['payments','journalEntries']){
+          const explicit=rights.find(row=>row.resource===resource);
+          if(!(session.role==='Developer' || (session.role==='Owner'
+            ? (!explicit||explicit.actions.view===true)
+            : explicit?.actions.view===true)))throw new Error('FORBIDDEN');
+        }
+        const [invoiceRows]=await db.execute<mysql.RowDataPacket[]>(`
+          SELECT i.id,i.invoice_number,i.paid_amount,
+            COALESCE(SUM(p.amount),0) AS paid_from_receipts
+          FROM invoices i
+          JOIN finance_record_branch_access a
+            ON a.resource='invoices' AND a.record_id=i.id AND a.branch_id=?
+          LEFT JOIN payments p ON p.invoice_id=i.id
+          LEFT JOIN finance_record_branch_access pa
+            ON pa.resource='payments' AND pa.record_id=p.id AND pa.branch_id=?
+          GROUP BY i.id,i.invoice_number,i.paid_amount
+        `,[branchId,branchId]);
+        const [journalRows]=await db.execute<mysql.RowDataPacket[]>(`
+          SELECT j.id,j.entry_number,j.total_debit,j.total_credit
+          FROM journal_entries j
+          JOIN finance_record_branch_access a
+            ON a.resource='journal_entries' AND a.record_id=j.id AND a.branch_id=?
+        `,[branchId]);
+        const invoiceDiscrepancies=invoiceRows.filter(row=>
+          Math.abs(Number(row.paid_amount||0)-Number(row.paid_from_receipts||0))>0.009
+        ).map(row=>({
+          id:String(row.id),invoiceNumber:String(row.invoice_number),
+          recordedPaid:Number(row.paid_amount||0),receiptTotal:Number(row.paid_from_receipts||0),
+        }));
+        const journalDiscrepancies=journalRows.filter(row=>
+          Math.abs(Number(row.total_debit||0)-Number(row.total_credit||0))>0.009
+        ).map(row=>({
+          id:String(row.id),entryNumber:String(row.entry_number),
+          debit:Number(row.total_debit||0),credit:Number(row.total_credit||0),
+        }));
+        return {branchId,invoicesChecked:invoiceRows.length,journalsChecked:journalRows.length,
+          invoiceDiscrepancies,journalDiscrepancies,
+          readyForProduction:false,
+          note:'Read-side consistency check only. Source data migration, receipt allocation and line-level journal audit still required.'};
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({ok:true,source:'mysql',report});
+    }catch(e){financeReadError(res,e);}
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
