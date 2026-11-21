@@ -25,9 +25,10 @@ async function bootstrap(): Promise<void> {
   }
 
   // Initialize Empty Database (Users + Roles + Permissions only by default)
-  await seedDatabase(false);
-  // Automatically connect & pull from MySQL Server if running locally/configured in .env
-  await mysqlSyncService.autoSyncOnStartup();
+  if(window.location.port!=='3127'){
+    await seedDatabase(false);
+    await mysqlSyncService.autoSyncOnStartup();
+  }
   await authService.init();
 
   const root = document.getElementById('app');
