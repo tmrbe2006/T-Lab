@@ -327,6 +327,55 @@ export function installBranchPilotRoutes(app: Express): void {
     } catch (error) { respondError(res, error); }
   });
 
+  // Authenticated, append-only MySQL audit trail. Identity and branch always
+  // come from the server session, never from values sent by the browser.
+  app.post('/api/branch-pilot/audit-log', async (req, res) => {
+    const session = getSession(req);
+    if (!session?.branchId) {
+      res.status(401).json({ ok:false, error:'BRANCH_SELECTION_REQUIRED' });
+      return;
+    }
+    const action = String(req.body?.action || '').trim();
+    const screen = String(req.body?.screen || '').trim();
+    const recordId = String(req.body?.recordId || '').trim();
+    const details = String(req.body?.details || '');
+    if (!action || action.length > 191 || !/^[a-zA-Z][a-zA-Z0-9]{0,63}$/.test(screen) ||
+        recordId.length > 64 || details.length > 2000) {
+      res.status(400).json({ ok:false, error:'INVALID_AUDIT_EVENT' });
+      return;
+    }
+    try {
+      const id = 'aud_' + randomBytes(16).toString('hex');
+      await useDatabase(async db => {
+        const permitted = await staffAssignedBranches(db, session.userId, session.role);
+        if (!permitted.some(b => b.branchId === session.branchId)) {
+          throw new Error('BRANCH_NOT_ASSIGNED');
+        }
+        const record = {
+          id, userId:session.userId, username:session.username, role:session.role,
+          action, screen, recordId, timestamp:new Date().toISOString(), details,
+        };
+        await db.beginTransaction();
+        try {
+          await db.execute(
+            'INSERT INTO audit_logs(id,user_id,username,role,screen,action,record_id,timestamp,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [id, session.userId, session.username, session.role, screen, action,
+              recordId, record.timestamp, JSON.stringify(record)],
+          );
+          await db.execute(
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['auditLogs', id, session.branchId, session.userId],
+          );
+          await db.commit();
+        } catch (error) {
+          await db.rollback();
+          throw error;
+        }
+      });
+      res.status(201).json({ ok:true, source:'mysql', id });
+    } catch (error) { respondError(res, error); }
+  });
+
   app.get('/api/branch-pilot/user-branches', async (req, res) => {
     const userId = req.query.userId;
     if (!validBranchId(userId)) { res.status(400).json({ok:false,error:'INVALID_USER'}); return; }
