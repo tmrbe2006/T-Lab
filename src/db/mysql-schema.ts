@@ -236,7 +236,7 @@ export const MYSQL_TABLES_CONFIG: MySQLTableMapping[] = [
     columns: [
       { name: 'id', sqlType: 'VARCHAR(64) NOT NULL PRIMARY KEY', extract: (r) => str(r.id, 64) },
       { name: 'invoice_number', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.invoiceNumber, 64) },
-      { name: 'request_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.requestId, 64) },
+      { name: 'request_id', sqlType: 'VARCHAR(64)', extract: (r) => r.requestId ? str(r.requestId, 64) : null },
       { name: 'patient_id', sqlType: 'VARCHAR(64) NOT NULL', extract: (r) => str(r.patientId, 64) },
       { name: 'doctor_id', sqlType: 'VARCHAR(64)', extract: (r) => str(r.doctorId, 64) },
       { name: 'date', sqlType: 'VARCHAR(32)', extract: (r) => str(r.date, 32) },
