@@ -19,6 +19,7 @@ on:
       - 'src/pages/operations/microbiology.page.ts'
       - 'src/tests/services/mysql-main-crud.test.ts'
       - 'sql/tlab_main_mysql_repair_v10.sql'
+      - 'sql/tlab_all_49_store_branch_access_v8.sql'
       - 'src/main.ts'
       - 'src/services/enterprise-lab.service.ts'
       - 'src/repositories/permissions.repository.ts'
