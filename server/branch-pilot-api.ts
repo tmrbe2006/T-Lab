@@ -1283,6 +1283,15 @@ export function installBranchPilotRoutes(app: Express): void {
   app.delete('/api/branch-pilot/mysql-master/:store/:id',async(req,res)=>writeMasterStore(req,res,'archive'));
 
 
+  async function assertDayNotClosed(
+    db:mysql.Connection,branchId:string,day:string,
+  ):Promise<void>{
+    const [existing]=await db.execute<mysql.RowDataPacket[]>(
+      "SELECT d.id FROM daily_closings d JOIN mysql_store_branch_access a ON a.store_name='dailyClosings' AND a.record_id=d.id AND a.branch_id=? WHERE d.date=? LIMIT 1 FOR UPDATE",
+      [branchId,day]);
+    if(existing.length)throw new Error('DAY_ALREADY_CLOSED');
+  }
+
   /** Transactional manual journal creation in MySQL; no browser write or caller-provided actor. */
   app.post('/api/branch-pilot/finance/manual-journal',async(req,res)=>{
     try{
@@ -1320,6 +1329,7 @@ export function installBranchPilotRoutes(app: Express): void {
             "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access m ON m.store_name='periodLocks' AND m.record_id=p.id AND m.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
             [session.branchId!,date.slice(0,7)]);
           if(lockedPeriods.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          await assertDayNotClosed(db,session.branchId!,date);
           const [accounts]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT a.id,a.code,a.name_ar,a.name_en,a.raw_json FROM chart_of_accounts a JOIN mysql_store_branch_access m ON m.store_name='chartOfAccounts' AND m.record_id=a.id AND m.branch_id=? WHERE a.code IN (?,?) FOR UPDATE",
             [session.branchId!,debitCode,creditCode]);
@@ -1362,7 +1372,7 @@ export function installBranchPilotRoutes(app: Express): void {
       if(error instanceof TypeError){res.status(400).json({ok:false,error:msg});return;}
       if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
       if(msg==='FORBIDDEN'||msg==='BRANCH_NOT_ASSIGNED'){res.status(403).json({ok:false,error:msg});return;}
-      if(['ACCOUNTING_PERIOD_LOCKED','ACCOUNT_NOT_FOUND','GROUP_ACCOUNT_NOT_POSTABLE'].includes(msg)){
+      if(['ACCOUNTING_PERIOD_LOCKED','DAY_ALREADY_CLOSED','ACCOUNT_NOT_FOUND','GROUP_ACCOUNT_NOT_POSTABLE'].includes(msg)){
         res.status(409).json({ok:false,error:msg});return;
       }
       financeReadError(res,error);
@@ -1406,6 +1416,7 @@ export function installBranchPilotRoutes(app: Express): void {
             "SELECT l.id FROM period_locks l JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=l.id AND a.branch_id=? WHERE l.period_month=? AND l.locked=1 LIMIT 1 FOR UPDATE",
             [session.branchId!,postingDate.slice(0,7)]);
           if(locks.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          await assertDayNotClosed(db,session.branchId!,postingDate);
           const [invoices]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT i.* FROM invoices i JOIN mysql_store_branch_access a ON a.record_id=i.id AND a.store_name='invoices' AND a.branch_id=? WHERE i.id=? FOR UPDATE",
             [session.branchId!,invoiceId]);
@@ -1501,7 +1512,7 @@ export function installBranchPilotRoutes(app: Express): void {
       if(['INVOICE_NOT_IN_BRANCH','INVOICE_RAW_JSON_REQUIRED','CANCELLED_INVOICE',
           'INVALID_LEGACY_INVOICE_TOTAL','INVALID_EXISTING_PAYMENT',
           'LEGACY_PAYMENT_RECONCILIATION_REQUIRED','NO_CONTRACT_ON_INVOICE',
-          'ACCOUNTING_PERIOD_LOCKED','PAYMENT_EXCEEDS_PAYER_SHARE','PAYMENT_EXCEEDS_INVOICE'].includes(message)){
+          'ACCOUNTING_PERIOD_LOCKED','DAY_ALREADY_CLOSED','PAYMENT_EXCEEDS_PAYER_SHARE','PAYMENT_EXCEEDS_INVOICE'].includes(message)){
         res.status(409).json({ok:false,error:message});return;
       }
       financeReadError(res,error);
@@ -1554,6 +1565,7 @@ export function installBranchPilotRoutes(app: Express): void {
             "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=p.id AND a.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
             [session.branchId!,date.slice(0,7)]);
           if(period.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          await assertDayNotClosed(db,session.branchId!,date);
           const [patient]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT p.id FROM patients p JOIN mysql_store_branch_access a ON a.store_name='patients' AND a.record_id=p.id AND a.branch_id=? WHERE p.id=? AND p.active=1 LIMIT 1 FOR UPDATE",
             [session.branchId!,patientId]);
@@ -1646,7 +1658,7 @@ export function installBranchPilotRoutes(app: Express): void {
       if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
       if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(msg)){res.status(403).json({ok:false,error:msg});return;}
       if(['PATIENT_NOT_IN_BRANCH','CONTRACT_NOT_IN_BRANCH','INVALID_CONTRACT_COPAY',
-          'ACCOUNTING_PERIOD_LOCKED','UNBALANCED_INVOICE_JOURNAL'].includes(msg)){
+          'ACCOUNTING_PERIOD_LOCKED','DAY_ALREADY_CLOSED','UNBALANCED_INVOICE_JOURNAL'].includes(msg)){
         res.status(409).json({ok:false,error:msg});return;
       }
       financeReadError(res,e);
@@ -1782,6 +1794,7 @@ export function installBranchPilotRoutes(app: Express): void {
             "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=p.id AND a.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
             [session.branchId!,date.slice(0,7)]);
           if(period.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          await assertDayNotClosed(db,session.branchId!,date);
           const [records]=await db.execute<mysql.RowDataPacket[]>(
             "SELECT c.* FROM doctor_commissions c JOIN mysql_store_branch_access a ON a.store_name='commissions' AND a.record_id=c.id AND a.branch_id=? WHERE c.id=? FOR UPDATE",
             [session.branchId!,commissionId]);
@@ -1839,7 +1852,7 @@ export function installBranchPilotRoutes(app: Express): void {
       if(e instanceof TypeError){res.status(400).json({ok:false,error:msg});return;}
       if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
       if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(msg)){res.status(403).json({ok:false,error:msg});return;}
-      if(['ACCOUNTING_PERIOD_LOCKED','COMMISSION_NOT_IN_BRANCH','COMMISSION_RAW_JSON_REQUIRED',
+      if(['ACCOUNTING_PERIOD_LOCKED','DAY_ALREADY_CLOSED','COMMISSION_NOT_IN_BRANCH','COMMISSION_RAW_JSON_REQUIRED',
           'COMMISSION_ALREADY_PAID_OR_INVALID'].includes(msg)){
         res.status(409).json({ok:false,error:msg});return;
       }
