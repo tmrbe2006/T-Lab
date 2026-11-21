@@ -8,7 +8,7 @@
  * This is not a substitute for the domain workflows required to post invoices,
  * finalize clinical reports or reconcile physical stock.
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import type { Express, Response } from 'express';
 import mysql from 'mysql2/promise';
 import { MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
@@ -41,7 +41,7 @@ const resources:Record<string,string>={
   auditLogs:'settings',
 };
 type Operation='add'|'edit'|'delete';
-type Command={store:string;operation:Operation;id:string;record?:Record<string,unknown>};
+type Command={store:string;operation:Operation;id:string;record?:Record<string,unknown>;expectedRevision?:string};
 const MAX_TX=100;
 const MAX_BYTES=2_000_000;
 const safeId=(value:unknown):value is string=>
@@ -65,15 +65,17 @@ function validateCommand(input:unknown):Command{
     !['add','edit','delete'].includes(op))throw new TypeError('INVALID_COMMAND');
   if(['patients','users','roles','permissions','auditLogs'].includes(store))
     throw new TypeError('USE_DEDICATED_AUTHORIZED_API');
+  if(op!=='add' && (!m.expectedRevision || typeof m.expectedRevision!=='string'||!/^[0-9a-f]{64}$/.test(m.expectedRevision)))
+    throw new TypeError('INVALID_EXPECTED_REVISION');
   if(op!=='delete'){
     const record=m.record;
     if(!record||typeof record!=='object'||Array.isArray(record)||
       (record as Record<string,unknown>).id!==m.id ||
       Object.keys(record).some(k=>forbiddenRecordKeys.test(k)))
       throw new TypeError('INVALID_RECORD');
-    return {store,operation:op as Operation,id:m.id,record:record as Record<string,unknown>};
+    return {store,operation:op as Operation,id:m.id,record:record as Record<string,unknown>,expectedRevision:m.expectedRevision as string|undefined};
   }
-  return {store,operation:'delete',id:m.id};
+  return {store,operation:'delete',id:m.id,expectedRevision:m.expectedRevision as string};
 }
 function validateDomain(c:Command,previous:Record<string,unknown>|null):void{
   const r=c.record;
@@ -166,7 +168,7 @@ function failure(res:Response,error:unknown):void{
   else if(message.endsWith('_NOT_IN_BRANCH')||message.startsWith('HISTORY_')||
     message.startsWith('POSTED_')||message.startsWith('APPROVED_')||
     message.startsWith('UNBALANCED_')||message.startsWith('JOURNAL_')||
-    message.startsWith('LOT_')||message==='CONFLICT'||message==='RELATED_RECORD_NOT_IN_BRANCH'||message==='SHARED_RECORD_REQUIRES_DEDICATED_API')
+    message.startsWith('LOT_')||message==='CONFLICT'||message==='CONFLICT_STALE_RECORD'||message==='RELATED_RECORD_NOT_IN_BRANCH'||message==='SHARED_RECORD_REQUIRES_DEDICATED_API')
     res.status(409);
   else res.status(503);
   res.json({ok:false,error:message});
@@ -216,9 +218,13 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
           : 'SELECT t.* FROM `'+mapping.mysqlTable+'` t INNER JOIN mysql_store_branch_access m '+
             'ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? ORDER BY t.id',
         global?[]:[store,session.branchId!]);
-      res.json({ok:true,source:'mysql',store,records:rows.map(row=>({
-        ...obj(row.raw_json),id:String(row.id),
-      } as Record<string,unknown>)).filter(row=>row.archived!==true)});
+      const exposed=rows.filter(row=>obj(row.raw_json).archived!==true);
+      const revisions:Record<string,string>={};
+      const records=exposed.map(row=>{
+        revisions[String(row.id)]=createHash('sha256').update(String(row.raw_json||'{}')).digest('hex');
+        return {...obj(row.raw_json),id:String(row.id)} as Record<string,unknown>;
+      });
+      res.json({ok:true,source:'mysql',store,records,revisions});
     }catch(e){failure(res,e);}
     finally{await db?.end();}
   });
@@ -251,6 +257,10 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
           const [found]=await db.execute<mysql.RowDataPacket[]>(
             'SELECT id,raw_json FROM `'+mapping.mysqlTable+'` WHERE id=? FOR UPDATE',[m.id]);
           const old=found[0] as mysql.RowDataPacket|undefined;
+          if(old && m.operation!=='add'){
+            const expected=createHash('sha256').update(String(old.raw_json||'{}')).digest('hex');
+            if(expected!==m.expectedRevision)throw new Error('CONFLICT_STALE_RECORD');
+          }
           if(m.operation==='add'&&old)throw new Error('CONFLICT');
           if(m.operation!=='add'&&!old)throw new Error('RECORD_NOT_IN_BRANCH');
           if(old && m.store!=='settings'){
