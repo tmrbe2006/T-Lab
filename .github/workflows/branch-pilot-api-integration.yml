@@ -5,6 +5,8 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'server/mysql-crud-routes.ts'
       - 'server/mysql-unified-store.ts'
+      - 'src/services/mysql-sync.service.ts'
+      - 'scripts/import-browser-backup-mysql.mts'
       - 'scripts/ui-screens-smoke.mjs'
       - 'src/db/mysql-remote-db.ts'
       - 'src/db/database.ts'
