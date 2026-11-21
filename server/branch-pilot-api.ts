@@ -447,11 +447,20 @@ export function installBranchPilotRoutes(app: Express): void {
   });
   app.post('/api/branch-pilot/user-permissions', async (req, res) => {
     try {
-      await useDatabase(async (db) => saveBranchPermissions({
-        execute: (sql, params) => db.execute(sql, params as string[]),
-      }, res.locals.branchPrincipal, req.body?.userId, req.body?.branchId, req.body?.rows));
-      res.json({ ok: true });
-    } catch (error) { respondError(res, error); }
+      await useDatabase(async db => {
+        await db.beginTransaction();
+        try {
+          await saveBranchPermissions({
+            execute:(sql,params)=>db.execute(sql,params as string[]),
+          },res.locals.branchPrincipal,req.body?.userId,req.body?.branchId,req.body?.rows);
+          await db.commit();
+        } catch(error) {
+          await db.rollback();
+          throw error;
+        }
+      });
+      res.json({ ok:true,source:'mysql' });
+    } catch (error) { respondError(res,error); }
   });
 
   /**
