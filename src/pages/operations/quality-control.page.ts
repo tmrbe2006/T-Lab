@@ -1,3 +1,4 @@
+import { connectedStore } from '../../repositories/mysql-crud.adapter';
 import { authService } from '../../auth/auth.service';
 import {
   closeModal,
@@ -115,7 +116,7 @@ function saveAnalyzersList(list: string[]): void {
 }
 
 async function recalculateLotRunsWestgard(lot: QcControlLot): Promise<void> {
-  const runs = await db.qcRuns.where('lotId').equals(lot.id).toArray();
+  const runs = await connectedStore(db.qcRuns,'qcRuns').where('lotId').equals(lot.id).toArray();
   const sortedAsc = [...runs].sort((a, b) => a.runDate.localeCompare(b.runDate));
   const updated: QcRunRecord[] = [];
 
@@ -142,7 +143,7 @@ async function recalculateLotRunsWestgard(lot: QcControlLot): Promise<void> {
   }
 
   if (updated.length > 0) {
-    await db.qcRuns.bulkPut(updated);
+    await connectedStore(db.qcRuns,'qcRuns').bulkPut(updated);
   }
 }
 
@@ -154,8 +155,8 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
 
   const render = async () => {
     const [lots, allRuns, tests] = await Promise.all([
-      db.qcControlLots.toArray(),
-      db.qcRuns.toArray(),
+      connectedStore(db.qcControlLots,'qcControlLots').toArray(),
+      connectedStore(db.qcRuns,'qcRuns').toArray(),
       db.tests.toArray(),
     ]);
 
@@ -549,8 +550,8 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
           // Also delete lots belonging to this analyzer if any
           const lotsToRemove = lots.filter((l) => l.analyzerName === targetAnalyzer);
           for (const l of lotsToRemove) {
-            await db.qcRuns.where('lotId').equals(l.id).delete();
-            await db.qcControlLots.delete(l.id);
+            await connectedStore(db.qcRuns,'qcRuns').where('lotId').equals(l.id).delete();
+            await connectedStore(db.qcControlLots,'qcControlLots').delete(l.id);
           }
           selectedAnalyzerFilter = 'all';
           selectedLotId = '';
@@ -568,7 +569,7 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
       if (!activeLot) return;
       if (!(await enforcePermission('edit', 'qualityControl'))) return;
       activeLot.qcLocked = !activeLot.qcLocked;
-      await db.qcControlLots.put(activeLot);
+      await connectedStore(db.qcControlLots,'qcControlLots').put(activeLot);
       showToast(
         activeLot.qcLocked
           ? i18n.bi('تم تفعيل قفل الاعتماد لهذا التحليل لحين المعايرة', 'QC Lock activated for this test')
@@ -623,8 +624,8 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
       openDeleteConfirmModal({
         recordLabel: `[${activeLot.lotNumber}] ${activeLot.testNameEn} — ${activeLot.level} (${activeLot.analyzerName})`,
         onConfirm: async (reason) => {
-          await db.qcRuns.where('lotId').equals(activeLot.id).delete();
-          await db.qcControlLots.delete(activeLot.id);
+          await connectedStore(db.qcRuns,'qcRuns').where('lotId').equals(activeLot.id).delete();
+          await connectedStore(db.qcControlLots,'qcControlLots').delete(activeLot.id);
           await authService.logAudit(
             `حذف تشغيلة كنترول: ${activeLot.lotNumber}`,
             'qualityControl',
@@ -647,9 +648,9 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
       openDeleteConfirmModal({
         recordLabel: `${i18n.bi('جميع القراءات القديمة للكنترول', 'All runs for control')} [${activeLot.lotNumber}] (${lotRuns.length} ${i18n.bi('نقطة', 'points')})`,
         onConfirm: async (reason) => {
-          await db.qcRuns.where('lotId').equals(activeLot.id).delete();
+          await connectedStore(db.qcRuns,'qcRuns').where('lotId').equals(activeLot.id).delete();
           activeLot.qcLocked = false;
-          await db.qcControlLots.put(activeLot);
+          await connectedStore(db.qcControlLots,'qcControlLots').put(activeLot);
           await authService.logAudit(
             `مسح قراءات الكنترول القديمة: ${activeLot.lotNumber}`,
             'qualityControl',
@@ -711,7 +712,7 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
         openDeleteConfirmModal({
           recordLabel: `${i18n.bi('نقطة كنترول بتاريخ', 'QC Point on')} ${formatDate(targetRun.runDate)} — ${i18n.bi('القيمة:', 'Value:')} ${targetRun.measuredValue} ${activeLot.unit}`,
           onConfirm: async (reason) => {
-            await db.qcRuns.delete(targetRun.id);
+            await connectedStore(db.qcRuns,'qcRuns').delete(targetRun.id);
             await recalculateLotRunsWestgard(activeLot);
             await authService.logAudit(
               `حذف نقطة كنترول: ${targetRun.measuredValue}`,
@@ -782,13 +783,13 @@ function openAddOrEditAnalyzerModal(
       const matchingLots = lots.filter((l) => l.analyzerName === existingName);
       for (const l of matchingLots) {
         l.analyzerName = newName;
-        await db.qcControlLots.put(l);
+        await connectedStore(db.qcControlLots,'qcControlLots').put(l);
       }
-      const allRuns = await db.qcRuns.toArray();
+      const allRuns = await connectedStore(db.qcRuns,'qcRuns').toArray();
       const matchingRuns = allRuns.filter((r) => r.analyzerName === existingName);
       for (const r of matchingRuns) {
         r.analyzerName = newName;
-        await db.qcRuns.put(r);
+        await connectedStore(db.qcRuns,'qcRuns').put(r);
       }
       showToast(i18n.bi('تم تعديل اسم الجهاز بنجاح', 'Analyzer updated'), 'success');
     } else {
@@ -893,8 +894,8 @@ function openManageAnalyzersModal(lots: QcControlLot[], onChanged: () => void): 
             saveAnalyzersList(list);
             const lotsToRemove = lots.filter((l) => l.analyzerName === targetName);
             for (const l of lotsToRemove) {
-              await db.qcRuns.where('lotId').equals(l.id).delete();
-              await db.qcControlLots.delete(l.id);
+              await connectedStore(db.qcRuns,'qcRuns').where('lotId').equals(l.id).delete();
+              await connectedStore(db.qcControlLots,'qcControlLots').delete(l.id);
             }
             showToast(i18n.bi('تم حذف الجهاز بنجاح', 'Analyzer deleted'), 'success');
             onChanged();
@@ -1258,12 +1259,12 @@ function openAddQcRunModal(params: {
         qcLocked: false,
         active: true,
       };
-      await db.qcControlLots.put(targetLot);
+      await connectedStore(db.qcControlLots,'qcControlLots').put(targetLot);
     } else if (targetLot.targetMean !== targetMean || targetLot.targetSd !== targetSd || targetLot.unit !== unit) {
       targetLot.targetMean = targetMean;
       targetLot.targetSd = targetSd;
       targetLot.unit = unit;
-      await db.qcControlLots.put(targetLot);
+      await connectedStore(db.qcControlLots,'qcControlLots').put(targetLot);
     }
 
     const existingLotRuns = allRuns.filter((r) => r.lotId === targetLot!.id);
@@ -1292,11 +1293,11 @@ function openAddQcRunModal(params: {
       operatorName: user?.fullNameAr || 'Lab Chemist',
     };
 
-    await db.qcRuns.put(newRun);
+    await connectedStore(db.qcRuns,'qcRuns').put(newRun);
 
     if (evalRes.status === 'rejected') {
       targetLot.qcLocked = true;
-      await db.qcControlLots.put(targetLot);
+      await connectedStore(db.qcControlLots,'qcControlLots').put(targetLot);
       showToast(
         i18n.bi(
           `🚨 خرق قاعدة Westgard (${evalRes.rule})! تم إيقاف اعتماد التحليل تلقائياً لحين إعادة المعايرة.`,
@@ -1307,7 +1308,7 @@ function openAddQcRunModal(params: {
     } else {
       if (targetLot.qcLocked && evalRes.status === 'accepted') {
         targetLot.qcLocked = false;
-        await db.qcControlLots.put(targetLot);
+        await connectedStore(db.qcControlLots,'qcControlLots').put(targetLot);
       }
       showToast(
         i18n.bi(
@@ -1545,7 +1546,7 @@ function openEditOrDeleteQcRunModal(
     openDeleteConfirmModal({
       recordLabel: `${i18n.bi('نقطة كنترول بتاريخ', 'QC Point on')} ${formatDate(run.runDate)} — ${i18n.bi('القيمة:', 'Value:')} ${run.measuredValue} ${lot.unit}`,
       onConfirm: async (reason) => {
-        await db.qcRuns.delete(run.id);
+        await connectedStore(db.qcRuns,'qcRuns').delete(run.id);
         await recalculateLotRunsWestgard(lot);
         await authService.logAudit(
           `حذف نقطة كنترول من المنحنى: ${run.measuredValue}`,
@@ -1576,7 +1577,7 @@ function openEditOrDeleteQcRunModal(
     run.correctiveAction = newCapa || undefined;
     run.imageDataUrl = editedImageDataUrl;
 
-    await db.qcRuns.put(run);
+    await connectedStore(db.qcRuns,'qcRuns').put(run);
     await recalculateLotRunsWestgard(lot);
     closeModal();
     showToast(
@@ -1704,7 +1705,7 @@ function openLotFormModal(
       active: true,
     };
 
-    await db.qcControlLots.put(lot);
+    await connectedStore(db.qcControlLots,'qcControlLots').put(lot);
     if (isEdit) {
       await recalculateLotRunsWestgard(lot);
     }
