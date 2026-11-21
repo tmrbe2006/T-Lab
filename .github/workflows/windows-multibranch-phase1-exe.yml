@@ -24,9 +24,16 @@ on:
       - 'src/tests/services/mysql-patients.repository.test.ts'
       - 'sql/tlab_patient_branch_access_v3.sql'
       - 'sql/tlab_home_visits_branch_access_v5.sql'
+      - 'sql/tlab_finance_branch_access_v6.sql'
+      - 'src/repositories/mysql-finance.read.ts'
+      - 'src/repositories/accounting.repository.ts'
+      - 'src/repositories/invoices.repository.ts'
+      - 'src/repositories/payments.repository.ts'
+      - 'src/repositories/doctors.repository.ts'
+      - 'src/tests/services/mysql-finance.read.test.ts'
       - 'src/repositories/home-visits.mysql.repository.ts'
       - 'src/pages/operations/home-visits.page.ts'
-      - 'src/tests/services/mysql-home-visits.repository.test.ts'
+      - 'src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.read.test.ts'
       - 'src/pages/finance/invoices.page.ts'
       - 'src/pages/finance/commissions.page.ts'
       - 'src/pages/finance/accounting.page.ts'
@@ -143,6 +150,7 @@ jobs:
           if (!(Test-Path 'installer/package/sql/tlab_branch_user_permissions_v2.sql')) { throw 'User-specific branch permissions migration missing' }
           if (!(Test-Path 'installer/package/sql/tlab_patient_branch_access_v3.sql')) { throw 'Patient-branch mapping migration missing' }
           if (!(Test-Path 'installer/package/sql/tlab_home_visits_branch_access_v5.sql')) { throw 'Home-visit branch mapping migration missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_finance_branch_access_v6.sql')) { throw 'Finance read mapping missing' }
           if (!(Test-Path 'installer/package/sql/tlab_mysql_only_missing_tables_v4.sql')) { throw 'All-store mapping upgrade missing' }
           $sql = Get-Content $file -Raw
           foreach ($table in @('branches', 'user_branches', 'branch_settings', 'branch_test_prices', 'branch_inventory', 'branch_transfers', 'branch_transfer_items', 'branch_sequences', 'branch_migration_audit')) {
@@ -186,7 +194,7 @@ jobs:
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
           $proc = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Inno installation failed: $($proc.ExitCode)" }
-          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'sql/tlab_patient_branch_access_v3.sql', 'sql/tlab_home_visits_branch_access_v5.sql', 'sql/tlab_mysql_only_missing_tables_v4.sql', 'tlab-new-icon.ico')) {
+          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'sql/tlab_patient_branch_access_v3.sql', 'sql/tlab_home_visits_branch_access_v5.sql', 'sql/tlab_finance_branch_access_v6.sql', 'sql/tlab_mysql_only_missing_tables_v4.sql', 'tlab-new-icon.ico')) {
             if (!(Test-Path (Join-Path $target $required))) { throw "Missing installed file: $required" }
           }
           $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw
