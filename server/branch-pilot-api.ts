@@ -1195,6 +1195,94 @@ export function installBranchPilotRoutes(app: Express): void {
     }catch(error){financeReadError(res,error);}
   });
 
+
+  // Safe master catalog write pilot: non-financial, no result/ledger postings.
+  const mysqlMasterEditable=new Set(['doctorSpecialties','scientificDepartments','sampleTubes']);
+  async function writeMasterStore(req:Request,res:Response,mode:'save'|'archive') {
+    const store=String(req.params.store||'');
+    if(!mysqlMasterEditable.has(store)){res.status(403).json({ok:false,error:'DEDICATED_TRANSACTION_API_REQUIRED'});return;}
+    const mapping=mysqlStoreMapping.get(store);
+    if(!mapping){res.status(404).json({ok:false,error:'UNKNOWN_STORE'});return;}
+    try{
+      const session=getSession(req);
+      if(!session?.branchId){res.status(401).json({ok:false,error:'BRANCH_SELECTION_REQUIRED'});return;}
+      const record=req.body?.record;
+      if(mode==='save' && (!record||typeof record!=='object'||Array.isArray(record))){
+        res.status(400).json({ok:false,error:'INVALID_RECORD'});return;
+      }
+      const id=String(mode==='archive'?req.params.id:record.id||'');
+      if(!validBranchId(id)){res.status(400).json({ok:false,error:'INVALID_RECORD_ID'});return;}
+      if(mode==='save' && JSON.stringify(record).length>32000){
+        res.status(413).json({ok:false,error:'RECORD_TOO_LARGE'});return;
+      }
+      await useDatabase(async db=>{
+        const branches=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branches.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const rights=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId!);
+        const rule=rights.find(r=>r.resource===store);
+        await db.beginTransaction();
+        try{
+          const [existing]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT t.id,t.raw_json FROM `'+mapping.mysqlTable+'` t WHERE t.id=? FOR UPDATE',[id]);
+          const isNew=existing.length===0;
+          const action=mode==='archive'?'delete':isNew?'add':'edit';
+          if(!(session.role==='Developer'||(session.role==='Owner'
+            ? (!rule||rule.actions[action]===true) : rule?.actions[action]===true)))throw new Error('FORBIDDEN');
+          if(!isNew){
+            const [access]=await db.execute<mysql.RowDataPacket[]>(
+              'SELECT 1 AS allowed FROM mysql_store_branch_access WHERE store_name=? AND record_id=? AND branch_id=?',
+              [store,id,session.branchId!]);
+            if(!access.length)throw new Error('RECORD_NOT_IN_BRANCH');
+          }
+          if(mode==='archive'){
+            if(isNew)throw new Error('RECORD_NOT_FOUND');
+            let source:Record<string,unknown>={};
+            try{source=JSON.parse(String(existing[0].raw_json||'{}')) as Record<string,unknown>;}catch{}
+            const updated={...source,id,active:false};
+            await db.execute('UPDATE `'+mapping.mysqlTable+'` SET active=0,raw_json=? WHERE id=?',
+              [JSON.stringify(updated),id]);
+          }else{
+            const obj=record as Record<string,unknown>;
+            if(typeof obj.code!=='string'||obj.code.length<1||obj.code.length>64 ||
+               typeof obj.nameAr!=='string'||obj.nameAr.length<1||obj.nameAr.length>191)
+              throw new TypeError('INVALID_MASTER_RECORD');
+            const columns=[...mapping.columns.map(c=>c.name),'raw_json'];
+            const values=[...mapping.columns.map(c=>c.extract(obj)),JSON.stringify(obj)];
+            const table='`'+mapping.mysqlTable+'`';
+            if(isNew){
+              await db.execute('INSERT INTO '+table+' ('+columns.map(c=>'`'+c+'`').join(',')+
+                ') VALUES ('+columns.map(()=>'?').join(',')+')',values);
+              await db.execute(
+                'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+                [store,id,session.branchId!,session.userId]);
+            }else{
+              const fields=columns.filter(c=>c!=='id');
+              const columnsWithoutId=columns.filter(c=>c!=='id');
+              const newValues=values.filter((_,i)=>columns[i]!=='id');
+              await db.execute('UPDATE '+table+' SET '+fields.map(c=>'`'+c+'`=?').join(',')+' WHERE id=?',
+                [...newValues,id]);
+            }
+          }
+          await db.execute('INSERT INTO mysql_store_mutation_audit(store_name,record_id,branch_id,actor_id,action,at_utc) VALUES (?,?,?,?,?,UTC_TIMESTAMP())',
+            [store,id,session.branchId!,session.userId,action]);
+          await db.commit();
+        }catch(error){await db.rollback();throw error;}
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({ok:true,source:'mysql',store,id});
+    }catch(error){
+      const message=error instanceof Error?error.message:'MYSQL_STORE_WRITE_FAILED';
+      if(error instanceof TypeError){res.status(400).json({ok:false,error:message});return;}
+      if(message==='FORBIDDEN'||message==='BRANCH_NOT_ASSIGNED'){res.status(403).json({ok:false,error:message});return;}
+      if(message==='RECORD_NOT_IN_BRANCH'||message==='RECORD_NOT_FOUND'){res.status(409).json({ok:false,error:message});return;}
+      financeReadError(res,error);
+    }
+  }
+  app.put('/api/branch-pilot/mysql-master/:store',async(req,res)=>writeMasterStore(req,res,'save'));
+  app.delete('/api/branch-pilot/mysql-master/:store/:id',async(req,res)=>writeMasterStore(req,res,'archive'));
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
