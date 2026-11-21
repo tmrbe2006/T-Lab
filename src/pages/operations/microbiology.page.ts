@@ -1,3 +1,4 @@
+import { connectedStore } from '../../repositories/mysql-crud.adapter';
 import { authService } from '../../auth/auth.service';
 import {
   closeModal,
@@ -152,10 +153,10 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
 
   const render = async () => {
     const [cultures, patients, requests, antibioticsCatalog] = await Promise.all([
-      db.cultureResults.toArray(),
+      connectedStore(db.cultureResults,'cultureResults').toArray(),
       patientsRepository.getAll(),
       requestsRepository.getAllRequests(),
-      db.antibioticsCatalog.toArray(),
+      connectedStore(db.antibioticsCatalog,'antibioticsCatalog').toArray(),
     ]);
 
     const sortedAntibiotics = [...antibioticsCatalog].sort((a, b) =>
@@ -621,7 +622,7 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
           ),
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'microbiology'))) return;
-            await db.antibioticsCatalog.delete(target.id);
+            await connectedStore(db.antibioticsCatalog,'antibioticsCatalog').delete(target.id);
             await authService.logAudit(
               `حذف مضاد حيوي من القاموس: ${target.nameEn} (${target.code})`,
               'microbiology',
@@ -680,7 +681,7 @@ export async function renderMicrobiologyPage(container: HTMLElement): Promise<vo
           ),
           onConfirm: async (reason) => {
             if (!(await enforcePermission('delete', 'microbiology'))) return;
-            await db.cultureResults.delete(rec.id);
+            await connectedStore(db.cultureResults,'cultureResults').delete(rec.id);
             await authService.logAudit(
               `حذف تقرير مزرعة بكتيرية: ${rec.reportNumber} (${rec.patientName})`,
               'microbiology',
@@ -829,7 +830,7 @@ function openAntibioticCatalogFormModal(
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
 
-    await db.antibioticsCatalog.put(record);
+    await connectedStore(db.antibioticsCatalog,'antibioticsCatalog').put(record);
     closeModal();
     showToast(
       i18n.bi(
@@ -843,7 +844,7 @@ function openAntibioticCatalogFormModal(
 }
 
 async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated: () => void): Promise<void> {
-  let catalog = (await db.antibioticsCatalog.toArray()).sort((a, b) =>
+  let catalog = (await connectedStore(db.antibioticsCatalog,'antibioticsCatalog').toArray()).sort((a, b) =>
     a.nameEn.localeCompare(b.nameEn)
   );
   let showQuickCreateBox = false;
@@ -1268,8 +1269,8 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
         createdAt: new Date().toISOString(),
       };
 
-      await db.antibioticsCatalog.put(newCatalogItem);
-      catalog = (await db.antibioticsCatalog.toArray()).sort((a, b) =>
+      await connectedStore(db.antibioticsCatalog,'antibioticsCatalog').put(newCatalogItem);
+      catalog = (await connectedStore(db.antibioticsCatalog,'antibioticsCatalog').toArray()).sort((a, b) =>
         a.nameEn.localeCompare(b.nameEn)
       );
 
@@ -1333,7 +1334,7 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
         ),
         onConfirm: async (reason) => {
           if (!(await enforcePermission('delete', 'microbiology'))) return;
-          await db.cultureResults.delete(rec.id);
+          await connectedStore(db.cultureResults,'cultureResults').delete(rec.id);
           await authService.logAudit(
             `حذف تقرير مزرعة بكتيرية: ${rec.reportNumber} (${rec.patientName})`,
             'microbiology',
@@ -1358,7 +1359,7 @@ async function openCultureDetailsModal(rec: CultureSensitivityRecord, onUpdated:
       rec.status = 'approved';
       const user = authService.getCurrentUser();
       rec.approvedBy = user?.fullNameAr || rec.approvedBy || 'Lab Director';
-      await db.cultureResults.put(rec);
+      await connectedStore(db.cultureResults,'cultureResults').put(rec);
       closeModal();
       showToast(i18n.bi('تم حفظ واعتماد نتيجة المزرعة وجدول الحساسية و MIC بنجاح', 'Culture result & MIC panel saved and approved'), 'success');
       onUpdated();
@@ -1783,7 +1784,7 @@ function openNewCultureModal(
       createdAt: new Date().toISOString(),
     };
 
-    await db.cultureResults.put(newRec);
+    await connectedStore(db.cultureResults,'cultureResults').put(newRec);
     closeModal();
     showToast(
       isPendingRequestOnly
