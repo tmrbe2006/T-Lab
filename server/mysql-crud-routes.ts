@@ -70,6 +70,38 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
     if(!stores[store]||!mapping.has(store))throw new Error('INVALID_STORE');
     return mapping.get(store)!;
   };
+
+  // Append-only audit log. The actor always comes from the authenticated session.
+  app.post('/api/branch-pilot/audit-log',async(req,res)=>{
+    try{
+      const actor=res.locals.branchSession as CrudSession|undefined;
+      if(!actor?.branchId)throw new Error('FORBIDDEN');
+      const action=String(req.body?.action||'').trim();
+      const screen=String(req.body?.screen||'').trim();
+      const recordId=String(req.body?.recordId||'');
+      const details=String(req.body?.details||'');
+      if(!action||action.length>191||!/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(screen)||
+        recordId.length>64||details.length>2000)throw new Error('INVALID_AUDIT');
+      const id='aud_'+randomBytes(16).toString('hex');
+      const db=await dbConnect();
+      try{
+        await db.beginTransaction();
+        try{
+          const now=new Date().toISOString();
+          const record={id,userId:actor.userId,username:actor.username,role:actor.role,
+            action,screen,recordId,details,timestamp:now};
+          await db.execute(
+            'INSERT INTO audit_logs(id,user_id,username,role,screen,action,record_id,timestamp,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [id,actor.userId,actor.username,actor.role,screen,action,recordId,now,JSON.stringify(record)]);
+          await db.execute('INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['auditLogs',id,actor.branchId,actor.userId]);
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      }finally{await db.end();}
+      res.status(201).json({ok:true,source:'mysql',id});
+    }catch(e){failure(res,e);}
+  });
+
   app.get('/api/branch-pilot/stores/:store',async(req,res)=>{
     const store=String(req.params.store||'');
     try{
