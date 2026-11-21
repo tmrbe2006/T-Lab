@@ -151,6 +151,19 @@ async function checkReferences(db:mysql.Connection,branchId:string,c:Command):Pr
     const ref=r[field];
     if(ref===null||ref===undefined||ref==='')continue;
     if(!safeId(ref))throw new TypeError('INVALID_REFERENCE_'+field);
+    if(c.store==='invoiceItems' && field==='testId' && ref==='manual_service'){
+      // A standalone invoiced service must satisfy the existing invoice_items FK.
+      // Keep the marker out of the clinical catalogue.
+      await db.execute(
+        "INSERT INTO lab_tests(id,code,name_ar,name_en,department,price,active,raw_json) "+
+        "VALUES('manual_service','SVC-MANUAL','خدمة مستقلة','Standalone Service','Services',0,0,?) "+
+        "ON DUPLICATE KEY UPDATE id=id",
+        [JSON.stringify({id:'manual_service',code:'SVC-MANUAL',nameAr:'خدمة مستقلة',
+          nameEn:'Standalone Service',department:'Services',active:false})]);
+      await db.execute(
+        "INSERT IGNORE INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) "+
+        "VALUES('tests','manual_service',?,NOW(),'system')",[branchId]);
+    }
     const mapped=models.get(targetStore)!;
     const [rows]=await db.execute<mysql.RowDataPacket[]>(
       'SELECT t.id FROM `'+mapped.mysqlTable+'` t JOIN mysql_store_branch_access m '+
@@ -218,7 +231,8 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
           : 'SELECT t.* FROM `'+mapping.mysqlTable+'` t INNER JOIN mysql_store_branch_access m '+
             'ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? ORDER BY t.id',
         global?[]:[store,session.branchId!]);
-      const exposed=rows.filter(row=>obj(row.raw_json).archived!==true);
+      const exposed=rows.filter(row=>obj(row.raw_json).archived!==true &&
+        !(store==='tests' && String(row.id)==='manual_service'));
       const revisions:Record<string,string>={};
       const records=exposed.map(row=>{
         revisions[String(row.id)]=createHash('sha256').update(String(row.raw_json||'{}')).digest('hex');
