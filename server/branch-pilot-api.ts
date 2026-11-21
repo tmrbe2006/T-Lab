@@ -364,7 +364,7 @@ export function installBranchPilotRoutes(app: Express): void {
           );
           await db.execute(
             'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
-            ['auditLogs', id, session.branchId, session.userId],
+            ['auditLogs', id, session.branchId!, session.userId],
           );
           await db.commit();
         } catch (error) {
