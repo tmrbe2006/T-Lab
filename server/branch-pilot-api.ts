@@ -1151,7 +1151,9 @@ export function installBranchPilotRoutes(app: Express): void {
     for(const [key,value] of Object.entries(row)){
       if(key==='raw_json')continue;
       const prop=key.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase());
-      result[prop]=value;
+      // raw_json preserves original medical names, date types, arrays, formulas
+      // and precision. Do not overwrite these with derived SQL search columns.
+      if(prop==='id' || !(prop in result))result[prop]=value;
     }
     return result;
   }
