@@ -79,13 +79,59 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
   let statusFilter = 'all';
 
   const render = async () => {
-    const [visits, patients, employees] = await Promise.all([
-      isMysqlBranchPilot()?mysqlHomeVisitsRepository.getAll():db.homeVisits.toArray(),
-      isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Awaited<ReturnType<typeof patientsRepository.getAll>>[number]>('/api/branch-pilot/patients','patients'):patientsRepository.getAll(),
-      isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Employee>('/api/branch-pilot/home-visits/staff','staff'):db.employees.toArray(),
-    ]);
+    let visits: HomeVisitRecord[];
+    let patients: Awaited<ReturnType<typeof patientsRepository.getAll>>;
+    let employees: Array<{id:string;nameAr:string;phone:string}>;
+    try {
+      [visits,patients,employees] = await Promise.all([
+        isMysqlBranchPilot()?mysqlHomeVisitsRepository.getAll():db.homeVisits.toArray(),
+        patientsRepository.getAll(),
+        isMysqlBranchPilot()
+          ? scopedMysqlHomeVisitSource<Employee>('/api/branch-pilot/home-visits/staff','staff')
+          : db.employees.toArray(),
+      ]);
+    } catch(error) {
+      container.replaceChildren();
+      const alert=document.createElement('section');
+      alert.className='rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-900';
+      alert.textContent=i18n.bi('فشل تحميل العينات المنزلية من MySQL: ',
+        'Unable to load home visits from MySQL: ') +
+        String(error instanceof Error?error.message:error);
+      const retry=document.createElement('button');
+      retry.type='button'; retry.className='block mt-3 rounded bg-sky-700 text-white px-4 py-2';
+      retry.textContent=i18n.bi('إعادة المحاولة','Retry');
+      retry.addEventListener('click',()=>{void render();});
+      alert.append(retry);container.append(alert);
+      return;
+    }
+    let emptyVisitNotice='';
+    if(isMysqlBranchPilot() && visits.length===0 &&
+        ['Developer','Owner'].includes(authService.getCurrentUser()?.role||'')){
+      try{
+        const response=await fetch('/api/branch-pilot/branch-data-diagnostics',{
+          credentials:'same-origin',cache:'no-store',
+        });
+        const data=await response.json() as {
+          ok?:boolean;source?:string;
+          stores?:{homeVisits?:{total:number;branch:number;unmapped:number},
+                   employees?:{total:number;branch:number;unmapped:number}};
+        };
+        if(response.ok && data.ok && data.source==='mysql' && data.stores?.homeVisits){
+          const info=data.stores.homeVisits;
+          if(info.total>0 && info.branch===0){
+            emptyVisitNotice=i18n.bi(
+              `يوجد ${info.total} زيارة منزلية في MySQL، لكن لا توجد زيارات مرتبطة بالفرع الحالي. سجلات بدون فرع: ${info.unmapped}.`,
+              `${info.total} home visits exist in MySQL, none assigned to this branch. Unmapped: ${info.unmapped}.`);
+          }else if(info.total===0){
+            emptyVisitNotice=i18n.bi('جدول العينات المنزلية في MySQL فارغ؛ سكريبت الجداول لا ينقل بيانات المتصفح.',
+              'The MySQL home visits table is empty; creating tables does not import browser records.');
+          }
+        }
+      }catch{/* no diagnosis without a verified database response */}
+    }
 
-    const sorted = visits.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const sorted = visits.sort((a,b)=>String(b.createdAt||b.scheduledDate||'')
+      .localeCompare(String(a.createdAt||a.scheduledDate||'')));
     const filtered = sorted.filter((v) =>
       statusFilter === 'all' ? true : v.status === statusFilter
     );
@@ -107,6 +153,7 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
         `
       )}
 
+      ${emptyVisitNotice ? `<div class="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">${emptyVisitNotice}</div>` : ''}
       <!-- Pipeline KPI Cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
