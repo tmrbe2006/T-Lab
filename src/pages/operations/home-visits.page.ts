@@ -85,7 +85,7 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
       isMysqlBranchPilot()?scopedMysqlHomeVisitSource<Employee>('/api/branch-pilot/home-visits/staff','staff'):db.employees.toArray(),
     ]);
 
-    const sorted = visits.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const sorted = visits.filter(v => v.status !== 'cancelled' && (v as HomeVisitRecord & {archived?:boolean}).archived !== true).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const filtered = sorted.filter((v) =>
       statusFilter === 'all' ? true : v.status === statusFilter
     );
