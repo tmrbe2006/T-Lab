@@ -1259,7 +1259,6 @@ export function installBranchPilotRoutes(app: Express): void {
                 [store,id,session.branchId!,session.userId]);
             }else{
               const fields=columns.filter(c=>c!=='id');
-              const columnsWithoutId=columns.filter(c=>c!=='id');
               const newValues=values.filter((_,i)=>columns[i]!=='id');
               await db.execute('UPDATE '+table+' SET '+fields.map(c=>'`'+c+'`=?').join(',')+' WHERE id=?',
                 [...newValues,id]);
