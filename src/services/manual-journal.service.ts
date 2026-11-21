@@ -1,3 +1,4 @@
+import { useMySQLStore } from '../repositories/mysql-all-stores.read';
 import { db } from '../db/database';
 import type { JournalEntry, JournalEntryLine } from '../types';
 
@@ -55,6 +56,17 @@ async function build(input:ManualJournalInput,actor:string,referenceId:string):P
   };
 }
 export async function createManualJournal(input:ManualJournalInput,actor:string):Promise<JournalEntry>{
+  if(useMySQLStore()){
+    // Posting identity is taken from the server session, not caller's actor string.
+    const response=await fetch('/api/branch-pilot/finance/manual-journal',{
+      method:'POST',credentials:'same-origin',cache:'no-store',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({input}),
+    });
+    const payload=await response.json() as {ok?:boolean;source?:string;entry?:JournalEntry;error?:string};
+    if(!response.ok||payload.ok!==true)throw new Error(payload.error||'MYSQL_JOURNAL_WRITE_FAILED');
+    if(payload.source!=='mysql'||!payload.entry)throw new Error('MYSQL_JOURNAL_UNTRUSTED_RESPONSE');
+    return payload.entry;
+  }
   return db.transaction('rw',db.journalEntries,db.chartOfAccounts,async()=>{
     const entry=await build(input,actor,'manual');
     await db.journalEntries.put(entry);
