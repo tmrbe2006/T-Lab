@@ -509,6 +509,158 @@ export function installBranchPilotRoutes(app: Express): void {
     }
   });
 
+
+  // MySQL-backed CRUD for contracts, microbiology and QC. Explicit allowlist:
+  // no client-provided SQL identifiers, no IndexedDB writes, no cross-branch reads.
+  const editableStores:Record<string,{permission:string;hasActive:boolean}>={
+    corporateContracts:{permission:'corporateContracts',hasActive:true},
+    cultureResults:{permission:'microbiology',hasActive:false},
+    antibioticsCatalog:{permission:'microbiology',hasActive:true},
+    qcControlLots:{permission:'qualityControl',hasActive:true},
+    qcRuns:{permission:'qualityControl',hasActive:false},
+  };
+  const storeMaps=new Map(MYSQL_TABLES_CONFIG.map(x=>[x.dexieTable,x]));
+  async function scopedStore<T>(
+    req:Request,store:string,action:'view'|'add'|'edit'|'delete',
+    operation:(db:mysql.Connection,s:AdminSession)=>Promise<T>,
+  ):Promise<T>{
+    const session=getSession(req);
+    if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+    const config=editableStores[store];
+    if(!config)throw new TypeError('UNSUPPORTED_STORE');
+    return useDatabase(async db=>{
+      const available=await staffAssignedBranches(db,session.userId,session.role);
+      if(!available.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+      const rights=await ownBranchPermissions({
+        execute:(sql,params)=>db.execute(sql,params as string[]),
+      },session.userId,session.branchId!);
+      const specific=rights.find(x=>x.resource===config.permission);
+      const allowed=session.role==='Developer' ||
+        (session.role==='Owner' ? (!specific || specific.actions[action]===true)
+          : specific?.actions[action]===true);
+      if(!allowed)throw new Error('FORBIDDEN');
+      return operation(db,session);
+    });
+  }
+  function decodeStoreRow(row:mysql.RowDataPacket):Record<string,unknown>{
+    let item:Record<string,unknown>={};
+    try{
+      const value:unknown=JSON.parse(String(row.raw_json||'{}'));
+      if(value && typeof value==='object' && !Array.isArray(value))
+        item=value as Record<string,unknown>;
+    }catch{/* raw content missing; return known columns */}
+    if(!item.id)item.id=String(row.id);
+    return item;
+  }
+  app.get('/api/branch-pilot/stores/:store',async(req,res)=>{
+    const store=String(req.params.store||'');
+    try{
+      const records=await scopedStore(req,store,'view',async(db,session)=>{
+        const mapped=storeMaps.get(store)!;
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT t.* FROM `'+mapped.mysqlTable+'` t INNER JOIN mysql_store_branch_access m ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? ORDER BY t.id',
+          [store,session.branchId!]);
+        return rows.map(decodeStoreRow).filter(x=>x.active!==false && x.archived!==true);
+      });
+      res.json({ok:true,source:'mysql',store,records});
+    }catch(e){respondError(res,e);}
+  });
+  app.put('/api/branch-pilot/stores/:store/:id',async(req,res)=>{
+    const store=String(req.params.store||'');
+    const id=String(req.params.id||'');
+    try{
+      if(!validBranchId(id))throw new TypeError('INVALID_ID');
+      const record=req.body?.record;
+      if(!record || typeof record!=='object' || Array.isArray(record) ||
+         String(record.id||'')!==id || JSON.stringify(record).length>250000)
+        throw new TypeError('INVALID_RECORD');
+      const input=record as Record<string,unknown>;
+      // Block accidental credential injection and malformed contract percentages.
+      if(Object.keys(input).some(k=>/password|token|secret/i.test(k)))
+        throw new TypeError('CREDENTIAL_FIELDS_DISALLOWED');
+      if(store==='corporateContracts'){
+        const n=Number(input.patientCoPayPercent),coverage=Number(input.companyCoveragePercent),
+          discount=Number(input.discountPercent);
+        if(!String(input.nameAr||'').trim() || !String(input.code||'').trim() ||
+           ![n,coverage,discount].every(Number.isFinite) ||
+           n<0 || n>100 || coverage<0 || coverage>100 || discount<0 || discount>100 ||
+           Math.abs(n+coverage-100)>0.01)
+          throw new TypeError('INVALID_CONTRACT');
+      }
+      const saved=await scopedStore(req,store,'edit',async(db,session)=>{
+        const mapped=storeMaps.get(store)!;
+        await db.beginTransaction();
+        try{
+          const [existing]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT t.id,t.raw_json FROM `'+mapped.mysqlTable+'` t WHERE t.id=? FOR UPDATE',[id]);
+          const old=existing[0] as mysql.RowDataPacket|undefined;
+          const action=old?'edit':'add';
+          const rights=await ownBranchPermissions({execute:(sql,params)=>
+            db.execute(sql,params as string[])},session.userId,session.branchId!);
+          const specific=rights.find(x=>x.resource===editableStores[store].permission);
+          if(action==='add' && session.role!=='Developer' &&
+             !(session.role==='Owner' ? (!specific || specific.actions.add===true)
+               : specific?.actions.add===true))throw new Error('FORBIDDEN');
+          if(old){
+            const [linked]=await db.execute<mysql.RowDataPacket[]>(
+              'SELECT 1 AS yes FROM mysql_store_branch_access WHERE store_name=? AND record_id=? AND branch_id=?',
+              [store,id,session.branchId!]);
+            if(!linked.length)throw new Error('RECORD_NOT_IN_BRANCH');
+          }
+          const cols=[...mapped.columns.map(c=>c.name),'raw_json'];
+          const vals=[...mapped.columns.map(c=>c.extract(input)),JSON.stringify(input)];
+          const sqlTable='`'+mapped.mysqlTable+'`';
+          if(old){
+            const updates=cols.filter(c=>c!=='id');
+            await db.execute('UPDATE '+sqlTable+' SET '+updates.map(c=>'`'+c+'`=?').join(',')+' WHERE id=?',
+              [...cols.flatMap((c,i)=>c==='id'?[]:[vals[i]]),id]);
+          }else{
+            await db.execute('INSERT INTO '+sqlTable+' ('+cols.map(c=>'`'+c+'`').join(',')+
+              ') VALUES ('+cols.map(()=>'?').join(',')+')',vals);
+            await db.execute(
+              'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+              [store,id,session.branchId!,session.userId]);
+          }
+          await db.execute('INSERT INTO tlab_mutation_audit_v10(event_id,resource,record_id,branch_id,actor_id,operation,before_json,after_json,created_at) VALUES (?,?,?,?,?,?,?,?,NOW())',
+            [randomBytes(16).toString('hex'),store,id,session.branchId!,session.userId,action,old?.raw_json||null,JSON.stringify(input)]);
+          await db.commit();return id;
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql',store,id:saved});
+    }catch(e){respondError(res,e);}
+  });
+  app.delete('/api/branch-pilot/stores/:store/:id',async(req,res)=>{
+    const store=String(req.params.store||'');
+    const id=String(req.params.id||'');
+    try{
+      if(!validBranchId(id))throw new TypeError('INVALID_ID');
+      const archived=await scopedStore(req,store,'delete',async(db,session)=>{
+        const mapped=storeMaps.get(store)!;
+        await db.beginTransaction();
+        try{
+          const [rows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT t.id,t.raw_json FROM `'+mapped.mysqlTable+'` t INNER JOIN mysql_store_branch_access m ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? WHERE t.id=? FOR UPDATE',
+            [store,session.branchId!,id]);
+          if(!rows.length)throw new Error('RECORD_NOT_IN_BRANCH');
+          // No hard deletion of billed contracts, clinical cultures or QC evidence.
+          const prior=decodeStoreRow(rows[0]);
+          const updated={...prior,id,active:false,archived:true};
+          const table='`'+mapped.mysqlTable+'`';
+          if(editableStores[store].hasActive)
+            await db.execute('UPDATE '+table+' SET active=0,raw_json=? WHERE id=?',
+              [JSON.stringify(updated),id]);
+          else
+            await db.execute('UPDATE '+table+' SET raw_json=? WHERE id=?',
+              [JSON.stringify(updated),id]);
+          await db.execute('INSERT INTO tlab_mutation_audit_v10(event_id,resource,record_id,branch_id,actor_id,operation,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?,NOW())',
+            [randomBytes(16).toString('hex'),store,id,session.branchId!,session.userId,'archive',String(rows[0].raw_json||'{}'),JSON.stringify(updated)]);
+          await db.commit();return id;
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql',store,id:archived});
+    }catch(e){respondError(res,e);}
+  });
+
   // Schema diagnostics are read-only and available only after the privileged
   // application account is authenticated on the server.
   app.get('/api/branch-pilot/schema-status', async (_req, res) => {
