@@ -15,7 +15,7 @@ describe('MySQL screen CRUD on Windows',()=>{
     vi.stubGlobal('fetch',fetcher);
     const values=await connectedStore(db.corporateContracts,'corporateContracts').toArray();
     expect(values.map(x=>x.id)).toEqual(['cnt_1']);
-    expect(fetcher.mock.calls[0][0]).toContain('/api/branch-pilot/stores/corporateContracts');
+    expect((fetcher.mock.calls as unknown as Array<[string,RequestInit]>)[0][0]).toContain('/api/branch-pilot/stores/corporateContracts');
   });
   it('saves an edited contract with PUT, never Dexie',async()=>{
     pilot();
@@ -39,8 +39,8 @@ describe('MySQL screen CRUD on Windows',()=>{
     })}));
     vi.stubGlobal('fetch',fetcher);
     await connectedStore(db.cultureResults,'cultureResults').delete('c1');
-    expect(fetcher.mock.calls[0][0]).toBe('/api/branch-pilot/stores/cultureResults/c1');
-    expect((fetcher.mock.calls[0][1] as RequestInit).method).toBe('DELETE');
+    expect((fetcher.mock.calls as unknown as Array<[string,RequestInit]>)[0][0]).toBe('/api/branch-pilot/stores/cultureResults/c1');
+    expect((fetcher.mock.calls as unknown as Array<[string,RequestInit]>)[0][1].method).toBe('DELETE');
   });
   it('uses one transactional endpoint for QC bulk recalculation',async()=>{
     pilot();
@@ -50,7 +50,7 @@ describe('MySQL screen CRUD on Windows',()=>{
     vi.stubGlobal('fetch',fetcher);
     await connectedStore(db.qcRuns,'qcRuns').bulkPut([{id:'qc_1'},{id:'qc_2'}] as never);
     expect(fetcher.mock.calls).toHaveLength(1);
-    expect(fetcher.mock.calls[0][0]).toBe('/api/branch-pilot/stores/qcRuns/bulk');
+    expect((fetcher.mock.calls as unknown as Array<[string,RequestInit]>)[0][0]).toBe('/api/branch-pilot/stores/qcRuns/bulk');
   });
   it('never exposes passwords from the MySQL users response',async()=>{
     pilot();
