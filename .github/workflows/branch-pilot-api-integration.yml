@@ -5,6 +5,7 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'server/mysql-crud-routes.ts'
       - 'server/mysql-unified-store.ts'
+      - 'scripts/ui-screens-smoke.mjs'
       - 'src/db/mysql-remote-db.ts'
       - 'src/db/database.ts'
       - 'src/tests/services/mysql-remote-db.test.ts'
@@ -45,6 +46,8 @@ jobs:
           npm install --no-audit --no-fund
           npm run lint
           npm run build
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
       - name: Set up disposable representative legacy database and additive branch migration
         run: |
           mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db <<'SQL'
@@ -209,6 +212,7 @@ jobs:
           count=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM journal_entries WHERE id='je_ci_bad'")
           test "$count" = 0
 
+          TLAB_TEST_PASSWORD=dev-test-password node scripts/ui-screens-smoke.mjs
           curl -fsS -b cookies.txt -X POST http://127.0.0.1:3127/api/branch-pilot/logout
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
           test "$code" = 401
