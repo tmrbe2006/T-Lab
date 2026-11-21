@@ -33,7 +33,7 @@ on:
       - 'src/tests/services/mysql-finance.read.test.ts'
       - 'src/repositories/home-visits.mysql.repository.ts'
       - 'src/pages/operations/home-visits.page.ts'
-      - 'src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.read.test.ts'
+      - 'src/tests/services/mysql-home-visits.repository.test.ts'
       - 'src/pages/finance/invoices.page.ts'
       - 'src/pages/finance/commissions.page.ts'
       - 'src/pages/finance/accounting.page.ts'
@@ -91,7 +91,7 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts
+        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.read.test.ts
       - name: Audit remaining browser database dependencies (pilot warning)
         run: node scripts/mysql-cutover-readiness.mjs
       - name: Build frontend
