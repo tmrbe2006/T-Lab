@@ -25,7 +25,8 @@ page.on('pageerror',err=>{
 });
 page.on('response',response=>{
   const u=response.url();
-  if(u.includes('/api/branch-pilot/')&&response.status()>=400){
+  if(u.includes('/api/branch-pilot/')&&response.status()>=400 &&
+     !(route==='login' && response.status()===401 && u.includes('/staff-session'))){
     response.text().then(body=>{
       issues.push({route,kind:'http',status:response.status(),
         url:u.slice(0,250),response:body.slice(0,600)});
