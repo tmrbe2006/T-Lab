@@ -9,6 +9,7 @@ on:
       - 'src/db/database.ts'
       - 'src/tests/services/mysql-remote-db.test.ts'
       - 'sql/tlab_main_mysql_repair_v10.sql'
+      - 'sql/TLab_Unified_MySQL_49_Tables_v11.sql'
       - 'sql/tlab_all_49_store_branch_access_v8.sql'
       - 'src/repositories/mysql-crud.adapter.ts'
       - 'server/branch-service.ts'
@@ -63,6 +64,13 @@ jobs:
           sed 's/USE `tlab_multibranch_pilot`;/USE `tlab_db`;/' sql/tlab_all_49_store_branch_access_v8.sql | mysql -h 127.0.0.1 -uroot -pintegration-only-password
           mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db < sql/tlab_main_mysql_repair_v10.sql
           mysql -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "ALTER TABLE users ADD COLUMN full_name_ar VARCHAR(191) NULL;"
+      - name: Validate complete 49-table unified SQL on clean MySQL
+        run: |
+          mysql -h 127.0.0.1 -uroot -pintegration-only-password -e "CREATE DATABASE tlab_schema_verification CHARACTER SET utf8 COLLATE utf8_general_ci"
+          sed 's/USE `tlab_multibranch_pilot`;/USE `tlab_schema_verification`;/' sql/TLab_Unified_MySQL_49_Tables_v11.sql | mysql -h 127.0.0.1 -uroot -pintegration-only-password
+          n=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_schema_verification -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()")
+          test "$n" -ge 59
+          mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_schema_verification -e "SHOW TABLES LIKE 'mysql_store_branch_access'" | grep mysql_store_branch_access
       - name: Start local-only branch administration and verify actual HTTP/MySQL operations
         env:
           PORT: '3127'
