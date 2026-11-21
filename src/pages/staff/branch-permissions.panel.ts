@@ -29,7 +29,7 @@ export async function renderBranchPermissionPanel(container: HTMLElement): Promi
   container.innerHTML =
     '<div class="space-y-4">' +
       '<h2 class="text-xl font-bold text-slate-900">صلاحيات المستخدم حسب الفرع / User permissions by branch</h2>' +
-      '<p class="text-sm text-slate-600">اختر المستخدم ثم الفرع المسند إليه. تُحفظ صلاحيات كل مستخدم في كل فرع بصورة مستقلة. عدم تحديد صلاحية يعني منعها.</p>' +
+      '<p class="text-sm text-slate-600">الصلاحيات هنا لكل مستخدم داخل فرع محدد، وليست تعديلًا عامًا للدور. اختر المستخدم والفرع. التعديلات لا تؤثر على الفروع الأخرى؛ والخانات المقفلة تحتفظ بقيمها.</p>' +
       '<div class="grid sm:grid-cols-2 gap-3 rounded-xl border bg-white p-4">' +
         '<label class="text-sm font-semibold">المستخدم / User<select id="bp-user" class="block w-full border p-2 rounded mt-2"></select></label>' +
         '<label class="text-sm font-semibold">الفرع / Branch<select id="bp-branch" class="block w-full border p-2 rounded mt-2"></select></label>' +
@@ -151,14 +151,20 @@ export async function renderBranchPermissionPanel(container: HTMLElement): Promi
     if (!userEl.value || !branchEl.value) return;
     save.disabled=true;
     try {
+      // Preserve permissions that the UI intentionally makes non-editable.
+      // Previously every disabled checkbox was submitted as false, silently
+      // revoking existing privileges whenever any other permission was saved.
       const rows = ALL_RESOURCES.map((resource:ResourceScreen) => {
+        const previous = currentRows.find(row => row.resource === resource);
         const actions = {} as Record<PermissionAction,boolean>;
-        ALL_ACTIONS.forEach((action) => { actions[action] = false; });
+        ALL_ACTIONS.forEach((action) => {
+          actions[action] = previous?.actions?.[action] === true;
+        });
         return { resource, actions };
       });
-      grid.querySelectorAll<HTMLInputElement>('.bp-allow').forEach((cb) => {
+      grid.querySelectorAll<HTMLInputElement>('.bp-allow:not(:disabled)').forEach((cb) => {
         const row = rows.find((r) => r.resource === cb.dataset.resource);
-        if (row && cb.dataset.action) row.actions[cb.dataset.action as PermissionAction] = !cb.disabled && cb.checked;
+        if (row && cb.dataset.action) row.actions[cb.dataset.action as PermissionAction] = cb.checked;
       });
       await callApi('/user-permissions', {userId:userEl.value,branchId:branchEl.value,rows});
       message('تم حفظ صلاحيات المستخدم لهذا الفرع فقط. يجب إعادة الدخول لتفعيل الصلاحيات الجديدة.');
