@@ -294,12 +294,14 @@ export async function renderHomeVisitsPage(container: HTMLElement): Promise<void
             if (!(await enforcePermission('delete', 'homeVisits'))) return;
             if(isMysqlBranchPilot()) await mysqlHomeVisitsRepository.archive(rec.id);
             else await db.homeVisits.delete(rec.id);
-            await authService.logAudit(
-              `حذف زيارة سحب منزلي: ${rec.visitNumber} (${rec.patientName})`,
-              'homeVisits',
-              rec.id,
-              reason || ''
-            );
+            try {
+              await authService.logAudit(
+                `حذف زيارة سحب منزلي: ${rec.visitNumber} (${rec.patientName})`,
+                'homeVisits', rec.id, reason || ''
+              );
+            } catch (auditError) {
+              console.error('Home visit archive audit:', auditError);
+            }
             showToast(
               i18n.bi(
                 `تم حذف زيارة السحب المنزلي (${rec.visitNumber}) بنجاح`,
