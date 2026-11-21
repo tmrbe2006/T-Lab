@@ -1,3 +1,4 @@
+import { useMySQLCrud } from './mysql-crud.adapter';
 import { db } from '../db/database';
 import { CacheService } from '../services/cache.service';
 import type { AuditLog, LabSettings, Role, RoleName, RolePermission } from '../types';
@@ -41,6 +42,18 @@ export class PermissionsRepository {
   }
 
   async addAuditLog(log: AuditLog): Promise<string> {
+    if(useMySQLCrud()){
+      const response=await fetch('/api/branch-pilot/audit-log',{
+        method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:log.action,screen:log.screen,
+          recordId:log.recordId,details:log.details}),
+      });
+      const data=await response.json() as {ok?:boolean;source?:string;id?:string;error?:string};
+      if(!response.ok||data.ok!==true||data.source!=='mysql'||!data.id)
+        throw new Error(data.error||'MYSQL_AUDIT_FAILED');
+      return data.id;
+    }
     return db.auditLogs.put(log);
   }
 
