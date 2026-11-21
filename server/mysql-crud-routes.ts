@@ -142,6 +142,55 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
       res.json({ok:true,source:'mysql',store,id});
     }catch(e){failure(res,e);}
   });
+
+  app.post('/api/branch-pilot/stores/:store/bulk',async(req,res)=>{
+    const store=String(req.params.store||'');
+    try{
+      const m=target(store),items=req.body?.records as Array<Record<string,unknown>>|undefined;
+      if(store!=='qcRuns'||!Array.isArray(items)||!items.length||items.length>500 ||
+         items.some(r=>!r||!idOK(r.id)||JSON.stringify(r).length>200000))
+        throw new Error('INVALID_BULK_RECORDS');
+      await scoped(res,stores[store].resource,'edit',async(db,s)=>{
+        await db.beginTransaction();
+        try{
+          for(const r of items){
+            const id=String(r.id);
+            const [oldRows]=await db.execute<mysql.RowDataPacket[]>(
+              'SELECT id,raw_json FROM `'+m.mysqlTable+'` WHERE id=? FOR UPDATE',[id]);
+            const old=oldRows[0];
+            if(old){
+              const [allowed]=await db.execute<mysql.RowDataPacket[]>(
+                'SELECT 1 AS ok FROM mysql_store_branch_access WHERE store_name=? AND record_id=? AND branch_id=?',
+                [store,id,s.branchId!]);
+              if(!allowed.length)throw new Error('RECORD_NOT_IN_BRANCH');
+            }
+            const cols=[...m.columns.map(c=>c.name),'raw_json'];
+            const vals=[...m.columns.map(c=>c.extract(r)),JSON.stringify(r)];
+            if(old){
+              const changes=cols.filter(c=>c!=='id');
+              await db.execute('UPDATE `'+m.mysqlTable+'` SET '+
+                changes.map(c=>'`'+c+'`=?').join(',')+' WHERE id=?',
+                [...cols.flatMap((c,i)=>c==='id'?[]:[vals[i]]),id]);
+            }else{
+              const rights=await ownBranchPermissions({execute:(sql,params)=>
+                db.execute(sql,params as string[])},s.userId,s.branchId!);
+              const permission=rights.find(x=>x.resource===stores[store].resource);
+              if(!(s.role==='Developer'||(s.role==='Owner'?
+                (!permission||permission.actions.add===true):permission?.actions.add===true)))
+                throw new Error('FORBIDDEN');
+              await db.execute('INSERT INTO `'+m.mysqlTable+'` ('+
+                cols.map(c=>'`'+c+'`').join(',')+') VALUES ('+cols.map(()=>'?').join(',')+')',vals);
+              await db.execute('INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+                [store,id,s.branchId!,s.userId]);
+            }
+            await audit(db,s,store,id,old?'edit':'add',old?parse(old.raw_json):undefined,r);
+          }
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.json({ok:true,source:'mysql',store,count:items.length});
+    }catch(e){failure(res,e);}
+  });
   app.delete('/api/branch-pilot/stores/:store/:id',async(req,res)=>{
     const store=String(req.params.store||'');
     try{
