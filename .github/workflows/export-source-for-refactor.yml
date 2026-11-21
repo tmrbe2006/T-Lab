@@ -12,7 +12,7 @@ jobs:
       - name: Package source files
         shell: bash
         run: |
-          tar -czf tlab-source-refactor.tar.gz src server server.ts package.json package-lock.json tsconfig.json vite.config.ts installer 2>/dev/null || tar -czf tlab-source-refactor.tar.gz src server server.ts package.json package-lock.json
+          tar -czf tlab-source-refactor.tar.gz src server server.ts package.json installer
       - uses: actions/upload-artifact@v4
         with:
           name: tlab-source-refactor
