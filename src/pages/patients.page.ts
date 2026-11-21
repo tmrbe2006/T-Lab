@@ -569,15 +569,17 @@ ${liveMySQL ? '—' : `${reqCount} ${i18n.bi('طلب', 'Reqs')}`}
               );
               return;
             }
-            await authService.logAudit(
-              `حذف مريض: ${target.name}`,
-              'patients',
-              target.id,
-              reason || 'Confirmed by user'
-            );
-            showToast(i18n.bi(`تم حذف المريض ${target.name} بنجاح`, `Deleted patient ${target.name}`), 'success');
             allPatients = await patientsRepository.getAll();
             renderTable();
+            showToast(i18n.bi(`تم أرشفة المريض ${target.name} بنجاح`, `Archived patient ${target.name}`), 'success');
+            try {
+              await authService.logAudit(
+                `أرشفة مريض: ${target.name}`,
+                'patients', target.id, reason || 'Confirmed by user'
+              );
+            } catch (auditError) {
+              console.error('Patient archive audit:', auditError);
+            }
           },
         });
       });
