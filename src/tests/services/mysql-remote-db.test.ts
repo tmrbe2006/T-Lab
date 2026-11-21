@@ -6,7 +6,7 @@ afterEach(()=>vi.unstubAllGlobals());
 const reply=(value:Record<string,unknown>,status=200)=>({
   ok:status<400,status,json:async()=>value,
 });
-function fake(records:Record<string,Array<{id:string}>>){
+function fake(records:Record<string,Array<{id:string;[key:string]:unknown}>>){
   const requests:Array<{url:string;method:string;body:Record<string,unknown>|undefined}>=[];
   vi.stubGlobal('fetch',vi.fn(async(url:string,options:RequestInit)=>{
     const method=options.method||'GET';
