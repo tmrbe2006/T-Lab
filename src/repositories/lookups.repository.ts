@@ -1,3 +1,4 @@
+import { saveMySQLMaster, archiveMySQLMaster } from './mysql-master.write';
 import { db } from '../db/database';
 import { allMySQLStoreRows, useMySQLStore, refuseUnmigratedMySQLWrite } from './mysql-all-stores.read';
 import type { DoctorSpecialty, SampleTube, ScientificDepartment } from '../types';
@@ -55,11 +56,13 @@ export const lookupsRepository = {
   },
 
   async saveDoctorSpecialty(record: DoctorSpecialty): Promise<void> {
+    if(useMySQLStore())return saveMySQLMaster('doctorSpecialties',record);
     refuseUnmigratedMySQLWrite();
     await db.doctorSpecialties.put(record);
   },
 
   async deleteDoctorSpecialty(id: string): Promise<void> {
+    if(useMySQLStore())return archiveMySQLMaster('doctorSpecialties',id);
     refuseUnmigratedMySQLWrite();
     await db.doctorSpecialties.delete(id);
   },
@@ -74,11 +77,13 @@ export const lookupsRepository = {
   },
 
   async saveScientificDepartment(record: ScientificDepartment): Promise<void> {
+    if(useMySQLStore())return saveMySQLMaster('scientificDepartments',record);
     refuseUnmigratedMySQLWrite();
     await db.scientificDepartments.put(record);
   },
 
   async deleteScientificDepartment(id: string): Promise<void> {
+    if(useMySQLStore())return archiveMySQLMaster('scientificDepartments',id);
     refuseUnmigratedMySQLWrite();
     await db.scientificDepartments.delete(id);
   },
@@ -93,11 +98,13 @@ export const lookupsRepository = {
   },
 
   async saveSampleTube(record: SampleTube): Promise<void> {
+    if(useMySQLStore())return saveMySQLMaster('sampleTubes',record);
     refuseUnmigratedMySQLWrite();
     await db.sampleTubes.put(record);
   },
 
   async deleteSampleTube(id: string): Promise<void> {
+    if(useMySQLStore())return archiveMySQLMaster('sampleTubes',id);
     refuseUnmigratedMySQLWrite();
     await db.sampleTubes.delete(id);
   },
