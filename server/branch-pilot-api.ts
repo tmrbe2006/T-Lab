@@ -376,6 +376,52 @@ export function installBranchPilotRoutes(app: Express): void {
     } catch (error) { respondError(res, error); }
   });
 
+  // Read-only counts distinguish an empty table from records mapped to
+  // another branch. Only authorized administrators may see cross-branch totals.
+  app.get('/api/branch-pilot/branch-data-diagnostics', async (req,res) => {
+    const session=getSession(req);
+    if (!session?.branchId || !['Developer','Owner'].includes(session.role)) {
+      res.status(403).json({ok:false,error:'FORBIDDEN'});return;
+    }
+    try {
+      const summary=await useDatabase(async db=>{
+        const permitted=await staffAssignedBranches(db,session.userId,session.role);
+        if(!permitted.some(b=>b.branchId===session.branchId))
+          throw new Error('BRANCH_NOT_ASSIGNED');
+        const stores=[
+          {store:'patients',table:'patients'},
+          {store:'homeVisits',table:'home_visits'},
+          {store:'employees',table:'employees'},
+          {store:'requests',table:'lab_requests'},
+        ] as const;
+        const result:Record<string,{total:number;branch:number;unmapped:number}>={};
+        for(const item of stores){
+          // Identifiers are server-owned constants, never request parameters.
+          const [allRows]=await db.query<mysql.RowDataPacket[]>(
+            'SELECT COUNT(*) AS n FROM `'+item.table+'`');
+          const [mappedRows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT COUNT(*) AS n FROM `'+item.table+'` t INNER JOIN mysql_store_branch_access m ON m.record_id=t.id AND m.store_name=? AND m.branch_id=?',
+            [item.store,session.branchId!]);
+          const [unmappedRows]=await db.execute<mysql.RowDataPacket[]>(
+            'SELECT COUNT(*) AS n FROM `'+item.table+'` t WHERE NOT EXISTS (SELECT 1 FROM mysql_store_branch_access m WHERE m.store_name=? AND m.record_id=t.id)',
+            [item.store]);
+          result[item.store]={
+            total:Number(allRows[0]?.n||0),
+            branch:Number(mappedRows[0]?.n||0),
+            unmapped:Number(unmappedRows[0]?.n||0),
+          };
+        }
+        const [permissionRows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT COUNT(*) AS n FROM user_branch_permissions WHERE user_id=? AND branch_id=?',
+          [session.userId,session.branchId!]);
+        return {branch:permitted.find(b=>b.branchId===session.branchId)!,
+          stores:result,permissionRows:Number(permissionRows[0]?.n||0)};
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({ok:true,source:'mysql',...summary});
+    }catch(error){respondError(res,error);}
+  });
+
   app.get('/api/branch-pilot/user-branches', async (req, res) => {
     const userId = req.query.userId;
     if (!validBranchId(userId)) { res.status(400).json({ok:false,error:'INVALID_USER'}); return; }
