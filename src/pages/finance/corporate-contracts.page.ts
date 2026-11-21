@@ -1,3 +1,4 @@
+import { connectedStore } from '../../repositories/mysql-crud.adapter';
 import {
   closeModal,
   escapeHtml,
@@ -21,7 +22,7 @@ export async function renderCorporateContractsPage(container: HTMLElement): Prom
 
   const render = async () => {
     const [contracts, invoices, patients] = await Promise.all([
-      db.corporateContracts.toArray(),
+      connectedStore(db.corporateContracts,'corporateContracts').toArray(),
       invoicesRepository.getAll(),
       patientsRepository.getAll(),
     ]);
@@ -333,7 +334,7 @@ function openNewContractModal(onSaved: () => void): void {
       active: true,
       notes: 'تعاقد نشط',
     };
-    await db.corporateContracts.put(rec);
+    await connectedStore(db.corporateContracts,'corporateContracts').put(rec);
     closeModal();
     showToast(i18n.bi('تم إضافة جهة التعاقد بنجاح', 'Corporate contract added'), 'success');
     onSaved();
