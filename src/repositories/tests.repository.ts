@@ -1,5 +1,6 @@
 import { db } from '../db/database';
 import { syncGlobalMedicalCatalog } from '../db/global-medical-tests';
+import { useMySQLCrud } from './mysql-crud.adapter';
 import { CacheService } from '../services/cache.service';
 import type { LabTest, TestParameter } from '../types';
 
@@ -9,7 +10,7 @@ const PARAM_BY_TEST_PREFIX = 'catalog:params:test:';
 
 export class TestsRepository {
   async getAllTests(): Promise<LabTest[]> {
-    await syncGlobalMedicalCatalog(false);
+    if (!useMySQLCrud()) await syncGlobalMedicalCatalog(false);
     return CacheService.get(TESTS_CACHE_KEY, () => db.tests.toArray());
   }
 
@@ -33,12 +34,12 @@ export class TestsRepository {
   }
 
   async getAllParameters(): Promise<TestParameter[]> {
-    await syncGlobalMedicalCatalog(false);
+    if (!useMySQLCrud()) await syncGlobalMedicalCatalog(false);
     return CacheService.get(PARAMS_ALL_CACHE_KEY, () => db.testParameters.toArray());
   }
 
   async getParametersByTestId(testId: string): Promise<TestParameter[]> {
-    await syncGlobalMedicalCatalog(false);
+    if (!useMySQLCrud()) await syncGlobalMedicalCatalog(false);
     return CacheService.get(`${PARAM_BY_TEST_PREFIX}${testId}`, async () => {
       const list = await db.testParameters.where('testId').equals(testId).toArray();
       return list.sort((a, b) => a.sortOrder - b.sortOrder);
