@@ -1,4 +1,5 @@
 import { db } from '../db/database';
+import { allMySQLStoreRows, useMySQLStore, refuseUnmigratedMySQLWrite } from './mysql-all-stores.read';
 import type { DoctorSpecialty, SampleTube, ScientificDepartment } from '../types';
 
 export const DEFAULT_DOCTOR_SPECIALTIES: DoctorSpecialty[] = [
@@ -45,8 +46,8 @@ export const DEFAULT_SAMPLE_TUBES: SampleTube[] = [
 
 export const lookupsRepository = {
   async getDoctorSpecialties(): Promise<DoctorSpecialty[]> {
-    let rows = await db.doctorSpecialties.toArray();
-    if (rows.length === 0) {
+    let rows = useMySQLStore() ? await allMySQLStoreRows<DoctorSpecialty>('doctorSpecialties') : await db.doctorSpecialties.toArray();
+    if (!useMySQLStore() && rows.length === 0) {
       await db.doctorSpecialties.bulkPut(DEFAULT_DOCTOR_SPECIALTIES);
       rows = [...DEFAULT_DOCTOR_SPECIALTIES];
     }
@@ -54,15 +55,17 @@ export const lookupsRepository = {
   },
 
   async saveDoctorSpecialty(record: DoctorSpecialty): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.doctorSpecialties.put(record);
   },
 
   async deleteDoctorSpecialty(id: string): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.doctorSpecialties.delete(id);
   },
 
   async getScientificDepartments(): Promise<ScientificDepartment[]> {
-    let rows = await db.scientificDepartments.toArray();
+    let rows = useMySQLStore() ? await allMySQLStoreRows<ScientificDepartment>('scientificDepartments') : await db.scientificDepartments.toArray();
     if (rows.length === 0) {
       await db.scientificDepartments.bulkPut(DEFAULT_SCIENTIFIC_DEPARTMENTS);
       rows = [...DEFAULT_SCIENTIFIC_DEPARTMENTS];
@@ -71,15 +74,17 @@ export const lookupsRepository = {
   },
 
   async saveScientificDepartment(record: ScientificDepartment): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.scientificDepartments.put(record);
   },
 
   async deleteScientificDepartment(id: string): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.scientificDepartments.delete(id);
   },
 
   async getSampleTubes(): Promise<SampleTube[]> {
-    let rows = await db.sampleTubes.toArray();
+    let rows = useMySQLStore() ? await allMySQLStoreRows<SampleTube>('sampleTubes') : await db.sampleTubes.toArray();
     if (rows.length === 0) {
       await db.sampleTubes.bulkPut(DEFAULT_SAMPLE_TUBES);
       rows = [...DEFAULT_SAMPLE_TUBES];
@@ -88,10 +93,12 @@ export const lookupsRepository = {
   },
 
   async saveSampleTube(record: SampleTube): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.sampleTubes.put(record);
   },
 
   async deleteSampleTube(id: string): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.sampleTubes.delete(id);
   },
 };
