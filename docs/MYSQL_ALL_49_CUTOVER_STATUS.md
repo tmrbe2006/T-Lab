@@ -71,3 +71,15 @@ all 49 stores are reconciled, binary attachments are preserved, every branch
 and role is enforced server-side, posted financial documents remain balanced,
 and the Windows installer passes genuine MySQL integration tests with separate
 browser profiles. Until then keep the primary release and original data intact.
+
+## 2026-11-21 — Financial MySQL transaction pilot
+The following server-backed workflows have now been added to port 3127:
+- `POST /api/branch-pilot/finance/manual-journal` — creates a balanced manual journal with branch and account validation.
+- `POST /api/branch-pilot/finance/manual-invoice` — adds a manual service invoice, item and double-entry revenue journal in one transaction.
+- `POST /api/branch-pilot/finance/receipt` — checks payer share and prior receipts, posts the payment, invoice balance and journal atomically.
+- `POST /api/branch-pilot/finance/daily-close` — calculates daily totals on the server, prevents duplicate date closes.
+- `POST /api/branch-pilot/finance/doctor-payout` — marks a doctor commission paid and posts the balanced cash/payout journal atomically.
+- These operations reject closed accounting periods or previously closed business dates.
+- Patient, doctor, visit and finance read/write paths use `mysql_store_branch_access` from **v8**. Extra v5–v7 mapping scripts are not needed by these current endpoints. The three master lookup CRUD screens audit into `audit_logs`, also already present in the 49-table schema.
+
+**Still incomplete and NOT production-ready:** commission payout reversal, automatic invoice adjustment/voiding, expenses + financial journals in all paths, period reopening, result approval, inventory/purchasing stock movements, reports from unported services, and complete multi-user MySQL integration tests. No successful Windows EXE binary build was confirmed. Do not distribute a 'final' installer from this branch until the remaining paths and tests pass.
