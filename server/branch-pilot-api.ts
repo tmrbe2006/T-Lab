@@ -689,7 +689,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try {
       const patients=await withPatientDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name='patients' WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code',
+          'SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name=\'patients\' WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code',
           [session.branchId!]);
         return rows.map(patientFromRow);
       });
@@ -733,11 +733,11 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try {
           const [existing]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT p.id, p.code FROM patients p JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name='patients' WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
+            'SELECT p.id, p.code FROM patients p JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name=\'patients\' WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
             [patient.id,session.branchId!]);
           if(!existing.length)throw new Error('PATIENT_NOT_IN_BRANCH');
           const [shared]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name='patients' AND record_id=?',[patient.id]);
+            'SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name=\'patients\' AND record_id=?',[patient.id]);
           if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
           await db.execute(
             `UPDATE patients SET code=?,name=?,name_en=?,gender=?,age=?,birth_date=?,phone=?,national_id=?,address=?,
@@ -762,14 +762,14 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try{
           const [rows]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT p.id FROM patients p JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name='patients' WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
+            'SELECT p.id FROM patients p JOIN mysql_store_branch_access pa ON pa.record_id=p.id AND pa.store_name=\'patients\' WHERE p.id=? AND pa.branch_id=? FOR UPDATE',
             [id,session.branchId!]);
           if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
           const [usage]=await db.execute<mysql.RowDataPacket[]>(
             'SELECT COUNT(*) AS n FROM lab_requests WHERE patient_id=?',[id]);
           if(Number(usage[0]?.n)>0)throw new Error('PATIENT_HAS_HISTORY');
           const [shared]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name='patients' AND record_id=?',[id]);
+            'SELECT COUNT(*) AS n FROM mysql_store_branch_access WHERE store_name=\'patients\' AND record_id=?',[id]);
           if(Number(shared[0]?.n)>1)throw new Error('PATIENT_SHARED_WITH_OTHER_BRANCH');
           await db.execute('UPDATE patients SET active=0 WHERE id=?',[id]);
           await db.commit();
@@ -837,7 +837,7 @@ export function installBranchPilotRoutes(app: Express): void {
   }
   async function requireHomeVisitPatient(db:mysql.Connection,patientId:string,branchId:string){
     const [rows]=await db.execute<mysql.RowDataPacket[]>(
-      'SELECT 1 AS allowed FROM mysql_store_branch_access a JOIN patients p ON p.id=a.record_id WHERE a.store_name='patients' AND a.record_id=? AND a.branch_id=? AND p.active=1 LIMIT 1',
+      'SELECT 1 AS allowed FROM mysql_store_branch_access a JOIN patients p ON p.id=a.record_id WHERE a.store_name=\'patients\' AND a.record_id=? AND a.branch_id=? AND p.active=1 LIMIT 1',
       [patientId,branchId]);
     if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
   }
@@ -862,7 +862,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try{
       const visits=await withHomeVisitDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT v.* FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name='homeVisits' WHERE a.branch_id=? ORDER BY v.scheduled_date DESC',
+          'SELECT v.* FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name=\'homeVisits\' WHERE a.branch_id=? ORDER BY v.scheduled_date DESC',
           [session.branchId!]);
         return rows.map(row=>{
           let raw:Record<string,unknown>={};
@@ -908,7 +908,7 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try{
           const [rows]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT v.id FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name='homeVisits' WHERE v.id=? AND a.branch_id=? FOR UPDATE',
+            'SELECT v.id FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name=\'homeVisits\' WHERE v.id=? AND a.branch_id=? FOR UPDATE',
             [rec.id,session.branchId!]);
           if(!rows.length)throw new Error('VISIT_NOT_IN_BRANCH');
           await requireHomeVisitPatient(db,String(rec.patientId),session.branchId!);
@@ -927,7 +927,7 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try{
           const [rows]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT v.* FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name='homeVisits' WHERE v.id=? AND a.branch_id=? FOR UPDATE',
+            'SELECT v.* FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name=\'homeVisits\' WHERE v.id=? AND a.branch_id=? FOR UPDATE',
             [req.params.id,session.branchId!]);
           if(!rows.length)throw new Error('VISIT_NOT_IN_BRANCH');
           const row=rows[0];let raw:Record<string,unknown>={};
@@ -1095,7 +1095,7 @@ export function installBranchPilotRoutes(app: Express): void {
         if(!(session.role==='Developer' || (session.role==='Owner'
           ? (!rule||rule.actions.view===true) : rule?.actions.view===true)))throw new Error('FORBIDDEN');
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT d.* FROM doctors d INNER JOIN mysql_store_branch_access a ON a.record_id=d.id AND a.store_name='doctors' WHERE a.branch_id=? AND d.active=1 ORDER BY d.code',
+          'SELECT d.* FROM doctors d INNER JOIN mysql_store_branch_access a ON a.record_id=d.id AND a.store_name=\'doctors\' WHERE a.branch_id=? AND d.active=1 ORDER BY d.code',
           [session.branchId]);
         return rows.map(row=>{
           let raw:Record<string,unknown>={};
