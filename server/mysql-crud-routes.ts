@@ -78,7 +78,7 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
           'SELECT t.* FROM `'+m.mysqlTable+'` t INNER JOIN mysql_store_branch_access a ON a.record_id=t.id AND a.store_name=? AND a.branch_id=? ORDER BY t.id',
           [store,s.branchId!]);
-        return rows.map(row=>({...parse(row.raw_json),id:String(row.id)}))
+        return rows.map(row=>({...parse(row.raw_json),id:String(row.id)} as Record<string,unknown>))
           .filter(x=>x.active!==false && x.archived!==true);
       });
       res.json({ok:true,source:'mysql',store,records});
