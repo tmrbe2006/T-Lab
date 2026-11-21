@@ -712,7 +712,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try {
       const patients=await withPatientDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          "SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.store_name='patients' AND pa.record_id=p.id WHERE pa.branch_id=? AND p.active=1 ORDER BY p.code",
+          "SELECT p.* FROM patients p INNER JOIN mysql_store_branch_access pa ON pa.store_name='patients' AND pa.record_id=p.id WHERE pa.branch_id=? ORDER BY p.code",
           [session.branchId!]);
         return rows.map(patientFromRow);
       });
@@ -860,7 +860,7 @@ export function installBranchPilotRoutes(app: Express): void {
   }
   async function requireHomeVisitPatient(db:mysql.Connection,patientId:string,branchId:string){
     const [rows]=await db.execute<mysql.RowDataPacket[]>(
-      "SELECT 1 AS allowed FROM mysql_store_branch_access a JOIN patients p ON p.id=a.record_id WHERE a.store_name='patients' AND a.record_id=? AND a.branch_id=? AND p.active=1 LIMIT 1",
+      "SELECT 1 AS allowed FROM mysql_store_branch_access a JOIN patients p ON p.id=a.record_id WHERE a.store_name='patients' AND a.record_id=? AND a.branch_id=? LIMIT 1",
       [patientId,branchId]);
     if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
   }
