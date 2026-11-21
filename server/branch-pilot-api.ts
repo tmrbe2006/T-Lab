@@ -1264,8 +1264,18 @@ export function installBranchPilotRoutes(app: Express): void {
                 [...newValues,id]);
             }
           }
-          await db.execute('INSERT INTO mysql_store_mutation_audit(store_name,record_id,branch_id,actor_id,action,at_utc) VALUES (?,?,?,?,?,UTC_TIMESTAMP())',
-            [store,id,session.branchId!,session.userId,action]);
+          // Audit in the existing 49-table schema: no extra SQL migration required.
+          const auditId='aud_'+randomBytes(16).toString('hex');
+          const audit={id:auditId,userId:session.userId,username:session.username,
+            role:session.role,screen:store,action,recordId:id,
+            timestamp:new Date().toISOString(),details:'MySQL master '+action};
+          await db.execute(
+            'INSERT INTO audit_logs(id,user_id,username,role,screen,action,record_id,timestamp,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [audit.id,audit.userId,audit.username,audit.role,audit.screen,audit.action,
+              audit.recordId,audit.timestamp,JSON.stringify(audit)]);
+          await db.execute(
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['auditLogs',auditId,session.branchId!,session.userId]);
           await db.commit();
         }catch(error){await db.rollback();throw error;}
       });
