@@ -2,7 +2,7 @@ import { randomBytes, scryptSync } from 'node:crypto';
 import type { Express, Response } from 'express';
 import mysql from 'mysql2/promise';
 import { MYSQL_TABLES_CONFIG } from '../src/db/mysql-schema';
-import { ownBranchPermissions } from './branch-user-permissions';
+import { ownBranchPermissions, ownEffectiveBranchPermissions, BRANCH_RESOURCES, BRANCH_ACTIONS, validateMatrix } from './branch-user-permissions';
 
 export interface CrudSession {
   userId:string; role:string; username:string; branchId?:string;
@@ -56,9 +56,9 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
           : 'SELECT b.id FROM branches b JOIN user_branches ub ON ub.branch_id=b.id WHERE b.id=? AND b.active=1 AND ub.user_id=?',
         s.role==='Developer'?[s.branchId]:[s.branchId,s.userId]);
       if(!branches.length)throw new Error('BRANCH_NOT_ASSIGNED');
-      const matrix=await ownBranchPermissions({
+      const matrix=await ownEffectiveBranchPermissions({
         execute:(sql,params)=>db.execute(sql,params as string[]),
-      },s.userId,s.branchId);
+      },s.userId,s.branchId,s.role);
       const right=matrix.find(x=>x.resource===resource);
       const grant=s.role==='Developer' ||
         (s.role==='Owner' ? (!right||right.actions[action]===true):right?.actions[action]===true);
@@ -219,6 +219,69 @@ export function installMysqlCrudRoutes(app:Express,dbConnect:()=>Promise<Conn>):
     if(!s?.branchId||!['Developer','Owner'].includes(s.role))throw new Error('FORBIDDEN');
     return s;
   }
+
+  // Global role templates (Developer only); user-specific branch rows override
+  // these defaults without modifying any other branch or role.
+  app.get('/api/branch-pilot/role-templates/:role',async(req,res)=>{
+    try{
+      const session=adminSession(res);
+      if(session.role!=='Developer')throw new Error('FORBIDDEN');
+      const role=String(req.params.role||'');
+      if(!allowedRoles.has(role))throw new Error('INVALID_ROLE');
+      const db=await dbConnect();
+      try{
+        const [rows]=await db.execute<mysql.RowDataPacket[]>(
+          'SELECT resource,raw_json,can_view,can_create,can_edit,can_delete FROM role_permissions WHERE role=?',
+          [role]);
+        const values=BRANCH_RESOURCES.map(resource=>{
+          const row=rows.find(x=>String(x.resource)===resource);
+          const parsed=parse(row?.raw_json);
+          const actionsFromJson=(parsed.actions&&typeof parsed.actions==='object'&&!Array.isArray(parsed.actions))
+            ?parsed.actions as Record<string,unknown>:{};
+          const actions:Record<string,boolean>={};
+          for(const a of BRANCH_ACTIONS)actions[a]=actionsFromJson[a]===true;
+          if(row){
+            actions.view=actions.view||Number(row.can_view)===1;
+            actions.add=actions.add||Number(row.can_create)===1;
+            actions.edit=actions.edit||Number(row.can_edit)===1;
+            actions.delete=actions.delete||Number(row.can_delete)===1;
+          }
+          return {resource,actions};
+        });
+        res.json({ok:true,source:'mysql',role,rows:values});
+      }finally{await db.end();}
+    }catch(e){failure(res,e);}
+  });
+  app.put('/api/branch-pilot/role-templates/:role',async(req,res)=>{
+    try{
+      const session=adminSession(res);
+      if(session.role!=='Developer')throw new Error('FORBIDDEN');
+      const role=String(req.params.role||'');
+      if(!allowedRoles.has(role)||role==='Developer'||role==='Owner')
+        throw new Error('INVALID_ROLE');
+      const rows=validateMatrix(req.body?.rows);
+      const db=await dbConnect();
+      try{
+        await db.beginTransaction();
+        try{
+          for(const r of rows){
+            const id=role+'_'+r.resource;
+            await db.execute(
+              'INSERT INTO role_permissions(id,role,resource,can_view,can_create,can_edit,can_delete,raw_json) VALUES (?,?,?,?,?,?,?,?) '+
+              'ON DUPLICATE KEY UPDATE can_view=VALUES(can_view),can_create=VALUES(can_create),can_edit=VALUES(can_edit),can_delete=VALUES(can_delete),raw_json=VALUES(raw_json)',
+              [id,role,r.resource,r.actions.view?1:0,r.actions.add?1:0,
+                r.actions.edit?1:0,r.actions.delete?1:0,
+                JSON.stringify({id,role,resource:r.resource,actions:r.actions})]);
+            await audit(db,session,'rolePermissions',id,'edit',undefined,
+              {role,resource:r.resource,actions:r.actions});
+          }
+          await db.commit();
+        }catch(e){await db.rollback();throw e;}
+      }finally{await db.end();}
+      res.json({ok:true,source:'mysql',role});
+    }catch(e){failure(res,e);}
+  });
+
   app.get('/api/branch-pilot/user-records',async(_req,res)=>{
     try{
       const users=await scoped(res,'users','view',async(db)=>{
