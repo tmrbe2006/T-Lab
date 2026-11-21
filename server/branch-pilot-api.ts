@@ -862,7 +862,7 @@ export function installBranchPilotRoutes(app: Express): void {
     try{
       const visits=await withHomeVisitDb(req,'view',async(db,session)=>{
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT v.* FROM home_visits v JOIN home_visit_branch_access a ON a.visit_id=v.id WHERE a.branch_id=? ORDER BY v.scheduled_date DESC',
+          'SELECT v.* FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name='homeVisits' WHERE a.branch_id=? ORDER BY v.scheduled_date DESC',
           [session.branchId!]);
         return rows.map(row=>{
           let raw:Record<string,unknown>={};
@@ -892,8 +892,8 @@ export function installBranchPilotRoutes(app: Express): void {
             'INSERT INTO home_visits (id,visit_number,patient_id,patient_name,patient_phone,address,scheduled_date,phlebotomist_name,visit_fee,status,raw_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
             [rec.id,rec.visitNumber,rec.patientId,rec.patientName,rec.patientPhone,rec.address,rec.scheduledDate,rec.phlebotomistName,rec.visitFee,rec.status,JSON.stringify(rec)]);
           await db.execute(
-            'INSERT INTO home_visit_branch_access(visit_id,branch_id,created_at,created_by) VALUES(?,?,NOW(),?)',
-            [rec.id,session.branchId!,session.userId]);
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['homeVisits',rec.id,session.branchId!,session.userId]);
           await db.commit();
         }catch(e){await db.rollback();throw e;}
       });
@@ -908,7 +908,7 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try{
           const [rows]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT v.id FROM home_visits v JOIN home_visit_branch_access a ON a.visit_id=v.id WHERE v.id=? AND a.branch_id=? FOR UPDATE',
+            'SELECT v.id FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name='homeVisits' WHERE v.id=? AND a.branch_id=? FOR UPDATE',
             [rec.id,session.branchId!]);
           if(!rows.length)throw new Error('VISIT_NOT_IN_BRANCH');
           await requireHomeVisitPatient(db,String(rec.patientId),session.branchId!);
@@ -927,7 +927,7 @@ export function installBranchPilotRoutes(app: Express): void {
         await db.beginTransaction();
         try{
           const [rows]=await db.execute<mysql.RowDataPacket[]>(
-            'SELECT v.* FROM home_visits v JOIN home_visit_branch_access a ON a.visit_id=v.id WHERE v.id=? AND a.branch_id=? FOR UPDATE',
+            'SELECT v.* FROM home_visits v JOIN mysql_store_branch_access a ON a.record_id=v.id AND a.store_name='homeVisits' WHERE v.id=? AND a.branch_id=? FOR UPDATE',
             [req.params.id,session.branchId!]);
           if(!rows.length)throw new Error('VISIT_NOT_IN_BRANCH');
           const row=rows[0];let raw:Record<string,unknown>={};
@@ -1016,8 +1016,8 @@ export function installBranchPilotRoutes(app: Express): void {
       const records=await financeRead(req,resource,async(db,branchId,table)=>{
         // table comes ONLY from immutable server whitelist above.
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT t.* FROM `'+table+'` t INNER JOIN finance_record_branch_access b ON b.record_id=t.id AND b.resource=? AND b.branch_id=? ORDER BY t.id',
-          [table,branchId]);
+          'SELECT t.* FROM `'+table+'` t INNER JOIN mysql_store_branch_access b ON b.record_id=t.id AND b.store_name=? AND b.branch_id=? ORDER BY t.id',
+          [({invoices:'invoices',invoiceItems:'invoiceItems',payments:'payments',journalEntries:'journalEntries',accounts:'chartOfAccounts',cashbox:'cashboxSessions',dailyClosings:'dailyClosings',expenses:'expenses',commissions:'commissions',costCenters:'costCenters',periodLocks:'periodLocks'} as Record<string,string>)[resource],branchId]);
         return rows.map(financialRow);
       });
       res.setHeader('Cache-Control','no-store');
@@ -1045,18 +1045,18 @@ export function installBranchPilotRoutes(app: Express): void {
           SELECT i.id,i.invoice_number,i.paid_amount,
             COALESCE(SUM(CASE WHEN pa.record_id IS NOT NULL THEN p.amount ELSE 0 END),0) AS paid_from_receipts
           FROM invoices i
-          JOIN finance_record_branch_access a
-            ON a.resource='invoices' AND a.record_id=i.id AND a.branch_id=?
+          JOIN mysql_store_branch_access a
+            ON a.store_name='invoices' AND a.record_id=i.id AND a.branch_id=?
           LEFT JOIN payments p ON p.invoice_id=i.id
-          LEFT JOIN finance_record_branch_access pa
-            ON pa.resource='payments' AND pa.record_id=p.id AND pa.branch_id=?
+          LEFT JOIN mysql_store_branch_access pa
+            ON pa.store_name='payments' AND pa.record_id=p.id AND pa.branch_id=?
           GROUP BY i.id,i.invoice_number,i.paid_amount
         `,[branchId,branchId]);
         const [journalRows]=await db.execute<mysql.RowDataPacket[]>(`
           SELECT j.id,j.entry_number,j.total_debit,j.total_credit
           FROM journal_entries j
-          JOIN finance_record_branch_access a
-            ON a.resource='journal_entries' AND a.record_id=j.id AND a.branch_id=?
+          JOIN mysql_store_branch_access a
+            ON a.store_name='journalEntries' AND a.record_id=j.id AND a.branch_id=?
         `,[branchId]);
         const invoiceDiscrepancies=invoiceRows.filter(row=>
           Math.abs(Number(row.paid_amount||0)-Number(row.paid_from_receipts||0))>0.009
@@ -1095,7 +1095,7 @@ export function installBranchPilotRoutes(app: Express): void {
         if(!(session.role==='Developer' || (session.role==='Owner'
           ? (!rule||rule.actions.view===true) : rule?.actions.view===true)))throw new Error('FORBIDDEN');
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT d.* FROM doctors d INNER JOIN doctor_branch_access a ON a.doctor_id=d.id WHERE a.branch_id=? AND d.active=1 ORDER BY d.code',
+          'SELECT d.* FROM doctors d INNER JOIN mysql_store_branch_access a ON a.record_id=d.id AND a.store_name='doctors' WHERE a.branch_id=? AND d.active=1 ORDER BY d.code',
           [session.branchId]);
         return rows.map(row=>{
           let raw:Record<string,unknown>={};
