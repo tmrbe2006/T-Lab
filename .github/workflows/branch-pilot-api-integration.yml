@@ -184,6 +184,24 @@ jobs:
           audit=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM tlab_mutation_audit_v10 WHERE record_id='ct_ci_1'")
           test "$audit" = 2
 
+          # Atomic multi-store transaction: supplier, inventory item, purchase and journal.
+          cat > unified-commit.json <<'JSON'
+          {"commands":[{"store":"suppliers","operation":"add","id":"supplier_ci_1","record":{"id":"supplier_ci_1","code":"SUPCI","nameAr":"Supplier Integration","nameEn":"Supplier","active":true}},{"store":"inventoryItems","operation":"add","id":"item_ci_1","record":{"id":"item_ci_1","code":"ITEMCI","nameAr":"Reagent Integration","nameEn":"Reagent","active":true,"currentStock":0,"averageCost":10}},{"store":"purchaseInvoices","operation":"add","id":"pi_ci_1","record":{"id":"pi_ci_1","invoiceNumber":"PIN-1","supplierId":"supplier_ci_1","status":"draft","netTotal":100,"paidAmount":0,"remainingAmount":100}},{"store":"journalEntries","operation":"add","id":"je_ci_1","record":{"id":"je_ci_1","entryNumber":"JE-CI1","date":"2026-11-21","referenceType":"purchase_invoice","referenceId":"pi_ci_1","lines":[{"accountCode":"1206","debit":100,"credit":0},{"accountCode":"2101","debit":0,"credit":100}],"totalDebit":100,"totalCredit":100}}]}
+          JSON
+          curl -fsS -b developer-main.txt -X POST -H 'Content-Type: application/json' --data-binary @unified-commit.json http://127.0.0.1:3127/api/branch-pilot/unified/transaction | grep '"count":4'
+          curl -fsS -b developer-main.txt http://127.0.0.1:3127/api/branch-pilot/unified/suppliers | grep "SUPCI"
+          curl -fsS -b developer-main.txt http://127.0.0.1:3127/api/branch-pilot/unified/journalEntries | grep "JE-CI1"
+          count=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM purchase_invoices WHERE id='pi_ci_1'")
+          test "$count" = 1
+          cat > unified-rollback.json <<'JSON'
+          {"commands":[{"store":"suppliers","operation":"edit","id":"supplier_ci_1","record":{"id":"supplier_ci_1","code":"SUPCI","nameAr":"DO_NOT_SAVE","active":true}},{"store":"journalEntries","operation":"add","id":"je_ci_bad","record":{"id":"je_ci_bad","entryNumber":"JE-BAD","lines":[{"accountCode":"1201","debit":100,"credit":0},{"accountCode":"2101","debit":0,"credit":20}],"totalDebit":100,"totalCredit":20}}]}
+          JSON
+          code=$(curl -s -b developer-main.txt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @unified-rollback.json http://127.0.0.1:3127/api/branch-pilot/unified/transaction)
+          test "$code" = 409
+          test "$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT name_ar FROM suppliers WHERE id='supplier_ci_1'")" = 'Supplier Integration'
+          count=$(mysql -N -B -h 127.0.0.1 -uroot -pintegration-only-password tlab_db -e "SELECT COUNT(*) FROM journal_entries WHERE id='je_ci_bad'")
+          test "$count" = 0
+
           curl -fsS -b cookies.txt -X POST http://127.0.0.1:3127/api/branch-pilot/logout
           code=$(curl -s -b cookies.txt -o /dev/null -w '%{http_code}' http://127.0.0.1:3127/api/branch-pilot/branches)
           test "$code" = 401
