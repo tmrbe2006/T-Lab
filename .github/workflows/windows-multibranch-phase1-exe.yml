@@ -37,6 +37,7 @@ on:
       - 'src/repositories/requests.repository.ts'
       - 'src/repositories/lookups.repository.ts'
       - 'src/tests/services/mysql-all-49-stores.test.ts'
+      - 'scripts/import-browser-backup-to-mysql.ts'
       - 'src/repositories/mysql-finance.read.ts'
       - 'src/repositories/accounting.repository.ts'
       - 'src/repositories/invoices.repository.ts'
@@ -114,7 +115,7 @@ jobs:
           New-Item -ItemType Directory -Force installer/package | Out-Null
           Copy-Item dist,src,server,node_modules -Destination installer/package -Recurse -Force
           Copy-Item server.ts,package.json -Destination installer/package -Force
-          Copy-Item sql,docs -Destination installer/package -Recurse -Force
+          Copy-Item sql,docs,scripts -Destination installer/package -Recurse -Force
           Copy-Item installer/launch-multibranch-pilot.cmd -Destination installer/package/launch-multibranch-pilot.cmd -Force
           if (!(Test-Path installer/package/launch-multibranch-pilot.cmd)) { throw 'Expected startup command missing from package' }
           Copy-Item (Get-Command node.exe).Source -Destination installer/package/node.exe
@@ -208,7 +209,7 @@ jobs:
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
           $proc = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Inno installation failed: $($proc.ExitCode)" }
-          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'sql/tlab_patient_branch_access_v3.sql', 'sql/tlab_home_visits_branch_access_v5.sql', 'sql/tlab_finance_branch_access_v6.sql', 'sql/tlab_doctor_branch_access_v7.sql', 'sql/tlab_all_49_store_branch_access_v8.sql', 'sql/tlab_mysql_only_missing_tables_v4.sql', 'tlab-new-icon.ico')) {
+          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'sql/tlab_patient_branch_access_v3.sql', 'sql/tlab_home_visits_branch_access_v5.sql', 'sql/tlab_finance_branch_access_v6.sql', 'sql/tlab_doctor_branch_access_v7.sql', 'sql/tlab_all_49_store_branch_access_v8.sql', 'sql/tlab_mysql_only_missing_tables_v4.sql', 'scripts/import-browser-backup-to-mysql.ts', 'tlab-new-icon.ico')) {
             if (!(Test-Path (Join-Path $target $required))) { throw "Missing installed file: $required" }
           }
           $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw
