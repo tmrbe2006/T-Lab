@@ -1503,6 +1503,151 @@ export function installBranchPilotRoutes(app: Express): void {
     }
   });
 
+
+  /** Atomic manual service invoice: invoice + item + balanced revenue journal. */
+  app.post('/api/branch-pilot/finance/manual-invoice',async(req,res)=>{
+    try{
+      const input=req.body?.input;
+      if(!input||typeof input!=='object'||Array.isArray(input))throw new TypeError('INVALID_MANUAL_INVOICE');
+      const patientId=String(input.patientId||'');
+      const contractId=input.contractId?String(input.contractId):'';
+      const date=String(input.date||'');
+      const serviceName=String(input.serviceName||'').trim();
+      const price=Number(input.price),discount=Number(input.discountAmount),taxRate=Number(input.taxRate);
+      if(!validBranchId(patientId)||(contractId&&!validBranchId(contractId))||
+        !/^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date)||
+        Number.isNaN(Date.parse(date+'T12:00:00Z'))||
+        new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date||
+        !serviceName||serviceName.length>191||
+        ![price,discount,taxRate].every(Number.isFinite)||
+        price<=0||price>9999999999||discount<0||discount>price||
+        taxRate<0||taxRate>100)
+        throw new TypeError('INVALID_MANUAL_INVOICE');
+      const cents=(x:number)=>Math.round(x*100);
+      const gross=cents(price),discountCents=cents(discount);
+      const taxable=gross-discountCents,vat=Math.round(taxable*taxRate/100);
+      const total=taxable+vat;
+      if(total<=0)throw new TypeError('INVALID_MANUAL_INVOICE_TOTAL');
+      const asMoney=(n:number)=>n/100;
+      const session=getSession(req);
+      if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+      const created=await useDatabase(async db=>{
+        const assigned=await staffAssignedBranches(db,session.userId,session.role);
+        if(!assigned.some(b=>b.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const matrix=await ownBranchPermissions({
+          execute:(sql,params)=>db.execute(sql,params as string[])
+        },session.userId,session.branchId!);
+        for(const [resource,action] of [['invoices','add'],['journalEntries','addJournalEntry']] as const){
+          const rule=matrix.find(x=>x.resource===resource);
+          if(!(session.role==='Developer'||(session.role==='Owner'
+            ? (!rule||rule.actions[action]===true) : rule?.actions[action]===true)))
+            throw new Error('FORBIDDEN');
+        }
+        await db.beginTransaction();
+        try{
+          const [period]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=p.id AND a.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
+            [session.branchId!,date.slice(0,7)]);
+          if(period.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          const [patient]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.id FROM patients p JOIN mysql_store_branch_access a ON a.store_name='patients' AND a.record_id=p.id AND a.branch_id=? WHERE p.id=? AND p.active=1 LIMIT 1 FOR UPDATE",
+            [session.branchId!,patientId]);
+          if(!patient.length)throw new Error('PATIENT_NOT_IN_BRANCH');
+          let companyPercent=0,contractName='';
+          if(contractId){
+            const [contracts]=await db.execute<mysql.RowDataPacket[]>(
+              "SELECT c.* FROM corporate_contracts c JOIN mysql_store_branch_access a ON a.store_name='corporateContracts' AND a.record_id=c.id AND a.branch_id=? WHERE c.id=? AND c.active=1 LIMIT 1 FOR UPDATE",
+              [session.branchId!,contractId]);
+            if(!contracts.length)throw new Error('CONTRACT_NOT_IN_BRANCH');
+            const contract=contracts[0];let raw:Record<string,unknown>={};
+            try{raw=JSON.parse(String(contract.raw_json||'{}')) as Record<string,unknown>;}catch{}
+            const copay=Number(raw.patientCoPayPercent??contract.patient_copay_percent);
+            if(!Number.isFinite(copay)||copay<0||copay>100)throw new Error('INVALID_CONTRACT_COPAY');
+            companyPercent=100-copay;contractName=String(raw.nameAr||contract.name_ar||'');
+          }
+          const companyCents=Math.round(total*companyPercent/100);
+          const patientCents=total-companyCents;
+          const id='inv_manual_'+randomBytes(16).toString('hex');
+          const invoiceNumber='INV-M-'+randomBytes(10).toString('hex').toUpperCase();
+          const invoice={
+            id,invoiceNumber,requestId:'',patientId,requestType:'internal',date,
+            subtotal:asMoney(gross),discountType:discountCents>0?'fixed':'none',
+            discountValue:asMoney(discountCents),discountAmount:asMoney(discountCents),
+            taxRate,taxAmount:asMoney(vat),netTotal:asMoney(total),paidAmount:0,
+            remainingAmount:asMoney(total),status:'unpaid',paymentMethod:'cash',
+            createdBy:session.userId,notes:'فاتورة خدمات مستقلة: '+serviceName,
+            ...(contractId?{contractId,contractName,patientShareAmount:asMoney(patientCents),
+              companyShareAmount:asMoney(companyCents)}:{patientShareAmount:asMoney(total),companyShareAmount:0})
+          };
+          const itemId='ii_manual_'+randomBytes(16).toString('hex');
+          const item={id:itemId,invoiceId:id,testId:'manual_service',testNameAr:serviceName,
+            testNameEn:serviceName,price:asMoney(gross),
+            netAfterDiscountAndTax:asMoney(total),commissionEligible:false};
+          const journalId='je_inv_'+randomBytes(16).toString('hex');
+          const journalNumber='JE-I-'+randomBytes(10).toString('hex').toUpperCase();
+          const lines=[];
+          if(patientCents>0)lines.push({
+            accountCode:'1204',accountNameAr:'ذمم المرضى',accountNameEn:'Patient Receivable',
+            debit:asMoney(patientCents),credit:0
+          });
+          if(companyCents>0)lines.push({
+            accountCode:'1205',accountNameAr:'ذمم التعاقدات',accountNameEn:'Corporate Receivable',
+            debit:asMoney(companyCents),credit:0
+          });
+          if(taxable>0)lines.push({
+            accountCode:contractId?'4102':'4101',accountNameAr:'إيراد تحاليل',
+            accountNameEn:'Lab Revenue',debit:0,credit:asMoney(taxable)
+          });
+          if(vat>0)lines.push({
+            accountCode:'2104',accountNameAr:'ضريبة مستحقة',
+            accountNameEn:'VAT Payable',debit:0,credit:asMoney(vat)
+          });
+          const debitTotal=Math.round(lines.reduce((n,x)=>n+x.debit*100,0));
+          const creditTotal=Math.round(lines.reduce((n,x)=>n+x.credit*100,0));
+          if(debitTotal!==creditTotal || debitTotal!==total)throw new Error('UNBALANCED_INVOICE_JOURNAL');
+          const journal={
+            id:journalId,entryNumber:journalNumber,date,referenceType:'invoice',
+            referenceId:id,descriptionAr:'إصدار فاتورة '+invoiceNumber,
+            descriptionEn:'Issue invoice '+invoiceNumber,lines,
+            totalDebit:asMoney(total),totalCredit:asMoney(total),status:'posted',
+            createdBy:session.userId
+          };
+          await db.execute(
+            'INSERT INTO invoices(id,invoice_number,request_id,patient_id,date,subtotal,discount_amount,tax_amount,net_total,paid_amount,remaining_amount,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [id,invoiceNumber,'',patientId,date,invoice.subtotal,invoice.discountAmount,invoice.taxAmount,
+              invoice.netTotal,0,invoice.remainingAmount,'unpaid',JSON.stringify(invoice)]
+          );
+          await db.execute(
+            'INSERT INTO invoice_items(id,invoice_id,test_id,test_name_ar,price,net_after_discount_tax,raw_json) VALUES(?,?,?,?,?,?,?)',
+            [itemId,id,'manual_service',serviceName,item.price,item.netAfterDiscountAndTax,JSON.stringify(item)]
+          );
+          await db.execute(
+            'INSERT INTO journal_entries(id,entry_number,date,description,reference_type,reference_id,total_debit,total_credit,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [journalId,journalNumber,date,journal.descriptionAr,'invoice',id,
+              journal.totalDebit,journal.totalCredit,JSON.stringify(journal)]
+          );
+          for(const [store,rid] of [['invoices',id],['invoiceItems',itemId],['journalEntries',journalId]]){
+            await db.execute('INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+              [store,rid,session.branchId!,session.userId]);
+          }
+          await db.commit();
+          return invoice;
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.status(201).json({ok:true,source:'mysql',invoice:created});
+    }catch(e){
+      const msg=e instanceof Error?e.message:'MYSQL_INVOICE_FAILED';
+      if(e instanceof TypeError){res.status(400).json({ok:false,error:msg});return;}
+      if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
+      if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(msg)){res.status(403).json({ok:false,error:msg});return;}
+      if(['PATIENT_NOT_IN_BRANCH','CONTRACT_NOT_IN_BRANCH','INVALID_CONTRACT_COPAY',
+          'ACCOUNTING_PERIOD_LOCKED','UNBALANCED_INVOICE_JOURNAL'].includes(msg)){
+        res.status(409).json({ok:false,error:msg});return;
+      }
+      financeReadError(res,e);
+    }
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
