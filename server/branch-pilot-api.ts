@@ -1750,6 +1750,103 @@ export function installBranchPilotRoutes(app: Express): void {
     }
   });
 
+
+  /** Doctor commission payout and journal are always posted atomically. */
+  app.post('/api/branch-pilot/finance/doctor-payout',async(req,res)=>{
+    try{
+      const commissionId=String(req.body?.commissionId||'');
+      const date=String(req.body?.date||'');
+      const notes=String(req.body?.notes||'');
+      const doctorNameAr=String(req.body?.doctorNameAr||'').slice(0,191);
+      const doctorNameEn=String(req.body?.doctorNameEn||'').slice(0,191);
+      if(!validBranchId(commissionId)||notes.length>1000||
+        !/^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date)||
+        Number.isNaN(Date.parse(date+'T12:00:00Z'))||
+        new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date)
+        throw new TypeError('INVALID_PAYOUT');
+      const session=getSession(req);
+      if(!session?.branchId)throw new Error('BRANCH_SELECTION_REQUIRED');
+      const commission=await useDatabase(async db=>{
+        const branches=await staffAssignedBranches(db,session.userId,session.role);
+        if(!branches.some(x=>x.branchId===session.branchId))throw new Error('BRANCH_NOT_ASSIGNED');
+        const rights=await ownBranchPermissions({execute:(sql,params)=>db.execute(sql,params as string[])},
+          session.userId,session.branchId!);
+        for(const [resource,action] of [['commissions','payCommission'],['journalEntries','addJournalEntry']] as const){
+          const rule=rights.find(x=>x.resource===resource);
+          if(!(session.role==='Developer'||(session.role==='Owner'
+            ? (!rule||rule.actions[action]===true):rule?.actions[action]===true)))throw new Error('FORBIDDEN');
+        }
+        await db.beginTransaction();
+        try{
+          const [period]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT p.id FROM period_locks p JOIN mysql_store_branch_access a ON a.store_name='periodLocks' AND a.record_id=p.id AND a.branch_id=? WHERE p.period_month=? AND p.locked=1 LIMIT 1 FOR UPDATE",
+            [session.branchId!,date.slice(0,7)]);
+          if(period.length)throw new Error('ACCOUNTING_PERIOD_LOCKED');
+          const [records]=await db.execute<mysql.RowDataPacket[]>(
+            "SELECT c.* FROM doctor_commissions c JOIN mysql_store_branch_access a ON a.store_name='commissions' AND a.record_id=c.id AND a.branch_id=? WHERE c.id=? FOR UPDATE",
+            [session.branchId!,commissionId]);
+          if(!records.length)throw new Error('COMMISSION_NOT_IN_BRANCH');
+          const row=records[0];
+          let original:Record<string,unknown>;
+          try{original=JSON.parse(String(row.raw_json||'')) as Record<string,unknown>;}catch{
+            throw new Error('COMMISSION_RAW_JSON_REQUIRED');
+          }
+          const remaining=Math.round(Number(original.remainingAmount)*100)/100;
+          const paid=Math.round(Number(original.paidAmount||0)*100)/100;
+          if(!Number.isFinite(remaining)||remaining<=0||!Number.isFinite(paid)||paid<0||
+            original.payoutJournalId||original.status==='paid')
+            throw new Error('COMMISSION_ALREADY_PAID_OR_INVALID');
+          const journalId='je_cp_'+randomBytes(16).toString('hex');
+          const journalNumber='JE-CP-'+randomBytes(10).toString('hex').toUpperCase();
+          const updated={
+            ...original,id:commissionId,paidAmount:Math.round((paid+remaining)*100)/100,
+            remainingAmount:0,status:'paid',payoutAmount:remaining,payoutDate:date,
+            payoutNotes:notes.trim(),payoutJournalId:journalId
+          };
+          const journal={
+            id:journalId,entryNumber:journalNumber,date,referenceType:'commission_payout',
+            referenceId:commissionId,
+            descriptionAr:'صرف عمولة الطبيب '+doctorNameAr,
+            descriptionEn:'Doctor commission payout '+doctorNameEn,
+            lines:[
+              {accountCode:'2102',accountNameAr:'ذمم الأطباء',accountNameEn:'Doctors Payable',
+                debit:remaining,credit:0},
+              {accountCode:'1201',accountNameAr:'الصندوق',accountNameEn:'Cashbox',
+                debit:0,credit:remaining}
+            ],totalDebit:remaining,totalCredit:remaining,status:'posted',
+            createdBy:session.userId
+          };
+          await db.execute(
+            'UPDATE doctor_commissions SET status=?,raw_json=? WHERE id=?',
+            ['paid',JSON.stringify(updated),commissionId]
+          );
+          await db.execute(
+            'INSERT INTO journal_entries(id,entry_number,date,description,reference_type,reference_id,total_debit,total_credit,raw_json) VALUES(?,?,?,?,?,?,?,?,?)',
+            [journalId,journalNumber,date,journal.descriptionAr,'commission_payout',
+              commissionId,remaining,remaining,JSON.stringify(journal)]
+          );
+          await db.execute(
+            'INSERT INTO mysql_store_branch_access(store_name,record_id,branch_id,created_at,created_by) VALUES(?,?,?,NOW(),?)',
+            ['journalEntries',journalId,session.branchId!,session.userId]
+          );
+          await db.commit();
+          return updated;
+        }catch(e){await db.rollback();throw e;}
+      });
+      res.status(201).json({ok:true,source:'mysql',commission});
+    }catch(e){
+      const msg=e instanceof Error?e.message:'PAYOUT_FAILED';
+      if(e instanceof TypeError){res.status(400).json({ok:false,error:msg});return;}
+      if(msg==='BRANCH_SELECTION_REQUIRED'){res.status(401).json({ok:false,error:msg});return;}
+      if(['FORBIDDEN','BRANCH_NOT_ASSIGNED'].includes(msg)){res.status(403).json({ok:false,error:msg});return;}
+      if(['ACCOUNTING_PERIOD_LOCKED','COMMISSION_NOT_IN_BRANCH','COMMISSION_RAW_JSON_REQUIRED',
+          'COMMISSION_ALREADY_PAID_OR_INVALID'].includes(msg)){
+        res.status(409).json({ok:false,error:msg});return;
+      }
+      financeReadError(res,e);
+    }
+  });
+
   app.post('/api/branch-pilot/logout', (req, res) => {
     const token = cookieValue(req);
     if (token) sessions.delete(token);
