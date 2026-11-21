@@ -21,6 +21,18 @@ import type { LabTest, QcControlLot, QcRunRecord } from '../../types';
 import { formatDate, generateId } from '../../utils/format';
 
 const ANALYZERS_STORAGE_KEY = 'tlab_qc_analyzers_v1';
+let mysqlAnalyzers:string[]|null=null;
+const mysqlQC=()=>typeof window!=='undefined'&&window.location.port==='3127';
+async function loadMysqlAnalyzers():Promise<void>{
+  const response=await fetch('/api/branch-pilot/qc-analyzers',{
+    method:'GET',credentials:'same-origin',cache:'no-store',
+  });
+  const data=await response.json() as {ok?:boolean;source?:string;analyzers?:string[];error?:string};
+  if(!response.ok||data.ok!==true||data.source!=='mysql'||!Array.isArray(data.analyzers))
+    throw new Error(data.error||'MYSQL_QC_ANALYZERS_UNAVAILABLE');
+  mysqlAnalyzers=data.analyzers;
+}
+
 
 const DEFAULT_ANALYZERS: string[] = [
   'Roche Cobas c311 Chemistry',
@@ -84,6 +96,12 @@ function readAndCompressControlImage(file: File): Promise<string> {
 }
 
 function getSavedAnalyzers(lots: QcControlLot[]): string[] {
+  if(mysqlQC()){
+    const list=[...(mysqlAnalyzers||[])];
+    for(const lot of lots)if(lot.analyzerName&&!list.includes(lot.analyzerName))
+      list.push(lot.analyzerName);
+    return list;
+  }
   let list: string[] = [];
   try {
     const raw = localStorage.getItem(ANALYZERS_STORAGE_KEY);
@@ -107,12 +125,20 @@ function getSavedAnalyzers(lots: QcControlLot[]): string[] {
   return list;
 }
 
-function saveAnalyzersList(list: string[]): void {
-  try {
-    localStorage.setItem(ANALYZERS_STORAGE_KEY, JSON.stringify(Array.from(new Set(list))));
-  } catch {
-    // ignore
+async function saveAnalyzersList(list:string[]):Promise<void>{
+  if(mysqlQC()){
+    const response=await fetch('/api/branch-pilot/qc-analyzers',{
+      method:'PUT',credentials:'same-origin',cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({analyzers:[...new Set(list)]}),
+    });
+    const data=await response.json() as {ok?:boolean;source?:string;analyzers?:string[];error?:string};
+    if(!response.ok||data.ok!==true||data.source!=='mysql'||!Array.isArray(data.analyzers))
+      throw new Error(data.error||'MYSQL_QC_ANALYZERS_WRITE_FAILED');
+    mysqlAnalyzers=data.analyzers;
+    return;
   }
+  try{localStorage.setItem(ANALYZERS_STORAGE_KEY,JSON.stringify([...new Set(list)]));}catch{}
 }
 
 async function recalculateLotRunsWestgard(lot: QcControlLot): Promise<void> {
@@ -148,7 +174,14 @@ async function recalculateLotRunsWestgard(lot: QcControlLot): Promise<void> {
 }
 
 export async function renderQualityControlPage(container: HTMLElement): Promise<void> {
-  await ensureEnterpriseSeedData();
+  if(mysqlQC()){
+    try{await loadMysqlAnalyzers();}
+    catch(error){
+      container.textContent=i18n.bi('فشل تحميل قائمة أجهزة الجودة من MySQL: ','MySQL QC analyzer load failed: ')+
+        String(error instanceof Error?error.message:error);
+      return;
+    }
+  }else await ensureEnterpriseSeedData();
 
   let selectedLotId = '';
   let selectedAnalyzerFilter = 'all';
@@ -546,7 +579,7 @@ export async function renderQualityControlPage(container: HTMLElement): Promise<
         recordLabel: `${i18n.bi('الجهاز التحليلي:', 'Analyzer:')} ${targetAnalyzer}`,
         onConfirm: async () => {
           const updatedList = analyzers.filter((a) => a !== targetAnalyzer);
-          saveAnalyzersList(updatedList);
+          await saveAnalyzersList(updatedList);
           // Also delete lots belonging to this analyzer if any
           const lotsToRemove = lots.filter((l) => l.analyzerName === targetAnalyzer);
           for (const l of lotsToRemove) {
@@ -778,7 +811,7 @@ function openAddOrEditAnalyzerModal(
     const analyzers = getSavedAnalyzers(lots);
     if (isEdit && existingName) {
       const updated = analyzers.map((a) => (a === existingName ? newName : a));
-      saveAnalyzersList(updated);
+      await saveAnalyzersList(updated);
       // Update any lots & runs using the old analyzer name
       const matchingLots = lots.filter((l) => l.analyzerName === existingName);
       for (const l of matchingLots) {
@@ -795,7 +828,7 @@ function openAddOrEditAnalyzerModal(
     } else {
       if (!analyzers.includes(newName)) {
         analyzers.push(newName);
-        saveAnalyzersList(analyzers);
+        await saveAnalyzersList(analyzers);
       }
       showToast(i18n.bi('تمت إضافة الجهاز التحليلي بنجاح', 'Analyzer added'), 'success');
     }
@@ -861,14 +894,14 @@ function openManageAnalyzersModal(lots: QcControlLot[], onChanged: () => void): 
       `,
     });
 
-    document.getElementById('qc-add-an-inline')?.addEventListener('submit', (e) => {
+    document.getElementById('qc-add-an-inline')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const val = (document.getElementById('qc-inline-an-input') as HTMLInputElement).value.trim();
       if (!val) return;
       const list = getSavedAnalyzers(lots);
       if (!list.includes(val)) {
         list.push(val);
-        saveAnalyzersList(list);
+        await saveAnalyzersList(list);
       }
       showToast(i18n.bi('تمت إضافة الجهاز بنجاح', 'Analyzer added'), 'success');
       closeModal();
@@ -891,7 +924,7 @@ function openManageAnalyzersModal(lots: QcControlLot[], onChanged: () => void): 
           recordLabel: `${i18n.bi('الجهاز التحليلي:', 'Analyzer:')} ${targetName}`,
           onConfirm: async () => {
             const list = getSavedAnalyzers(lots).filter((x) => x !== targetName);
-            saveAnalyzersList(list);
+            await saveAnalyzersList(list);
             const lotsToRemove = lots.filter((l) => l.analyzerName === targetName);
             for (const l of lotsToRemove) {
               await connectedStore(db.qcRuns,'qcRuns').where('lotId').equals(l.id).delete();
@@ -1231,7 +1264,7 @@ function openAddQcRunModal(params: {
     if (Number.isNaN(val)) return;
 
     if (analyzerName && !analyzers.includes(analyzerName)) {
-      saveAnalyzersList([...analyzers, analyzerName]);
+      await saveAnalyzersList([...analyzers, analyzerName]);
     }
 
     const testObj = tests.find((t) => t.id === testId) || tests[0];
@@ -1684,7 +1717,7 @@ function openLotFormModal(
     const analyzerName = (document.getElementById('nql-analyzer') as HTMLInputElement).value.trim();
 
     if (analyzerName && !analyzers.includes(analyzerName)) {
-      saveAnalyzersList([...analyzers, analyzerName]);
+      await saveAnalyzersList([...analyzers, analyzerName]);
     }
 
     const lot: QcControlLot = {
