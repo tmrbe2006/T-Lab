@@ -55,7 +55,7 @@ jobs:
         run: node scripts/mysql-cutover-readiness.mjs
       - name: Verify no browser fallback transport and finance controls
         run: |
-          npx vitest run src/tests/services/mysql-all-49-stores.test.ts src/tests/services/mysql-finance.read.test.ts src/tests/services/mysql-home-visits.repository.test.ts
+          npx vitest run src/tests/services/mysql-all-49-stores.test.ts src/tests/services/mysql-finance.read.test.ts src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.transactions.test.ts
       - name: Upload safety audit report
         uses: actions/upload-artifact@v4
         with:
