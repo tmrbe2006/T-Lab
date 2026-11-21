@@ -10,7 +10,6 @@ import type { MedicalLabDatabase } from './database';
 type Item=Record<string,unknown>&{id:string};
 type Command={store:string;operation:'add'|'edit'|'delete';id:string;record?:Item};
 const names=new Set(MYSQL_TABLES_CONFIG.map(x=>x.dexieTable));
-const unsafe=['users','roles','permissions','settings','auditLogs'];
 type Transaction={commands:Command[];snapshots:Map<string,Item[]>};
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 async function http<T>(endpoint:string,method:'GET'|'POST',body?:unknown):Promise<T>{
@@ -88,6 +87,7 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
         for(const item of await fetchRows())await fn(item);
       },
       sortBy:async(field:string)=>(await fetchRows()).sort((a,b)=>compareValue(a[field],b[field])),
+      primaryKeys:async()=>(await fetchRows()).map(x=>x.id),
       reverse:()=>collection(name,pred,sort?{field:sort.field,desc:!sort.desc}:sort,offset,limit),
       offset:(n:number)=>collection(name,pred,sort,Math.max(0,n),limit),
       limit:(n:number)=>collection(name,pred,sort,offset,Math.max(0,n)),
@@ -122,6 +122,8 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
           return wrap(x=>flattened.includes(x[field]));
         },
         startsWith:(value:string)=>wrap(x=>String(x[field]??'').startsWith(value)),
+        startsWithIgnoreCase:(value:string)=>wrap(x=>String(x[field]??'').toLocaleLowerCase().startsWith(value.toLocaleLowerCase())),
+        equalsIgnoreCase:(value:string)=>wrap(x=>String(x[field]??'').toLocaleLowerCase()===value.toLocaleLowerCase()),
         above:(value:unknown)=>wrap(x=>compareValue(x[field],value)>0),
         below:(value:unknown)=>wrap(x=>compareValue(x[field],value)<0),
         between:(a:unknown,b:unknown,includeA=true,includeB=false)=>
@@ -199,7 +201,7 @@ export function createMysqlRemoteDatabase():MedicalLabDatabase {
   };
   const api={
     transaction:txn,table,
-    tables:[...names].map(name=>({name})),
+    tables:[...names].map(name=>table(name)),
     open:async()=>undefined,
     close:()=>undefined,
     isOpen:()=>true,
