@@ -1,0 +1,20 @@
+name: Export T-Lab source for MySQL refactor
+on:
+  push:
+    paths:
+      - '.github/workflows/export-source-for-refactor.yml'
+  workflow_dispatch:
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package source files
+        shell: bash
+        run: |
+          tar -czf tlab-source-refactor.tar.gz src server server.ts package.json package-lock.json tsconfig.json vite.config.ts installer 2>/dev/null || tar -czf tlab-source-refactor.tar.gz src server server.ts package.json package-lock.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tlab-source-refactor
+          path: tlab-source-refactor.tar.gz
+          retention-days: 1
