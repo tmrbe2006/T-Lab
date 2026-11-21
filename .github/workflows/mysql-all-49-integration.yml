@@ -48,6 +48,7 @@ jobs:
         run: |
           mysql -h 127.0.0.1 -uroot tlab_multibranch_pilot < sql/tlab_mysql_only_all_49_tables_create_safe.sql
           mysql -h 127.0.0.1 -uroot tlab_multibranch_pilot < sql/tlab_all_49_store_branch_access_v8.sql
+          mysql -h 127.0.0.1 -uroot tlab_multibranch_pilot < sql/tlab_store_mutation_audit_v9.sql
       - name: Verify real MySQL schema and empty row counts
         run: node scripts/verify-mysql-import.mjs
       - name: Check static IndexedDB migration blockers
