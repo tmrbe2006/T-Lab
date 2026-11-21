@@ -24,6 +24,34 @@ on:
       - 'src/tests/services/mysql-patients.repository.test.ts'
       - 'sql/tlab_patient_branch_access_v3.sql'
       - 'sql/tlab_home_visits_branch_access_v5.sql'
+      - 'sql/tlab_finance_branch_access_v6.sql'
+      - 'sql/tlab_doctor_branch_access_v7.sql'
+      - 'sql/tlab_all_49_store_branch_access_v8.sql'
+      - 'sql/tlab_store_mutation_audit_v9.sql'
+      - 'src/repositories/mysql-master.write.ts'
+      - 'src/db/mysql-compat.ts'
+      - 'src/repositories/mysql-all-stores.read.ts'
+      - 'src/db/database.ts'
+      - 'src/main.ts'
+      - 'src/auth/auth.service.ts'
+      - 'src/services/enterprise-lab.service.ts'
+      - 'src/repositories/tests.repository.ts'
+      - 'src/repositories/requests.repository.ts'
+      - 'src/repositories/lookups.repository.ts'
+      - 'src/tests/services/mysql-all-49-stores.test.ts'
+      - 'scripts/import-browser-backup-to-mysql.ts'
+      - 'src/repositories/mysql-finance.read.ts'
+      - 'src/repositories/accounting.repository.ts'
+      - 'src/repositories/invoices.repository.ts'
+      - 'src/repositories/payments.repository.ts'
+      - 'src/repositories/doctors.repository.ts'
+      - 'src/tests/services/mysql-finance.read.test.ts'
+      - 'src/tests/services/mysql-finance.transactions.test.ts'
+      - 'src/tests/services/mysql-login-audit.test.ts'
+      - 'src/repositories/permissions.repository.ts'
+      - 'src/services/payment-processing.service.ts'
+      - 'src/services/manual-journal.service.ts'
+      - 'src/services/manual-invoice.service.ts'
       - 'src/repositories/home-visits.mysql.repository.ts'
       - 'src/pages/operations/home-visits.page.ts'
       - 'src/tests/services/mysql-home-visits.repository.test.ts'
@@ -84,7 +112,7 @@ jobs:
       - name: TypeScript validation
         run: npm run lint
       - name: RBAC regression tests
-        run: npx vitest run src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts
+        run: npx vitest run src/tests/services/mysql-login-audit.test.ts src/tests/services/mysql-finance.transactions.test.ts src/tests/services/financial-reconciliation.test.ts src/tests/services/rbac-permission.guard.test.ts src/tests/services/branch-access.test.ts src/tests/services/branch-service.test.ts src/tests/services/request-invoice-finance.test.ts src/tests/services/doctor-payout-ledger.test.ts src/tests/services/invoice-journal-reconciliation.test.ts src/tests/services/mysql-patients.repository.test.ts src/tests/services/mysql-only-mapping-audit.test.ts src/tests/services/mysql-home-visits.repository.test.ts src/tests/services/mysql-finance.read.test.ts src/tests/services/mysql-all-49-stores.test.ts
       - name: Audit remaining browser database dependencies (pilot warning)
         run: node scripts/mysql-cutover-readiness.mjs
       - name: Build frontend
@@ -95,7 +123,7 @@ jobs:
           New-Item -ItemType Directory -Force installer/package | Out-Null
           Copy-Item dist,src,server,node_modules -Destination installer/package -Recurse -Force
           Copy-Item server.ts,package.json -Destination installer/package -Force
-          Copy-Item sql,docs -Destination installer/package -Recurse -Force
+          Copy-Item sql,docs,scripts -Destination installer/package -Recurse -Force
           Copy-Item installer/launch-multibranch-pilot.cmd -Destination installer/package/launch-multibranch-pilot.cmd -Force
           if (!(Test-Path installer/package/launch-multibranch-pilot.cmd)) { throw 'Expected startup command missing from package' }
           Copy-Item (Get-Command node.exe).Source -Destination installer/package/node.exe
@@ -143,6 +171,10 @@ jobs:
           if (!(Test-Path 'installer/package/sql/tlab_branch_user_permissions_v2.sql')) { throw 'User-specific branch permissions migration missing' }
           if (!(Test-Path 'installer/package/sql/tlab_patient_branch_access_v3.sql')) { throw 'Patient-branch mapping migration missing' }
           if (!(Test-Path 'installer/package/sql/tlab_home_visits_branch_access_v5.sql')) { throw 'Home-visit branch mapping migration missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_finance_branch_access_v6.sql')) { throw 'Finance read mapping missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_doctor_branch_access_v7.sql')) { throw 'Doctor branch mapping missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_all_49_store_branch_access_v8.sql')) { throw 'All-store branch mapping missing' }
+          if (!(Test-Path 'installer/package/sql/tlab_store_mutation_audit_v9.sql')) { throw 'Mutation audit mapping missing' }
           if (!(Test-Path 'installer/package/sql/tlab_mysql_only_missing_tables_v4.sql')) { throw 'All-store mapping upgrade missing' }
           $sql = Get-Content $file -Raw
           foreach ($table in @('branches', 'user_branches', 'branch_settings', 'branch_test_prices', 'branch_inventory', 'branch_transfers', 'branch_transfer_items', 'branch_sequences', 'branch_migration_audit')) {
@@ -186,7 +218,7 @@ jobs:
           $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target")
           $proc = Start-Process -FilePath $exe -ArgumentList $installArgs -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Inno installation failed: $($proc.ExitCode)" }
-          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'sql/tlab_patient_branch_access_v3.sql', 'sql/tlab_home_visits_branch_access_v5.sql', 'sql/tlab_mysql_only_missing_tables_v4.sql', 'tlab-new-icon.ico')) {
+          foreach ($required in @('launch-multibranch-pilot.cmd', 'node.exe', 'server.ts', 'server/branch-pilot-api.ts', 'dist/index.html', 'sql/tlab_multibranch_additive_v1.sql', 'sql/tlab_branch_user_permissions_v2.sql', 'sql/tlab_patient_branch_access_v3.sql', 'sql/tlab_home_visits_branch_access_v5.sql', 'sql/tlab_finance_branch_access_v6.sql', 'sql/tlab_doctor_branch_access_v7.sql', 'sql/tlab_all_49_store_branch_access_v8.sql', 'sql/tlab_store_mutation_audit_v9.sql', 'sql/tlab_mysql_only_missing_tables_v4.sql', 'scripts/import-browser-backup-to-mysql.ts', 'tlab-new-icon.ico')) {
             if (!(Test-Path (Join-Path $target $required))) { throw "Missing installed file: $required" }
           }
           $command = Get-Content (Join-Path $target 'launch-multibranch-pilot.cmd') -Raw

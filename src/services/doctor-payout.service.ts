@@ -1,3 +1,4 @@
+import { useMySQLStore } from '../repositories/mysql-all-stores.read';
 import { db } from '../db/database';
 import { accountingService } from './accounting.service';
 import type { DoctorCommission, JournalEntry } from '../types';
@@ -21,6 +22,17 @@ export async function payDoctorCommission(
 ): Promise<DoctorCommission> {
   assertDate(date);
   if (notes.length > 1000) throw new Error('NOTES_TOO_LONG');
+  if(useMySQLStore()){
+    const response=await fetch('/api/branch-pilot/finance/doctor-payout',{
+      method:'POST',credentials:'same-origin',cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({commissionId,date,notes,doctorNameAr,doctorNameEn}),
+    });
+    const data=await response.json() as {ok?:boolean;source?:string;commission?:DoctorCommission;error?:string};
+    if(!response.ok||data.ok!==true)throw new Error(data.error||'MYSQL_DOCTOR_PAYOUT_FAILED');
+    if(data.source!=='mysql'||!data.commission)throw new Error('MYSQL_DOCTOR_PAYOUT_RESPONSE_INVALID');
+    return data.commission;
+  }
   return db.transaction('rw', db.commissions, db.journalEntries, async () => {
     const existing = await db.commissions.get(commissionId);
     if (!existing || existing.remainingAmount <= 0 || existing.payoutJournalId) {

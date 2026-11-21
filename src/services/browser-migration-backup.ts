@@ -1,3 +1,4 @@
+import { useMySQLStore } from '../repositories/mysql-all-stores.read';
 import { db } from '../db/database';
 import { MYSQL_TABLES_CONFIG } from '../db/mysql-schema';
 
@@ -9,6 +10,7 @@ import { MYSQL_TABLES_CONFIG } from '../db/mysql-schema';
 export async function downloadUnmodifiedBrowserBackup(): Promise<{
   tableCount: number; rowCount: number; fileName: string;
 }> {
+  if(useMySQLStore())throw new Error('INDEXEDDB_BACKUP_MUST_BE_EXPORTED_FROM_ORIGINAL_BROWSER_PROFILE_BEFORE_CUTOVER');
   const tables = MYSQL_TABLES_CONFIG.map(t => t.dexieTable);
   if (tables.length !== 49 || new Set(tables).size !== 49) {
     throw new Error('BACKUP_STORE_MAPPING_INCOMPLETE');
@@ -65,6 +67,7 @@ export async function downloadUnmodifiedBrowserBackup(): Promise<{
  * password hashes or other record fields are transmitted to the local server.
  */
 export async function getBrowserMySQLPreflightManifest(): Promise<Record<string,string[]>> {
+  if(useMySQLStore())throw new Error('BROWSER_PREFLIGHT_REQUIRES_ORIGINAL_INDEXEDDB_PROFILE');
   const mappings = MYSQL_TABLES_CONFIG;
   if (mappings.length !== 49) throw new Error('INCOMPLETE_MYSQL_TABLE_MAPPING');
   const idsByStore: Record<string,string[]> = {};

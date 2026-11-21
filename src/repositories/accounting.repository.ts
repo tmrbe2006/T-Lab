@@ -1,4 +1,5 @@
 import { db } from '../db/database';
+import { financeMySQLRows, inMySQLFinancePilot, requireMySQLFinancialWrite } from './mysql-finance.read';
 import type { Account, CashboxSession, DailyClosing, Expense, JournalEntry } from '../types';
 
 export const EGYPTIAN_STANDARD_ACCOUNTS: Account[] = [
@@ -90,6 +91,7 @@ export const EGYPTIAN_STANDARD_ACCOUNTS: Account[] = [
 
 export class AccountingRepository {
   async ensureEgyptianChartOfAccounts(forceRestore = false): Promise<Account[]> {
+    if (inMySQLFinancePilot()) return (await financeMySQLRows<Account>('accounts')).sort((a,b)=>a.code.localeCompare(b.code));
     const existing = await db.chartOfAccounts.toArray();
     if (!forceRestore && existing.length >= 38) {
       return existing.sort((a, b) => a.code.localeCompare(b.code));
@@ -124,49 +126,71 @@ export class AccountingRepository {
   }
 
   async saveAccount(account: Account): Promise<string> {
+    requireMySQLFinancialWrite();
     return db.chartOfAccounts.put(account);
   }
 
   async deleteAccount(id: string): Promise<void> {
+    requireMySQLFinancialWrite();
     await db.chartOfAccounts.delete(id);
   }
 
   async getJournalEntries(): Promise<JournalEntry[]> {
-    const list = await db.journalEntries.toArray();
+    const list = inMySQLFinancePilot() ? await financeMySQLRows<JournalEntry>('journalEntries') : await db.journalEntries.toArray();
     return list.sort((a, b) => b.date.localeCompare(a.date));
   }
 
   async saveJournalEntry(entry: JournalEntry): Promise<string> {
+    requireMySQLFinancialWrite();
     return db.journalEntries.put(entry);
   }
 
   async deleteJournalEntry(id: string): Promise<void> {
+    requireMySQLFinancialWrite();
     await db.journalEntries.delete(id);
   }
 
   async getExpenses(): Promise<Expense[]> {
-    const list = await db.expenses.toArray();
+    const list = inMySQLFinancePilot() ? await financeMySQLRows<Expense>('expenses') : await db.expenses.toArray();
     return list.sort((a, b) => b.date.localeCompare(a.date));
   }
 
   async saveExpense(expense: Expense): Promise<string> {
+    requireMySQLFinancialWrite();
     return db.expenses.put(expense);
   }
 
   async deleteExpense(id: string): Promise<void> {
+    requireMySQLFinancialWrite();
     await db.expenses.delete(id);
   }
 
   async getCashboxSessions(): Promise<CashboxSession[]> {
-    return db.cashboxSessions.toArray();
+    return inMySQLFinancePilot() ? financeMySQLRows<CashboxSession>('cashbox') : db.cashboxSessions.toArray();
   }
 
   async getDailyClosings(): Promise<DailyClosing[]> {
-    const list = await db.dailyClosings.toArray();
+    const list = inMySQLFinancePilot() ? await financeMySQLRows<DailyClosing>('dailyClosings') : await db.dailyClosings.toArray();
     return list.sort((a, b) => b.date.localeCompare(a.date));
   }
 
   async saveDailyClosing(closing: DailyClosing): Promise<string> {
+    if(inMySQLFinancePilot()){
+      // Browser-calculated figures are NOT posted. The server derives totals
+      // directly from the current branch's MySQL invoices, receipts and expenses.
+      const response=await fetch('/api/branch-pilot/finance/daily-close',{
+        method:'POST',credentials:'same-origin',cache:'no-store',
+        headers:{'Content-Type':'application/json'},body:'{}',
+      });
+      const body=await response.json() as {
+        ok?:boolean;source?:string;closing?:DailyClosing;error?:string
+      };
+      if(!response.ok||body.ok!==true)throw new Error(body.error||'MYSQL_DAILY_CLOSE_FAILED');
+      if(body.source!=='mysql'||!body.closing?.id)
+        throw new Error('MYSQL_DAILY_CLOSE_INVALID_RESPONSE');
+      return body.closing.id;
+    }
+    requireMySQLFinancialWrite();
     return db.dailyClosings.put(closing);
   }
 

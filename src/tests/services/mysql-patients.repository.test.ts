@@ -17,22 +17,13 @@ const respond = (status:number, data:unknown) => ({
 afterEach(()=>vi.unstubAllGlobals());
 
 describe('live MySQL patients are never read from browser fallback in branch pilot',()=>{
-  it('recovers old browser patient records by default when MySQL is empty or migration is absent',async()=>{
-    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=> null}});
+  it('fails closed without a MySQL server and never writes a second browser copy',async()=>{
+    vi.stubGlobal('window',{location:{port:'3127'},localStorage:{getItem:()=>null}});
     const fetchMock=vi.fn().mockRejectedValue(new Error('SERVER_UNAVAILABLE'));
     vi.stubGlobal('fetch',fetchMock);
-    await db.patients.put(original);
-    try {
-      const list=await patientsRepository.getAll();
-      expect(list).toContainEqual(original);
-      expect(fetchMock).not.toHaveBeenCalled();
-      const updated={...original,name:'Preserved Browser Patient'};
-      await patientsRepository.save(updated);
-      expect((await db.patients.get(original.id))?.name).toBe('Preserved Browser Patient');
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      await db.patients.delete(original.id);
-    }
+    await expect(patientsRepository.getAll()).rejects.toThrow('SERVER_UNAVAILABLE');
+    expect(fetchMock).toHaveBeenCalled();
+    expect(()=>db.patients.put(original)).toThrow('MYSQL_ONLY_WRITE_REQUIRES_AUTHORIZED_ATOMIC_API');
   });
 
   it('loads authoritative server records for the verified branch',async()=>{

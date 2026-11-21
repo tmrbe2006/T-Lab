@@ -1,4 +1,5 @@
 import { db } from '../db/database';
+import { allMySQLStoreRows, useMySQLStore, refuseUnmigratedMySQLWrite } from './mysql-all-stores.read';
 import { buildGlobalCatalogRecords } from '../db/global-medical-tests';
 import type { LabRequest, LabResult, ParameterResultValue, RequestItem, Sample, TestParameter } from '../types';
 
@@ -79,19 +80,20 @@ function buildInitialResultValues(
 
 export class RequestsRepository {
   async getAllRequests(): Promise<LabRequest[]> {
-    const list = await db.requests.toArray();
+    const list = useMySQLStore() ? await allMySQLStoreRows<LabRequest>('requests') : await db.requests.toArray();
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async getRequestById(id: string): Promise<LabRequest | undefined> {
-    return db.requests.get(id);
+    return useMySQLStore() ? (await this.getAllRequests()).find(x=>x.id===id) : db.requests.get(id);
   }
 
   async getRequestItems(requestId: string): Promise<RequestItem[]> {
-    return db.requestItems.where('requestId').equals(requestId).toArray();
+    return useMySQLStore() ? (await allMySQLStoreRows<RequestItem>('requestItems')).filter(x=>x.requestId===requestId) : db.requestItems.where('requestId').equals(requestId).toArray();
   }
 
   async saveRequest(request: LabRequest, items: RequestItem[]): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.transaction('rw', [db.requests, db.requestItems], async () => {
       await db.requests.put(request);
       await db.requestItems.where('requestId').equals(request.id).delete();
@@ -108,6 +110,8 @@ export class RequestsRepository {
    * and heals any results that were created with missing units or 'Normal' placeholder ranges.
    */
   async ensureDraftResultsForAllRequests(): Promise<void> {
+    // Generating clinical results locally is forbidden in the MySQL pilot.
+    if(useMySQLStore())return;
     const [requests, allRequestItems, allSamples, existingResults, allTests, allParams, allPatients] = await Promise.all([
       db.requests.toArray(),
       db.requestItems.toArray(),
@@ -350,6 +354,7 @@ export class RequestsRepository {
   }
 
   async deleteRequest(id: string): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.transaction('rw', [db.requests, db.requestItems, db.samples, db.results], async () => {
       await db.requestItems.where('requestId').equals(id).delete();
       await db.samples.where('requestId').equals(id).delete();
@@ -359,10 +364,11 @@ export class RequestsRepository {
   }
 
   async getAllSamples(): Promise<Sample[]> {
-    return db.samples.toArray();
+    return useMySQLStore() ? allMySQLStoreRows<Sample>('samples') : db.samples.toArray();
   }
 
   async saveSample(sample: Sample): Promise<string> {
+    refuseUnmigratedMySQLWrite();
     const res = await db.samples.put(sample);
     if (sample.status === 'received') {
       await this.ensureDraftResultsForAllRequests();
@@ -371,12 +377,13 @@ export class RequestsRepository {
   }
 
   async deleteSample(id: string): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.samples.delete(id);
   }
 
   async getAllResults(): Promise<LabResult[]> {
     await this.ensureDraftResultsForAllRequests();
-    const list = await db.results.toArray();
+    const list = useMySQLStore() ? await allMySQLStoreRows<LabResult>('results') : await db.results.toArray();
     return list.sort((a, b) => {
       // Put newly created request results (res_req_...) and recent enteredAt first
       const aIsNew = a.id.startsWith('res_req_') ? 1 : 0;
@@ -387,6 +394,7 @@ export class RequestsRepository {
   }
 
   async saveResult(result: LabResult): Promise<string> {
+    refuseUnmigratedMySQLWrite();
     if (!result.enteredAt) {
       result.enteredAt = new Date().toISOString().replace('T', ' ').slice(0, 16);
     }
@@ -415,6 +423,7 @@ export class RequestsRepository {
   }
 
   async deleteResult(id: string): Promise<void> {
+    refuseUnmigratedMySQLWrite();
     await db.results.delete(id);
   }
 }

@@ -82,6 +82,12 @@ class AuthService {
   }
 
   async reloadPermissionsCache(): Promise<void> {
+    // Branch pilot permissions are authoritative ONLY from verified server session.
+    // Never seed browser users, roles or permissions in MySQL-only mode.
+    if (typeof window !== 'undefined' && window.location.port === '3127') {
+      this.permissionsCache.clear();
+      return;
+    }
     // Ensure the Developer role and default 'developer' user exist in previously seeded databases
     try {
       const devUser = await usersRepository.getByUsername('developer');

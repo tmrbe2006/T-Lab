@@ -1,4 +1,5 @@
 import { db } from '../db/database';
+import { useMySQLStore } from './mysql-all-stores.read';
 import { CacheService } from '../services/cache.service';
 import type { AuditLog, LabSettings, Role, RoleName, RolePermission } from '../types';
 
@@ -41,6 +42,24 @@ export class PermissionsRepository {
   }
 
   async addAuditLog(log: AuditLog): Promise<string> {
+    if (useMySQLStore()) {
+      const response = await fetch('/api/branch-pilot/audit-log', {
+        method:'POST', credentials:'same-origin', cache:'no-store',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:log.action, screen:log.screen,
+          recordId:log.recordId, details:log.details,
+        }),
+      });
+      const data = await response.json() as {
+        ok?:boolean; source?:string; id?:string; error?:string;
+      };
+      if (!response.ok || data.ok !== true)
+        throw new Error(data.error || 'MYSQL_AUDIT_UNAVAILABLE');
+      if (data.source !== 'mysql' || !data.id)
+        throw new Error('MYSQL_AUDIT_RESPONSE_INVALID');
+      return data.id;
+    }
     return db.auditLogs.put(log);
   }
 

@@ -1,3 +1,4 @@
+import { useMySQLStore } from '../repositories/mysql-all-stores.read';
 import { db } from '../db/database';
 import { accountingService } from './accounting.service';
 import { computeInvoiceAdjustment } from './invoice-adjustment.service';
@@ -13,6 +14,16 @@ export interface ManualInvoiceInput {
   contractId?:string;
 }
 export async function createManualInvoice(input:ManualInvoiceInput,actor:string):Promise<Invoice>{
+  if(useMySQLStore()){
+    const response=await fetch('/api/branch-pilot/finance/manual-invoice',{
+      method:'POST',credentials:'same-origin',cache:'no-store',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({input}),
+    });
+    const data=await response.json() as {ok?:boolean;source?:string;invoice?:Invoice;error?:string};
+    if(!response.ok||data.ok!==true)throw new Error(data.error||'MYSQL_INVOICE_FAILED');
+    if(data.source!=='mysql'||!data.invoice)throw new Error('MYSQL_INVOICE_RESPONSE_INVALID');
+    return data.invoice;
+  }
   if(!input.patientId || !input.serviceName.trim() || input.serviceName.length>200 ||
      !/^20\d\d-\d\d-\d\d$/.test(input.date) ||
      !Number.isFinite(input.price) || input.price<=0) throw new Error('INVALID_MANUAL_INVOICE_DETAILS');

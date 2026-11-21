@@ -141,6 +141,7 @@ class MySQLSyncService {
    * all 106 Global Medical Tests, and all 415+ Parameters are populated.
    */
   public async collectAllTablesData(): Promise<Record<string, Record<string, unknown>[]>> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     try {
       const { accountingRepository } = await import('../repositories/accounting.repository');
       const { ensureEnterpriseSeedData } = await import('./enterprise-lab.service');
@@ -365,6 +366,7 @@ class MySQLSyncService {
     tablesCreated?: number;
     error?: string;
   }> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     return this.fetchMySQLApi('/api/mysql/init-schema', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -379,6 +381,7 @@ class MySQLSyncService {
     version?: string;
     error?: string;
   }> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     try {
       const data = await this.collectAllTablesData();
       const res = await this.fetchMySQLApi<{
@@ -411,6 +414,7 @@ class MySQLSyncService {
     totalRowsPulled?: number;
     error?: string;
   }> {
+    if(typeof window!=='undefined'&&window.location.port==='3127')throw new Error('MYSQL_ONLY_PILOT_DISALLOWS_BROWSER_SYNC');
     try {
       const json = await this.fetchMySQLApi<{
         ok: boolean;
@@ -533,6 +537,7 @@ class MySQLSyncService {
    * in the app automatically syncs to the MySQL 5.5 / 8.0.28 server when autoSync is active.
    */
   public registerRealtimeHooks(): void {
+    if(typeof window!=='undefined'&&window.location.port==='3127')return;
     if (this.hooksRegistered) return;
     this.hooksRegistered = true;
 

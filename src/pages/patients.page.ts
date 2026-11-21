@@ -28,8 +28,9 @@ function calculateAgeFromBirthDate(birthDateStr: string): number | null {
 
 export async function renderPatientsPage(container: HTMLElement): Promise<void> {
   const user = authService.getCurrentUser();
-  const liveMySQL = window.location.port === '3127' &&
-    window.localStorage.getItem('tlab_patients_data_source') === 'mysql';
+  // The Windows branch pilot is always MySQL-authoritative. The obsolete
+  // localStorage switch only changed labels, not the actual repository source.
+  const liveMySQL = window.location.port === '3127';
   let allPatients: Patient[];
   try {
     allPatients = await patientsRepository.getAll();
@@ -58,9 +59,41 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
     container.append(alert);
     return;
   }
-  // The legacy local requests repository is not branch-scoped. Do not expose
-  // local patient history counts as if they came from the selected MySQL branch.
-  const allRequests = liveMySQL ? [] : await requestsRepository.getAllRequests();
+  // Both patients and requests must be fetched from the authenticated branch,
+  // never from a browser-local patient history.
+  let allRequests: Awaited<ReturnType<typeof requestsRepository.getAllRequests>>;
+  try {
+    allRequests = await requestsRepository.getAllRequests();
+  } catch (error) {
+    if (liveMySQL) {
+      container.textContent = i18n.bi('فشل تحميل طلبات المرضى من MySQL: ', 'MySQL patient requests unavailable: ') +
+        String(error instanceof Error ? error.message : error);
+      return;
+    }
+    throw error;
+  }
+  let mysqlBranchDiagnostic = '';
+  if (liveMySQL && allPatients.length === 0 && ['Developer','Owner'].includes(user?.role || '')) {
+    try {
+      const response=await fetch('/api/branch-pilot/branch-data-diagnostics',{
+        credentials:'same-origin',cache:'no-store',
+      });
+      const data=await response.json() as {
+        ok?:boolean;source?:string;
+        stores?:{patients?:{total:number;branch:number;unmapped:number}};
+      };
+      if(response.ok && data.ok && data.source==='mysql' && data.stores?.patients){
+        const {total,branch,unmapped}=data.stores.patients;
+        mysqlBranchDiagnostic=total===0
+          ? i18n.bi('جدول المرضى في MySQL فارغ بالفعل. استيراد السكريبت لا يستورد سجلات المتصفح القديمة.',
+              'The MySQL patients table is empty; schema installation does not import browser records.')
+          : branch===0
+            ? i18n.bi(`يوجد ${total} مريض في MySQL، لكن لا يوجد مرضى مرتبطون بالفرع الحالي. سجلات بدون ربط: ${unmapped}. لا يتم نقل بيانات الفروع تلقائيًا.`,
+                `${total} patients exist in MySQL but none are assigned to this branch. Unmapped: ${unmapped}. Branch data is never moved automatically.`)
+            : '';
+      }
+    }catch{/* show the existing zero-row state without inventing a diagnosis */}
+  }
   let searchQuery = '';
   let currentPage = 1;
   const itemsPerPage = 15;
@@ -135,7 +168,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
             </tr>
             <tr>
               <th>${i18n.bi('عدد الطلبات المسجلة', 'Total Lab Requests')}</th>
-              <td class="tabular-nums">${liveMySQL ? '—' : reqCount}</td>
+              <td class="tabular-nums">${reqCount}</td>
               <th>${i18n.dict.common.notes}</th>
               <td>${p.notes || '-'}</td>
             </tr>
@@ -347,7 +380,8 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
           </div>
         </div>
 
-        ${liveMySQL ? `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 font-semibold">${i18n.bi('مصدر البيانات: MySQL مباشر | المرضى المرتبطون بالفرع المختار فقط. أعداد الطلبات لن تُعرض من بيانات المتصفح.', 'Source: live MySQL | patients assigned to selected branch only. Browser request counts are not used.')}</div>` : window.location.port === '3127' ? `<div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 font-semibold">${i18n.bi('وضع الاستعادة: بيانات المرضى والطلبات محفوظة في المتصفح كما في النسخ السابقة، وليست بيانات MySQL أو معزولة بين الفروع. لا تحذف بيانات المتصفح. زر MySQL يختبر الخادم فقط.', 'Recovery mode: patients and requests come from existing browser storage, not MySQL or isolated per branch. Do not clear browser data. The MySQL button checks server connectivity only.')}</div>` : ''}
+        ${liveMySQL ? `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 font-semibold">${i18n.bi('مصدر البيانات: MySQL مباشر، المرضى والطلبات مرتبطون بالفرع المختار. إذا كان العدد صفرًا، افحص عدد السجلات وربطها بهذا الفرع.', 'Source: direct MySQL for branch-scoped patients and requests. If there are zero records, check their branch assignments.')}</div>` : window.location.port === '3127' ? `<div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 font-semibold">${i18n.bi('وضع الاستعادة: بيانات المرضى والطلبات محفوظة في المتصفح كما في النسخ السابقة، وليست بيانات MySQL أو معزولة بين الفروع. لا تحذف بيانات المتصفح. زر MySQL يختبر الخادم فقط.', 'Recovery mode: patients and requests come from existing browser storage, not MySQL or isolated per branch. Do not clear browser data. The MySQL button checks server connectivity only.')}</div>` : ''}
+        ${mysqlBranchDiagnostic ? `<div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 font-semibold">${mysqlBranchDiagnostic}</div>` : ''}
         <div class="flex flex-wrap items-center justify-between gap-3">
           <input
             id="pat-search-input"
@@ -396,7 +430,7 @@ export async function renderPatientsPage(container: HTMLElement): Promise<void> 
                       <td class="py-2.5 px-3 font-mono font-semibold ${p.hasDefaultDiscount ? 'text-emerald-700' : 'text-slate-400'} tabular-nums">${discText}</td>
                       <td class="py-2.5 px-3 font-mono tabular-nums">
                         <button type="button" data-hist-id="${p.id}" class="pat-hist-btn text-sky-700 hover:underline font-semibold cursor-pointer">
-${liveMySQL ? '—' : `${reqCount} ${i18n.bi('طلب', 'Reqs')}`}
+${reqCount} ${i18n.bi('طلب', 'Reqs')}
                         </button>
                       </td>
                       <td class="py-2.5 px-3">

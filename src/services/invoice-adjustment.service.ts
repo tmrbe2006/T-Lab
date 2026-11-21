@@ -32,11 +32,10 @@ function reversalOf(original:JournalEntry,actor:string):JournalEntry {
 }
 
 /** Atomic local pilot adjustment. Paid invoices must use a separate refund/credit-note workflow. */
-export async function adjustUnpaidInvoice(
+async function adjustUnpaidInvoiceInExistingTransaction(
   invoiceId:string, discountAmount:number, taxRate:number, actor:string,
   discountSpec?: {type:DiscountType;value:number},
 ):Promise<Invoice>{
-  return db.transaction('rw',[db.invoices,db.invoiceItems,db.requests,db.journalEntries,db.payments,db.corporateContracts],async()=>{
     const original=await db.invoices.get(invoiceId);
     if (!original || original.status === 'cancelled') throw new Error('INVOICE_NOT_FOUND_OR_CANCELLED');
     const payments=await db.payments.where('invoiceId').equals(invoiceId).toArray();
@@ -94,7 +93,16 @@ export async function adjustUnpaidInvoice(
     }
     await accountingService.recordInvoiceJournal(updated,actor);
     return updated;
-  });
+}
+
+export async function adjustUnpaidInvoice(
+  invoiceId:string, discountAmount:number, taxRate:number, actor:string,
+  discountSpec?: {type:DiscountType;value:number},
+):Promise<Invoice>{
+  return db.transaction('rw',
+    [db.invoices,db.invoiceItems,db.requests,db.journalEntries,db.payments,db.corporateContracts],
+    ()=>adjustUnpaidInvoiceInExistingTransaction(invoiceId,discountAmount,taxRate,actor,discountSpec)
+  );
 }
 
 /**
@@ -132,7 +140,7 @@ export async function synchronizeUnpaidRequestInvoice(
     await db.invoices.put(invoice);
     await db.invoiceItems.where('invoiceId').equals(invoice.id).delete();
     await db.invoiceItems.bulkPut(invoiceItems);
-    return adjustUnpaidInvoice(invoice.id, request.discountAmount, request.taxRate, actor, {
+    return adjustUnpaidInvoiceInExistingTransaction(invoice.id, request.discountAmount, request.taxRate, actor, {
       type: request.discountType,
       value: request.discountValue,
     });
