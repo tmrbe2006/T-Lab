@@ -1,3 +1,5 @@
+import { scryptSync } from 'node:crypto';
+import { installMysqlCrudRoutes } from './mysql-crud-routes';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import mysql from 'mysql2/promise';
@@ -94,7 +96,15 @@ Promise<{ userId: string; role: BranchRole } | null> {
   let stored = '';
   try { stored = String(JSON.parse(String(row.raw_json || '{}')).passwordHash || ''); }
   catch { return null; }
-  if (!equalLegacyPassword(stored, password)) return null;
+  if (stored.startsWith('scrypt$')) {
+    const parts=stored.split('$');
+    if(parts.length!==3 || !/^[a-f0-9]{32}$/.test(parts[1]) ||
+       !/^[a-f0-9]{128}$/.test(parts[2]))return null;
+    try{
+      const candidate=scryptSync(password,parts[1],64);
+      if(!timingSafeEqual(candidate,Buffer.from(parts[2],'hex')))return null;
+    }catch{return null;}
+  }else if(!equalLegacyPassword(stored,password))return null;
   return { userId: String(row.id), role: row.role as BranchRole };
 }
 
@@ -307,6 +317,8 @@ export function installBranchPilotRoutes(app: Express): void {
     }
     next();
   });
+
+  installMysqlCrudRoutes(app,dbConnection);
 
   // On refresh, ensure the selected branch is still assigned and active.
   app.get('/api/branch-pilot/staff-session', async (_req, res) => {
