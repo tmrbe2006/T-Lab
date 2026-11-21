@@ -5,6 +5,7 @@ on:
       - 'server/branch-pilot-api.ts'
       - 'server/mysql-crud-routes.ts'
       - 'sql/tlab_main_mysql_repair_v10.sql'
+      - 'sql/tlab_all_49_store_branch_access_v8.sql'
       - 'src/repositories/mysql-crud.adapter.ts'
       - 'server/branch-service.ts'
       - 'server/branch-access.ts'
