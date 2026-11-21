@@ -209,10 +209,13 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
       const session=principal(res);
       db=await connect();
       await authorize(db,session,store,'view');
+      const global=['settings','roles','permissions'].includes(store);
       const [rows]=await db.execute<mysql.RowDataPacket[]>(
-        'SELECT t.* FROM `'+mapping.mysqlTable+'` t INNER JOIN mysql_store_branch_access m '+
-        'ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? ORDER BY t.id',
-        [store,session.branchId!]);
+        global
+          ? 'SELECT t.* FROM `'+mapping.mysqlTable+'` t ORDER BY t.id'
+          : 'SELECT t.* FROM `'+mapping.mysqlTable+'` t INNER JOIN mysql_store_branch_access m '+
+            'ON m.store_name=? AND m.record_id=t.id AND m.branch_id=? ORDER BY t.id',
+        global?[]:[store,session.branchId!]);
       res.json({ok:true,source:'mysql',store,records:rows.map(row=>({
         ...obj(row.raw_json),id:String(row.id),
       })).filter(row=>row.archived!==true)});
@@ -250,7 +253,7 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
           const old=found[0] as mysql.RowDataPacket|undefined;
           if(m.operation==='add'&&old)throw new Error('CONFLICT');
           if(m.operation!=='add'&&!old)throw new Error('RECORD_NOT_IN_BRANCH');
-          if(old){
+          if(old && m.store!=='settings'){
             const [links]=await db.execute<mysql.RowDataPacket[]>(
               'SELECT branch_id FROM mysql_store_branch_access WHERE store_name=? AND record_id=?',
               [m.store,m.id]);
@@ -258,6 +261,8 @@ export function installUnifiedMySQLRoutes(app:Express,connect:()=>Promise<mysql.
               throw new Error('RECORD_NOT_IN_BRANCH');
             if(links.length>1)throw new Error('SHARED_RECORD_REQUIRES_DEDICATED_API');
           }
+          if(m.store==='settings' && m.operation==='delete')
+            throw new Error('SETTINGS_DELETE_FORBIDDEN');
           const prior=old?obj(old.raw_json):null;
           validateDomain(m,prior);
           await checkReferences(db,session.branchId!,m);
