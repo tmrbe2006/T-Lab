@@ -937,21 +937,25 @@ export function installBranchPilotRoutes(app: Express): void {
     if(!rows.length)throw new Error('PATIENT_NOT_IN_BRANCH');
   }
   app.get('/api/branch-pilot/home-visits/staff',async(req,res)=>{
-    try {
+    try{
       const staff=await withHomeVisitDb(req,'view',async(db,session)=>{
+        // Employees are personnel records, not necessarily application users.
+        // Return only employees explicitly associated with the current branch.
         const [rows]=await db.execute<mysql.RowDataPacket[]>(
-          'SELECT u.id,u.full_name_ar,u.raw_json FROM users u INNER JOIN user_branches ub ON ub.user_id=u.id WHERE ub.branch_id=? AND u.active=1 AND u.role IN (\'Technician\',\'Chemist\') ORDER BY u.full_name_ar',
+          "SELECT e.id,e.name_ar,e.role,e.raw_json FROM employees e INNER JOIN mysql_store_branch_access m ON m.store_name='employees' AND m.record_id=e.id AND m.branch_id=? WHERE e.active=1 ORDER BY e.name_ar",
           [session.branchId!]);
         return rows.map(row=>{
           let raw:Record<string,unknown>={};
-          try{const parsed=JSON.parse(String(row.raw_json||'{}'));if(parsed && typeof parsed==='object' && !Array.isArray(parsed))raw=parsed;}
-          catch{/* no local fallback */}
-          return {id:String(row.id),nameAr:String(row.full_name_ar||raw.fullNameAr||''),
+          try{
+            const parsed:unknown=JSON.parse(String(row.raw_json||'{}'));
+            if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))raw=parsed as Record<string,unknown>;
+          }catch{/* use relational fields */}
+          return {id:String(row.id),nameAr:String(row.name_ar||raw.nameAr||''),
             phone:String(raw.phone||'')};
         });
       });
       res.json({ok:true,source:'mysql',staff});
-    }catch(e){homeVisitError(res,e);}
+    }catch(error){homeVisitError(res,error);}
   });
   app.get('/api/branch-pilot/home-visits',async(req,res)=>{
     try{
