@@ -813,7 +813,7 @@ export function installBranchPilotRoutes(app: Express): void {
     console.error('MySQL home visit failure:',msg);
     res.status(503).json({ok:false,error:'MYSQL_HOME_VISITS_UNAVAILABLE'});
   }
-  function homeVisitValue(input:unknown):Record<string,unknown> {
+  function homeVisitValue(input:unknown) {
     if(!input || typeof input!=='object' || Array.isArray(input)) throw new TypeError('INVALID_HOME_VISIT');
     const obj=input as Record<string,unknown>;
     const str=(key:string,max:number)=>{
