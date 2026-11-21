@@ -1606,6 +1606,9 @@ export async function getLockedQcLotsForTest(testId: string): Promise<QcControlL
 let enterpriseSeedPromise: Promise<void> | null = null;
 
 export async function ensureEnterpriseSeedData(): Promise<void> {
+  // No seeding of clinical, insurance, QC or inventory defaults into browser
+  // storage when the authenticated MySQL branch is authoritative.
+  if(typeof window!=='undefined' && window.location.port==='3127')return;
   if (enterpriseSeedPromise) return enterpriseSeedPromise;
   enterpriseSeedPromise = (async () => {
     // 1. Corporate Contracts
